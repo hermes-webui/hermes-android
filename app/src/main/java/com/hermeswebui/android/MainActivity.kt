@@ -47,6 +47,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,9 +57,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModelProvider
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.UrlPolicy
 import com.hermeswebui.android.data.SettingsRepository
@@ -70,6 +74,21 @@ import com.hermeswebui.android.ui.MainSurface
 import com.hermeswebui.android.ui.settings.SettingsBottomSheet
 import com.hermeswebui.android.ui.web.WebShell
 import kotlinx.coroutines.launch
+
+private val HermesColorScheme = darkColorScheme(
+    primary = Color(0xFFFFD700),
+    onPrimary = Color(0xFF16110A),
+    secondary = Color(0xFF4DD0E1),
+    onSecondary = Color(0xFF061417),
+    background = Color(0xFF0D0D1A),
+    onBackground = Color(0xFFFFF8DC),
+    surface = Color(0xFF141425),
+    onSurface = Color(0xFFFFF8DC),
+    surfaceVariant = Color(0xFF1A1A2E),
+    onSurfaceVariant = Color(0xFFE6E0C8),
+    error = Color(0xFFEF5350),
+    onError = Color(0xFF1F0505)
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
@@ -158,7 +177,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        MaterialTheme {
+        MaterialTheme(colorScheme = HermesColorScheme) {
             ModalNavigationDrawer(
                 drawerState = drawerState,
                 drawerContent = {
@@ -285,6 +304,7 @@ class MainActivity : ComponentActivity() {
             settings.mediaPlaybackRequiresUserGesture = true
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.userAgentString = settings.userAgentString + " Hermes-Android/0.1"
+            disableWebViewDarkening(settings)
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
@@ -352,6 +372,15 @@ class MainActivity : ComponentActivity() {
             }
 
             setDownloadListener(buildDownloadListener(this@MainActivity))
+        }
+    }
+
+    private fun disableWebViewDarkening(settings: WebSettings) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, false)
+        } else if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+            @Suppress("DEPRECATION")
+            WebSettingsCompat.setForceDark(settings, WebSettingsCompat.FORCE_DARK_OFF)
         }
     }
 

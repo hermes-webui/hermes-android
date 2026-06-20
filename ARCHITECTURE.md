@@ -20,7 +20,7 @@
 1. App starts, loads encrypted WebUI settings and the stored/default dashboard origin URL (`SettingsRepository`).
 2. WebView boots with hardened configuration.
 3. The Compose root fills the full window background, then applies `WindowInsets.safeDrawing` around the WebView shell and native snackbar so Android 15 edge-to-edge enforcement does not put content under status or navigation bars.
-4. Android WebView compatibility shims stay scoped to Hermes WebUI. The official dashboard is not rendered in an app WebView.
+4. Android WebView compatibility shims stay scoped to Hermes WebUI. Android injects a document-start microphone fallback flag for the configured Hermes WebUI origin so WebUI voice input uses its MediaRecorder path instead of Android WebView's unreliable Web Speech API path. The official dashboard is not rendered in an app WebView.
 5. On the Hermes WebUI route, Android seeds the WebUI `/api/dashboard/config` origin URL when WebUI has no dashboard URL and Android has one stored/defaulted. Dashboard URLs are normalized to their origin before Android stores or matches them. WebUI then owns rendering and behavior for the Official Hermes Dashboard link in its rail/sidebar.
 6. Official Hermes Dashboard links are treated as secondary browser surfaces. Android handles WebView new-window requests and dashboard-origin navigations by launching a Chrome Custom Tab with title/share UI minimized, instead of replacing the primary Hermes WebUI WebView or opening the full default browser UI.
 7. Dashboard-origin pages are not saved as the app startup URL. If a dashboard URL is ever the last observed WebView URL, the next launch falls back to the configured Hermes WebUI URL.
@@ -38,7 +38,7 @@
 - In-app navigation remains inside trust boundary only.
 - Everything else is blocked or externalized.
 - The official dashboard is browser-rendered through Custom Tabs so Chrome handles dashboard compatibility, cookies, TLS, and same-origin navigation.
-- Microphone access requires Android `RECORD_AUDIO` and an allowlisted WebView origin; video/camera and unknown WebView resources are denied.
+- Microphone access requires Android `RECORD_AUDIO` and an allowlisted WebView origin; video/camera and unknown WebView resources are denied. Android also seeds WebUI's `mic_force_mediarecorder` localStorage flag at document start for the configured WebUI origin only, avoiding Web Speech API false-denied errors in Android WebView.
 - Cleartext disabled at network config level.
 - Sensitive app-side config is encrypted with Android Keystore-backed keys.
 

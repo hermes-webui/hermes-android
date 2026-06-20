@@ -13,11 +13,11 @@
 |---|---|
 | Secure WebView shell | Done - HTTPS-only navigation, host allowlist, hardened defaults |
 | WebUI integration | Done - first-run WebUI URL setting, dashboard config seeding, session persistence, pull-to-refresh |
-| WebView compatibility | Done - disables forced darkening, patches Android viewport-unit collapse, and respects system-bar safe insets |
+| WebView compatibility | Done - disables forced darkening, patches Android viewport-unit collapse, respects system-bar safe insets, and forces WebUI microphone input onto the Android-compatible MediaRecorder path |
 | Official dashboard link | Done - Android seeds WebUI's Official Hermes Dashboard origin when WebUI has none, opens dashboard-origin requests in a Chrome Custom Tab with minimal browser UI, and avoids persisting dashboard pages as startup state |
 | Android sharing | Done - share-to-app intake for text and files |
 | Files | Done - WebView upload/download integration |
-| Microphone | Done - allowlisted WebView audio capture with Android runtime permission |
+| Microphone | Done - allowlisted WebView audio capture with Android runtime permission plus WebUI MediaRecorder fallback |
 | Local settings | Done - encrypted settings storage |
 | Native navigation | Done - WebUI-owned dashboard link integration and deep links |
 | Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
@@ -123,6 +123,7 @@ Recommended next order:
 | BUG-004 | 2026-06-20 | Navigation | Fixed dashboard redirect/blue-screen recovery by normalizing stored dashboard URLs to their origin, opening dashboard-origin new-window requests in Chrome Custom Tabs, and preventing dashboard pages from becoming app startup state |
 | BUILD-001 | 2026-06-20 | Tooling | Migrated AGP config to built-in Kotlin, removed legacy compatibility flags, and eliminated obsolete variant API plus dependency-constraints sync warnings |
 | PERM-001 | 2026-06-20 | Permissions | Added Android `RECORD_AUDIO` plus an allowlisted WebView audio-capture permission bridge so WebUI microphone input can prompt and grant correctly |
+| PERM-002 | 2026-06-20 | Permissions | Added a document-start WebUI microphone fallback flag for the configured Hermes origin so Android WebView skips the unreliable Web Speech API path and uses MediaRecorder/getUserMedia |
 
 ---
 

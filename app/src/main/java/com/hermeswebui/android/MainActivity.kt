@@ -57,7 +57,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModelProvider
+import androidx.webkit.ScriptHandler
 import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.UrlPolicy
@@ -128,6 +130,14 @@ private val HermesWebViewViewportFixScript = """
     })();
 """.trimIndent()
 
+private val HermesWebUiMicrophoneFallbackScript = """
+    (function() {
+      try {
+        window.localStorage.setItem('mic_force_mediarecorder', '1');
+      } catch (_) {}
+    })();
+""".trimIndent()
+
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: MainViewModel
@@ -137,6 +147,7 @@ class MainActivity : ComponentActivity() {
     private var allowedHosts: Set<String> = emptySet()
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingAudioPermissionRequest: PermissionRequest? = null
+    private var microphoneFallbackScriptHandler: ScriptHandler? = null
     private val serverUrlValidator = ServerUrlValidator()
 
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -173,6 +184,7 @@ class MainActivity : ComponentActivity() {
         val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         WebView.setWebContentsDebuggingEnabled(isDebuggable)
         webView = buildWebView()
+        installHermesWebUiDocumentStartFixes(webView, viewModel.uiState.value.settings.serverUrl)
 
         handleShareIntent(intent)
 
@@ -486,11 +498,39 @@ class MainActivity : ComponentActivity() {
         // Android WebView can report supported dynamic viewport units while computing them as 0px.
         // Hermes WebUI uses 100dvh for the root flex shell, so force the measured viewport height.
         view.evaluateJavascript(HermesWebViewViewportFixScript, null)
+        view.evaluateJavascript(HermesWebUiMicrophoneFallbackScript, null)
 
         val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
         if (dashboardUrl.isNotBlank()) {
             view.evaluateJavascript(buildHermesDashboardConfigScript(dashboardUrl), null)
         }
+    }
+
+    private fun installHermesWebUiDocumentStartFixes(view: WebView, serverUrl: String) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
+        val originRule = buildDocumentStartOriginRule(serverUrl) ?: return
+
+        microphoneFallbackScriptHandler?.remove()
+        microphoneFallbackScriptHandler = runCatching {
+            WebViewCompat.addDocumentStartJavaScript(
+                view,
+                HermesWebUiMicrophoneFallbackScript,
+                setOf(originRule)
+            )
+        }.getOrNull()
+    }
+
+    private fun buildDocumentStartOriginRule(serverUrl: String): String? {
+        val uri = runCatching { serverUrl.toUri() }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase()?.takeIf { it == "https" } ?: return null
+        val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val hostRule = if (host.contains(":") && !host.startsWith("[")) {
+            "[$host]"
+        } else {
+            host
+        }
+        val portRule = if (uri.port != -1) ":${uri.port}" else ""
+        return "$scheme://$hostRule$portRule"
     }
 
     private fun buildHermesDashboardConfigScript(dashboardUrl: String): String {
@@ -667,6 +707,7 @@ class MainActivity : ComponentActivity() {
         }
         viewModel.saveAppUrls(serverUrl, dashboardUrl)
         allowedHosts = viewModel.uiState.value.settings.allowedHosts
+        installHermesWebUiDocumentStartFixes(webView, serverUrl)
         webView.loadUrl(serverUrl)
     }
 

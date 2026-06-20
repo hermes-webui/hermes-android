@@ -52,6 +52,7 @@ Requirements:
 - Hardened WebView for Hermes WebUI
 - Android WebView compatibility fixes for Hermes WebUI viewport rendering
 - System-bar inset handling so WebView content and native controls avoid status and navigation bars
+- Android WebView microphone compatibility that forces WebUI voice input through its MediaRecorder path
 - WebUI-owned navigation with Android seeding the WebUI Official Hermes Dashboard origin when needed
 - Official Hermes Dashboard links open in a Chrome Custom Tab with minimal browser UI instead of the full default browser
 - Deep link support: `hermes://session/{id}` navigates to Hermes sessions
@@ -74,6 +75,7 @@ Requirements:
 - Host allowlist for in-app navigation
 - External browser handoff for non-allowlisted HTTPS links
 - WebView microphone grants are limited to allowlisted Hermes origins and audio capture only
+- Android seeds WebUI's MediaRecorder microphone fallback for the configured Hermes origin only
 - Cleartext traffic disabled
 - Hardened WebView defaults and SSL-error cancellation
 

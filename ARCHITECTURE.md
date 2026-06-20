@@ -19,11 +19,12 @@
 
 1. App starts, loads encrypted WebUI and Dashboard Terminal settings (`SettingsRepository`).
 2. WebView boots with hardened configuration.
-3. `UrlPolicy` enforces HTTPS + domain allowlist for every navigation.
-4. Native drawer actions switch the WebView between the configured WebUI and Terminal routes.
-5. `MainViewModel` drives active surface, loading/error/offline/share UI state.
-6. Share intents are parsed in `domain`, staged in ViewModel, then pushed into WebView flow.
-7. Settings updates rewrite encrypted preferences and reload trusted hosts.
+3. Android WebView compatibility shims disable forced darkening and patch Hermes WebUI root viewport height when `100dvh` collapses to `0px`.
+4. `UrlPolicy` enforces HTTPS + domain allowlist for every navigation.
+5. Native drawer actions switch the WebView between the configured WebUI and Terminal routes.
+6. `MainViewModel` drives active surface, loading/error/offline/share UI state.
+7. Share intents are parsed in `domain`, staged in ViewModel, then pushed into WebView flow.
+8. Settings updates rewrite encrypted preferences and reload trusted hosts.
 
 ## Security model
 

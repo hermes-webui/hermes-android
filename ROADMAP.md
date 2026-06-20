@@ -13,6 +13,7 @@
 |---|---|
 | Secure WebView shell | Done - HTTPS-only navigation, host allowlist, hardened defaults |
 | WebUI integration | Done - first-run URL settings, session persistence, pull-to-refresh |
+| WebView compatibility | Done - disables forced darkening and patches Android viewport-unit collapse |
 | Dashboard Terminal route | Done - native drawer destination for configured `/chat` URL |
 | Android sharing | Done - share-to-app intake for text and files |
 | Files | Done - WebView upload/download integration |
@@ -105,6 +106,7 @@ Recommended next order:
 | COMPAT-001 | 2026-06-20 | Android compatibility | Guarded share-intent parcelable parsing across pre- and post-Android 13 APIs |
 | A-014 | 2026-06-20 | Release | Finalized package ID and namespace as `com.hermeswebui.android` before first public release |
 | BUG-001 | 2026-06-20 | UI | Fixed unreadable text by applying an explicit native color scheme and disabling WebView algorithmic darkening |
+| BUG-002 | 2026-06-20 | WebView | Fixed Hermes WebUI text/content visibility by injecting a measured viewport-height shim when Android WebView computes `100dvh` as `0px` |
 
 ---
 

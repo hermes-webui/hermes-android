@@ -90,6 +90,49 @@ private val HermesColorScheme = darkColorScheme(
     onError = Color(0xFF1F0505)
 )
 
+private val HermesWebViewViewportFixScript = """
+    (function() {
+      var styleId = 'hermes-android-viewport-fix';
+      var applyViewportFix = function() {
+        var visualHeight = window.visualViewport && window.visualViewport.height;
+        var height = Math.max(
+          window.innerHeight || 0,
+          document.documentElement.clientHeight || 0,
+          visualHeight || 0
+        );
+        if (!height) return;
+
+        var px = Math.round(height) + 'px';
+        var style = document.getElementById(styleId);
+        if (!style) {
+          style = document.createElement('style');
+          style.id = styleId;
+          (document.head || document.documentElement).appendChild(style);
+        }
+        style.textContent = [
+          'html, body { height: ' + px + ' !important; min-height: ' + px + ' !important; }',
+          'body { overflow: hidden !important; }',
+          '.layout, .rail, .sidebar, .main, .rightpanel, #sessionList, .messages { min-height: 0 !important; }'
+        ].join('\n');
+      };
+
+      window.__hermesAndroidApplyViewportFix = applyViewportFix;
+      applyViewportFix();
+
+      if (!window.__hermesAndroidViewportFixInstalled) {
+        window.__hermesAndroidViewportFixInstalled = true;
+        window.addEventListener('resize', applyViewportFix, { passive: true });
+        window.addEventListener('orientationchange', function() {
+          window.setTimeout(applyViewportFix, 0);
+          window.setTimeout(applyViewportFix, 250);
+        }, { passive: true });
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', applyViewportFix, { passive: true });
+        }
+      }
+    })();
+""".trimIndent()
+
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: MainViewModel
@@ -347,8 +390,14 @@ class MainActivity : ComponentActivity() {
                     viewModel.onPageStarted(url)
                 }
 
+                override fun onPageCommitVisible(view: WebView?, url: String?) {
+                    super.onPageCommitVisible(view, url)
+                    applyHermesWebViewCompatibilityFixes(view)
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    applyHermesWebViewCompatibilityFixes(view)
                     viewModel.onPageFinished(url)
                     CookieManager.getInstance().flush()
                 }
@@ -382,6 +431,12 @@ class MainActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             WebSettingsCompat.setForceDark(settings, WebSettingsCompat.FORCE_DARK_OFF)
         }
+    }
+
+    private fun applyHermesWebViewCompatibilityFixes(view: WebView?) {
+        // Android WebView can report supported dynamic viewport units while computing them as 0px.
+        // Hermes WebUI uses 100dvh for the root flex shell, so force the measured viewport height.
+        view?.evaluateJavascript(HermesWebViewViewportFixScript, null)
     }
 
     private fun buildDownloadListener(context: Context): DownloadListener {

@@ -27,6 +27,11 @@ Useful entry points:
 - `ui/MainViewModel.kt` - app state orchestration
 - `ui/web/WebShell.kt` - Compose WebView host and refresh/error UX
 
+Known Android WebView compatibility behavior lives in `MainActivity.kt`:
+
+- Forced/algorithmic WebView darkening is disabled so Hermes WebUI keeps its own colors.
+- A measured viewport-height shim is injected because some Android WebView builds compute Hermes WebUI `100dvh` root layout height as `0px`, which hides page text/content.
+
 ## Scope
 
 This repository is the standalone Android app.
@@ -46,6 +51,7 @@ Hermes-Android should feel native while keeping Hermes WebUI as the source of
 product behavior. Native code should focus on:
 
 - secure WebView hosting
+- WebView compatibility for Hermes WebUI rendering on Android
 - Android navigation and lifecycle
 - share, file, download, and notification integration
 - encrypted local settings

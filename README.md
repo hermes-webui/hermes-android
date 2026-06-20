@@ -1,4 +1,4 @@
-# Hermes-Android
+# Hermes-Android 🤖📱
 
 Hermes-Android is the native Android companion for
 [Hermes Web UI](https://github.com/nesquena/hermes-webui). It keeps the
@@ -6,23 +6,25 @@ Hermes web app as the primary interface and adds the Android pieces that should
 live on-device: secure WebView hosting, native navigation, sharing, downloads,
 and encrypted local settings.
 
+> 🔒 HTTPS-only · 🌐 host allowlist · 📂 sharing + downloads · 🧊 encrypted settings
+
 The app is intentionally thin. Hermes behavior stays server-delivered through
 WebUI, while this repo owns Android integration and device safety.
 
 ---
 
-## Contents
+## 🧭 Contents
 
-- [Quick start](#quick-start)
-- [Features](#features)
-- [Configuration](#configuration)
-- [Running tests](#running-tests)
-- [Architecture](#architecture)
-- [Docs](#docs)
+- [⚡ Quick start](#quick-start)
+- [✨ Features](#features)
+- [⚙️ Configuration](#configuration)
+- [🧪 Running tests](#running-tests)
+- [🗺️ Architecture](#architecture)
+- [📚 Docs](#docs)
 
 ---
 
-## Quick start
+## ⚡ Quick start
 
 ```powershell
 git clone https://github.com/hermes-webui/hermes-android.git
@@ -32,43 +34,44 @@ cd hermes-android
 
 Open the repo root in Android Studio for emulator/device runs.
 
-Requirements:
+✅ Requirements:
 
-- Android Studio with Android SDK 35
-- JDK 17 or newer runtime compatible with Gradle
-- A reachable HTTPS Hermes WebUI URL
-
----
-
-## Features
-
-### Native shell
-
-- Kotlin + Jetpack Compose Android app
-- Hardened WebView for Hermes WebUI
-- Native drawer with WebUI and Dashboard Terminal destinations
-- First-run settings flow for WebUI and terminal URLs
-- Back handling, pull-to-refresh, loading, offline, and error states
-
-### Android integration
-
-- File upload and download support
-- Share-to-app intake for text and files
-- Cookie-backed WebView session persistence
-- Encrypted local settings storage
-- Native app identity, launcher icon, splash, and settings surface
-
-### Security
-
-- HTTPS-only URL validation
-- Host allowlist for in-app navigation
-- External browser handoff for non-allowlisted HTTPS links
-- Cleartext traffic disabled
-- Hardened WebView defaults and SSL-error cancellation
+- 🤖 Android Studio with Android SDK 35
+- ☕ JDK 17 or newer runtime compatible with Gradle
+- 🌍 A reachable HTTPS Hermes WebUI URL
 
 ---
 
-## Configuration
+## ✨ Features
+
+### 🧩 Native shell
+
+- 💜 Kotlin + Jetpack Compose Android app
+- 🛡️ Hardened WebView for Hermes WebUI
+- 🧱 Android WebView compatibility fixes for Hermes WebUI viewport rendering
+- 🧭 Native drawer with WebUI and Dashboard Terminal destinations
+- 🌱 First-run settings flow for WebUI and terminal URLs
+- ↩️ Back handling, pull-to-refresh, loading, offline, and error states
+
+### 🔌 Android integration
+
+- 📤 File upload and download support
+- 📲 Share-to-app intake for text and files
+- 🍪 Cookie-backed WebView session persistence
+- 🔐 Encrypted local settings storage
+- 🎨 Native app identity, launcher icon, splash, and settings surface
+
+### 🛡️ Security
+
+- 🔒 HTTPS-only URL validation
+- 🌍 Host allowlist for in-app navigation
+- 🚪 External browser handoff for non-allowlisted HTTPS links
+- 🚫 Cleartext traffic disabled
+- 🧯 Hardened WebView defaults and SSL-error cancellation
+
+---
+
+## ⚙️ Configuration
 
 Default endpoints live in:
 
@@ -91,7 +94,7 @@ before adding signing config, and keep secrets out of the repository.
 
 ---
 
-## Running tests
+## 🧪 Running tests
 
 ```powershell
 .\gradlew.bat test --no-daemon
@@ -107,23 +110,25 @@ Optional checks:
 
 ---
 
-## Architecture
+## 🗺️ Architecture
 
-| Layer | Files | Purpose |
-|---|---|---|
-| Platform boundary | `app/src/main/java/com/hermeswebui/android/MainActivity.kt` | WebView setup, intents, file chooser, downloads, navigation hooks |
-| Security | `app/src/main/java/com/hermeswebui/android/core/security/UrlPolicy.kt` | HTTPS and allowlist decisions |
-| Data | `app/src/main/java/com/hermeswebui/android/data/` | Encrypted app settings and staged share payloads |
-| Domain | `app/src/main/java/com/hermeswebui/android/domain/` | URL validation and Android share intent parsing |
-| UI | `app/src/main/java/com/hermeswebui/android/ui/` | Compose screens and ViewModel state |
-| Tests | `app/src/test/java/com/hermeswebui/android/` | Unit coverage for URL and validation logic |
+> 🎨 Color key: 🔵 platform boundary · 🟣 security · 🟢 data · 🟠 domain · 🟡 UI · 🔴 tests
+
+| Color | Area | Files | Purpose |
+|---|---|---|---|
+| 🔵 | Platform boundary | `app/src/main/java/com/hermeswebui/android/MainActivity.kt` | WebView setup, intents, file chooser, downloads, navigation hooks |
+| 🟣 | Security | `app/src/main/java/com/hermeswebui/android/core/security/UrlPolicy.kt` | HTTPS and allowlist decisions |
+| 🟢 | Data | `app/src/main/java/com/hermeswebui/android/data/` | Encrypted app settings and staged share payloads |
+| 🟠 | Domain | `app/src/main/java/com/hermeswebui/android/domain/` | URL validation and Android share intent parsing |
+| 🟡 | UI | `app/src/main/java/com/hermeswebui/android/ui/` | Compose screens and ViewModel state |
+| 🔴 | Tests | `app/src/test/java/com/hermeswebui/android/` | Unit coverage for URL and validation logic |
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design notes and extension
 points.
 
 ---
 
-## Docs
+## 📚 Docs
 
 - [ROADMAP.md](./ROADMAP.md) - status, wishlist, forward work, and progress
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - runtime flow and security model

@@ -1,184 +1,130 @@
 # Hermes-Android
 
-Production-minded Android shell app for Hermes WebUI, built with Kotlin + Jetpack Compose.
+Hermes-Android is the native Android companion for
+[Hermes Web UI](https://github.com/nesquena/hermes-webui). It keeps the
+Hermes web app as the primary interface and adds the Android pieces that should
+live on-device: secure WebView hosting, native navigation, sharing, downloads,
+and encrypted local settings.
 
-## What this delivers (MVP)
+The app is intentionally thin. Hermes behavior stays server-delivered through
+WebUI, while this repo owns Android integration and device safety.
 
-- Secure WebView shell that opens directly to your Hermes URL
-- First-launch URL prompt so each deployment can point to its own Hermes host
-- Native slide-out drawer for switching between Hermes WebUI and Dashboard Terminal
-- HTTPS-only transport + domain allowlist
-- In-app back handling with proper WebView history behavior
-- Pull-to-refresh + loading/error/offline states
+---
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Features](#features)
+- [Configuration](#configuration)
+- [Running tests](#running-tests)
+- [Architecture](#architecture)
+- [Docs](#docs)
+
+---
+
+## Quick start
+
+```powershell
+git clone https://github.com/hermes-webui/hermes-android.git
+cd hermes-android
+.\gradlew.bat assembleDebug --no-daemon
+```
+
+Open the repo root in Android Studio for emulator/device runs.
+
+Requirements:
+
+- Android Studio with Android SDK 35
+- JDK 17 or newer runtime compatible with Gradle
+- A reachable HTTPS Hermes WebUI URL
+
+---
+
+## Features
+
+### Native shell
+
+- Kotlin + Jetpack Compose Android app
+- Hardened WebView for Hermes WebUI
+- Native drawer with WebUI and Dashboard Terminal destinations
+- First-run settings flow for WebUI and terminal URLs
+- Back handling, pull-to-refresh, loading, offline, and error states
+
+### Android integration
+
 - File upload and download support
-- Android share-sheet support (text/files)
-- Session persistence via WebView cookies and encrypted app settings storage
-- Native app identity (icon, splash, settings surface)
+- Share-to-app intake for text and files
+- Cookie-backed WebView session persistence
+- Encrypted local settings storage
+- Native app identity, launcher icon, splash, and settings surface
 
-## Recommended SDK policy
+### Security
 
-- `minSdk = 26` (Android 8.0): good security baseline and modern WebView behavior
-- `targetSdk = 35`: aligns with current Play requirements and platform hardening
+- HTTPS-only URL validation
+- Host allowlist for in-app navigation
+- External browser handoff for non-allowlisted HTTPS links
+- Cleartext traffic disabled
+- Hardened WebView defaults and SSL-error cancellation
 
-## Project structure
+---
 
-- `app/src/main/java/com/hermes/wrapper/MainActivity.kt`: app entrypoint, native drawer, WebView security config, navigation policy, file chooser/download integration, share intent handling
-- `app/src/main/java/com/hermes/wrapper/core/security/UrlPolicy.kt`: URL/domain/HTTPS enforcement logic
-- `app/src/main/java/com/hermes/wrapper/data/SettingsRepository.kt`: encrypted storage for WebUI URL, Dashboard Terminal URL, and local app settings
-- `app/src/main/java/com/hermes/wrapper/domain/ShareIntentParser.kt`: share-sheet payload parser (`ACTION_SEND`, `ACTION_SEND_MULTIPLE`)
-- `app/src/main/java/com/hermes/wrapper/domain/ServerUrlValidator.kt`: safe URL validation for settings input
-- `app/src/main/java/com/hermes/wrapper/ui/MainViewModel.kt`: app state orchestration
-- `app/src/main/java/com/hermes/wrapper/ui/web/WebShell.kt`: Compose WebView host + refresh/loading/error UX
-- `app/src/main/java/com/hermes/wrapper/ui/settings/SettingsBottomSheet.kt`: native settings panel
-- `app/src/main/AndroidManifest.xml`: app identity, permissions, share intent filters, deep-link placeholder
-- `app/src/main/res/xml/network_security_config.xml`: cleartext disabled globally
-- `app/src/test/java/com/hermes/wrapper/UrlPolicyTest.kt`: navigation policy tests
-- `app/src/test/java/com/hermes/wrapper/ServerUrlValidatorTest.kt`: server URL validation tests
+## Configuration
 
-## Security controls implemented
+Default endpoints live in:
 
-- Enforces HTTPS-only navigation in-app
-- Restricts in-WebView browsing to allowlisted host(s)
-- Blocks non-web and malformed URLs
-- Opens non-allowlisted HTTPS links in external browser (never silently inside app)
-- Cancels SSL-error pages
-- Hardens WebView defaults:
-  - `allowFileAccess = false`
-  - `allowContentAccess = false`
-  - `allowUniversalAccessFromFileURLs = false`
-  - `mixedContentMode = NEVER_ALLOW`
-  - third-party cookies disabled
-- Encrypted app preference storage via Android Keystore-backed `EncryptedSharedPreferences`
+- `app/src/main/res/values/strings.xml`
 
-## How this tracks Hermes updates
+Important values:
 
-- The app is intentionally a thin wrapper around the existing Hermes WebUI.
-- Most product behavior, UX, and feature updates come from the server-delivered web app.
-- The Android layer only owns platform concerns (navigation policy, intents, file integration, secure local settings).
-- Result: normal Hermes frontend updates do not require an Android app release unless a native integration surface changes.
+- `default_server_url` - default Hermes WebUI URL
+- `default_dashboard_terminal_url` - default Dashboard Terminal route
+- `app_name` - Android launcher label
 
-## First-run URL behavior
+Android identity lives in:
 
-- On first launch, the app opens native settings and asks for your Hermes WebUI URL.
-- The app can also store an optional Hermes Dashboard Terminal URL, such as `https://host:8455/chat`.
-- This mirrors how Hermes deployment works: onboarding in WebUI configures provider/workspace/password, while the server URL depends on where you host Hermes.
-- Saved URLs drive the allowlist policy automatically.
-- WebUI and Dashboard Terminal URLs must use `https://`.
+- `app/build.gradle.kts` - `namespace` and `applicationId`
+- `settings.gradle.kts` - Gradle project name
+- `app/src/main/AndroidManifest.xml` - launcher, permissions, intent filters
 
-## Important configuration before production
+Release signing is not wired yet. Track that work in [ROADMAP.md](./ROADMAP.md)
+before adding signing config, and keep secrets out of the repository.
 
-1. Set your real Hermes URL default:
-   - Update `default_server_url` in `app/src/main/res/values/strings.xml`
-2. Set your real Dashboard Terminal URL default:
-   - Update `default_dashboard_terminal_url` in `app/src/main/res/values/strings.xml`
-3. Set your real deep-link host:
-   - Update `android:host` in `app/src/main/AndroidManifest.xml`
-4. Rename package/application IDs if needed:
-   - `namespace` and `applicationId` in `app/build.gradle.kts`
+---
 
-## Build and run
-
-### Prerequisites
-
-- Android Studio (latest stable) with Android SDK 35
-- JDK 17
-
-### Step 1: Generate Gradle wrapper (once)
-
-This scaffold intentionally does not include wrapper binaries.
-
-Option A (recommended): open `android-wrapper/` in Android Studio and run the Gradle sync, then run:
+## Running tests
 
 ```powershell
-gradle wrapper --gradle-version 8.7
+.\gradlew.bat test --no-daemon
+.\gradlew.bat assembleDebug --no-daemon
 ```
 
-Option B: if local `gradle` is not installed, install Gradle or use Android Studio's embedded Gradle to generate wrapper files.
-
-### Step 2: Build debug APK
+Optional checks:
 
 ```powershell
-cd android-wrapper
-./gradlew.bat assembleDebug
+.\gradlew.bat lint --no-daemon
+.\gradlew.bat connectedDebugAndroidTest --no-daemon
 ```
 
-### Step 3: Run unit tests
+---
 
-```powershell
-cd android-wrapper
-./gradlew.bat test
-```
+## Architecture
 
-## Release signing steps
+| Layer | Files | Purpose |
+|---|---|---|
+| Platform boundary | `app/src/main/java/com/hermes/wrapper/MainActivity.kt` | WebView setup, intents, file chooser, downloads, navigation hooks |
+| Security | `app/src/main/java/com/hermes/wrapper/core/security/UrlPolicy.kt` | HTTPS and allowlist decisions |
+| Data | `app/src/main/java/com/hermes/wrapper/data/` | Encrypted app settings and staged share payloads |
+| Domain | `app/src/main/java/com/hermes/wrapper/domain/` | URL validation and Android share intent parsing |
+| UI | `app/src/main/java/com/hermes/wrapper/ui/` | Compose screens and ViewModel state |
+| Tests | `app/src/test/java/com/hermes/wrapper/` | Unit coverage for URL and validation logic |
 
-1. Create upload keystore:
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design notes and extension
+points.
 
-```powershell
-keytool -genkeypair -v -keystore hermes-upload.jks -alias hermes-upload -keyalg RSA -keysize 2048 -validity 10000
-```
+---
 
-2. Add signing properties to `~/.gradle/gradle.properties` (do not commit):
+## Docs
 
-```properties
-HERMES_UPLOAD_STORE_FILE=C:/secure/hermes-upload.jks
-HERMES_UPLOAD_STORE_PASSWORD=...
-HERMES_UPLOAD_KEY_ALIAS=hermes-upload
-HERMES_UPLOAD_KEY_PASSWORD=...
-```
-
-3. Add a `signingConfigs` block in `app/build.gradle.kts` and wire it to `release`.
-
-4. Build release artifacts:
-
-```powershell
-cd android-wrapper
-./gradlew.bat bundleRelease
-./gradlew.bat assembleRelease
-```
-
-5. Verify app bundle locally, then upload AAB to Play Console.
-
-## Incremental implementation status
-
-- [x] Secure WebView shell + navigation policy
-- [x] Pull-to-refresh + loading/error/offline UI
-- [x] Upload/download support
-- [x] Share-to-app ingestion (text/files)
-- [x] Session persistence and secure app settings storage
-- [x] Native identity shell (icon/splash/settings)
-- [x] Native drawer switching between WebUI and Dashboard Terminal
-- [x] Basic tests for key security logic
-
-## Phase-2 TODOs
-
-- Push notifications for important run/session events
-- Fully wired deep links to session routes
-- Optional biometric app lock before revealing WebView
-- Expanded native settings (server profiles, theme, notifications)
-- Better attachment and camera capture UX
-
-## Decision points with options
-
-### 1. How strict should external navigation be?
-
-Option A: block everything except allowlist (highest security, can break auth/provider redirects).
-Option B: open non-allowlisted HTTPS links externally (recommended).
-Option C: allow a secondary allowlist for known provider domains.
-
-Recommendation: Option B now; add Option C as a controlled enterprise setting if needed.
-
-### 2. Session/auth persistence strategy
-
-Option A: default WebView cookie persistence only (simple, robust).
-Option B: custom token bridge from JS/native (more control, larger attack surface).
-Option C: AccountManager/OAuth native stack (best if moving away from pure WebView auth).
-
-Recommendation: Option A for MVP with strict host policy and no JS bridge for auth secrets.
-
-### 3. Native feature growth path
-
-Option A: keep app as secure shell with selective native additions (recommended MVP+).
-Option B: migrate more workflows to native screens over time.
-Option C: replace WebView entirely with full native client.
-
-Recommendation: Option A in near term to preserve Hermes parity and reduce maintenance risk.
+- [ROADMAP.md](./ROADMAP.md) - status, wishlist, forward work, and progress
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - runtime flow and security model
+- [AGENTS.md](./AGENTS.md) - instructions for AI assistants working in this repo

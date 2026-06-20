@@ -1,4 +1,4 @@
-# Android Wrapper Architecture
+# Hermes-Android Architecture
 
 ## Goals
 

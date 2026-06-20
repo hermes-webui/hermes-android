@@ -117,6 +117,13 @@ Android identity lives in:
 Release signing is not wired yet. Track that work in [ROADMAP.md](./ROADMAP.md)
 before adding signing config, and keep secrets out of the repository.
 
+Google Play listing assets:
+
+- `play-store/icon-512.png` - 512x512 high-res app icon for Play Console store listing (opaque PNG)
+- `play-store/icon-512.svg` - editable vector source used for Play listing export
+- `tools/generate_play_store_icon.py` - regenerates both files from the launcher vector geometry
+- `tools/requirements-play-icon.txt` - Python dependency list for icon generation script
+
 ---
 
 <a id="running-tests"></a>

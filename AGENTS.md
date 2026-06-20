@@ -20,6 +20,7 @@ For implementation work, also inspect the relevant source files under
 Useful entry points:
 
 - `MainActivity.kt` - Android platform boundary, WebView, intents, downloads
+- `DashboardActivity.kt` - in-app Official Hermes Dashboard host
 - `core/security/UrlPolicy.kt` - URL and navigation decisions
 - `data/SettingsRepository.kt` - encrypted settings persistence
 - `domain/ServerUrlValidator.kt` - server URL validation rules
@@ -29,8 +30,12 @@ Useful entry points:
 
 Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 
+- The Compose root applies `WindowInsets.safeDrawing` so the WebView shell and native snackbar do not overlap the Android status or navigation bars.
 - Forced/algorithmic WebView darkening is disabled so Hermes WebUI keeps its own colors.
 - A measured viewport-height shim is injected because some Android WebView builds compute Hermes WebUI `100dvh` root layout height as `0px`, which hides page text/content.
+- Android normalizes the Official Hermes Dashboard URL to its origin, seeds it through WebUI `/api/dashboard/config` when WebUI has no dashboard URL, opens dashboard-origin new-window requests in `DashboardActivity`, and does not persist dashboard-origin pages as the app startup URL.
+- Do not reintroduce a parallel native drawer or custom Android Terminal/menu button for the dashboard link.
+- Hermes WebUI DOM/CSS compatibility shims must stay scoped to the configured WebUI route. `DashboardActivity` may apply dashboard-specific viewport fixes, but do not inject the Hermes WebUI viewport/config shim into the official dashboard origin because that can break dashboard layout and font rendering.
 
 ## Scope
 

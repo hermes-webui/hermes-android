@@ -12,6 +12,7 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.os.Message
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.SslErrorHandler
@@ -30,42 +31,24 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.DrawerValue
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModelProvider
 import androidx.webkit.WebSettingsCompat
@@ -77,10 +60,9 @@ import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.domain.ShareIntentParser
 import com.hermeswebui.android.ui.MainViewModel
 import com.hermeswebui.android.ui.MainViewModelFactory
-import com.hermeswebui.android.ui.MainSurface
 import com.hermeswebui.android.ui.settings.SettingsBottomSheet
 import com.hermeswebui.android.ui.web.WebShell
-import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 private val HermesColorScheme = darkColorScheme(
     primary = Color(0xFFFFD700),
@@ -140,33 +122,6 @@ private val HermesWebViewViewportFixScript = """
     })();
 """.trimIndent()
 
-private val HermesHideMenuButtonScript = """
-    (function() {
-      var tryHideMenuButton = function() {
-        var selectors = [
-          'button[aria-label*="menu" i]',
-          'button[aria-label*="toggle" i]',
-          '[data-testid="sidebar-toggle"]',
-          '.sidebar-toggle',
-          '.menu-button'
-        ];
-        for (var i = 0; i < selectors.length; i++) {
-          var btn = document.querySelector(selectors[i]);
-          if (btn && btn.offsetParent !== null) {
-            btn.style.display = 'none';
-            return;
-          }
-        }
-      };
-      tryHideMenuButton();
-      if (!window.__hermesAndroidMenuButtonHiddenInstalled) {
-        window.__hermesAndroidMenuButtonHiddenInstalled = true;
-        var observer = new MutationObserver(function() { tryHideMenuButton(); });
-        observer.observe(document.body, { childList: true, subtree: true });
-      }
-    })();
-""".trimIndent()
-
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: MainViewModel
@@ -187,11 +142,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val defaultUrl = getString(R.string.default_server_url)
-        val defaultDashboardTerminalUrl = getString(R.string.default_dashboard_terminal_url)
+        val defaultDashboardUrl = getString(R.string.default_dashboard_url)
         settingsRepository = SettingsRepository(applicationContext)
         viewModel = ViewModelProvider(
             this,
-            MainViewModelFactory(settingsRepository, defaultUrl, defaultDashboardTerminalUrl)
+            MainViewModelFactory(settingsRepository, defaultUrl, defaultDashboardUrl)
         )[MainViewModel::class.java]
         allowedHosts = viewModel.uiState.value.settings.allowedHosts
 
@@ -205,9 +160,8 @@ class MainActivity : ComponentActivity() {
             AppContent(
                 onReload = { webView.reload() },
                 onOpenExternal = { openInExternalBrowser(viewModel.uiState.value.currentUrl) },
-                onSaveSettings = { serverUrl, terminalUrl -> saveSettings(serverUrl, terminalUrl) },
+                onSaveSettings = { serverUrl -> saveSettings(serverUrl) },
                 onResetSession = { resetWebSession() },
-                onSelectSurface = { surface -> selectSurface(surface) },
                 onRequestExit = { finish() }
             )
         }
@@ -216,7 +170,12 @@ class MainActivity : ComponentActivity() {
         if (!settings.isConfigured) {
             viewModel.openSettings()
         } else {
-            val startUrl = settingsRepository.getLastLoadedUrl() ?: settings.serverUrl
+            val lastLoadedUrl = settingsRepository.getLastLoadedUrl()
+            val startUrl = if (matchesConfiguredDashboardRoute(lastLoadedUrl)) {
+                settings.serverUrl
+            } else {
+                lastLoadedUrl ?: settings.serverUrl
+            }
             webView.loadUrl(startUrl)
         }
     }
@@ -258,15 +217,12 @@ class MainActivity : ComponentActivity() {
     private fun AppContent(
         onReload: () -> Unit,
         onOpenExternal: () -> Unit,
-        onSaveSettings: (String, String) -> Unit,
+        onSaveSettings: (String) -> Unit,
         onResetSession: () -> Unit,
-        onSelectSurface: (MainSurface) -> Unit,
         onRequestExit: () -> Unit
     ) {
         val uiState by viewModel.uiState.collectAsState()
         val snackbarHostState = remember { SnackbarHostState() }
-        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-        val scope = rememberCoroutineScope()
 
         LaunchedEffect(uiState.pendingShareBanner) {
             val banner = uiState.pendingShareBanner ?: return@LaunchedEffect
@@ -276,36 +232,21 @@ class MainActivity : ComponentActivity() {
         BackHandler {
             when {
                 uiState.isSettingsVisible -> viewModel.closeSettings()
-                drawerState.isOpen -> scope.launch { drawerState.close() }
                 webView.canGoBack() -> webView.goBack()
                 else -> onRequestExit()
             }
         }
 
         MaterialTheme(colorScheme = HermesColorScheme) {
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    AppDrawer(
-                        activeSurface = uiState.activeSurface,
-                        webUiUrl = uiState.settings.serverUrl,
-                        terminalUrl = uiState.settings.dashboardTerminalUrl,
-                        onSelectSurface = { surface ->
-                            scope.launch { drawerState.close() }
-                            onSelectSurface(surface)
-                        },
-                        onOpenSettings = {
-                            scope.launch { drawerState.close() }
-                            viewModel.openSettings()
-                        },
-                        onResetSession = {
-                            scope.launch { drawerState.close() }
-                            onResetSession()
-                        }
-                    )
-                }
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                ) {
                     WebShell(
                         webView = webView,
                         isLoading = uiState.isLoading,
@@ -315,23 +256,6 @@ class MainActivity : ComponentActivity() {
                         onRetry = onReload,
                         onOpenExternal = onOpenExternal
                     )
-                    // Compact hamburger trigger. Uses a semi-transparent surface card
-                    // so it is readable over any WebUI background without blocking content.
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(8.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                        shadowElevation = 2.dp
-                    ) {
-                        IconButton(
-                            modifier = Modifier.size(40.dp),
-                            onClick = { scope.launch { drawerState.open() } }
-                        ) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Open menu")
-                        }
-                    }
                     SnackbarHost(hostState = snackbarHostState)
                 }
             }
@@ -340,114 +264,11 @@ class MainActivity : ComponentActivity() {
                 ModalBottomSheet(onDismissRequest = { viewModel.closeSettings() }) {
                     SettingsBottomSheet(
                         initialServerUrl = uiState.settings.serverUrl,
-                        initialDashboardTerminalUrl = uiState.settings.dashboardTerminalUrl,
-                        initialHideWebUIMenuButton = uiState.settings.hideWebUIMenuButton,
                         onSave = onSaveSettings,
-                        onHideWebUIMenuButtonChanged = { hide ->
-                            settingsRepository.setHideWebUIMenuButton(hide)
-                        },
                         onResetSession = onResetSession,
                         onDismiss = { viewModel.closeSettings() }
                     )
                 }
-            }
-        }
-    }
-
-    @Composable
-    private fun AppDrawer(
-        activeSurface: MainSurface,
-        webUiUrl: String,
-        terminalUrl: String,
-        onSelectSurface: (MainSurface) -> Unit,
-        onOpenSettings: () -> Unit,
-        onResetSession: () -> Unit
-    ) {
-        // Derive current WebUI path from the tracked URL so items highlight correctly.
-        val currentPath = remember(viewModel.uiState.value.currentUrl) {
-            try {
-                java.net.URI(viewModel.uiState.value.currentUrl).rawPath.ifBlank { "/" }
-            } catch (_: Exception) { "/" }
-        }
-
-        ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 16.dp)
-            ) {
-                // ── Header ───────────────────────────────────────────────
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                    Text(text = "Hermes", style = MaterialTheme.typography.headlineSmall)
-                    if (webUiUrl.isNotBlank()) {
-                        Text(
-                            text = webUiUrl,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-
-                // ── WebUI routes ─────────────────────────────────────────
-                // Paths match the Hermes WebUI route contract (apps/desktop/src/app/routes.ts).
-                val webUiRoutes = listOf(
-                    "/" to "Chat",
-                    "/skills" to "Skills",
-                    "/artifacts" to "Artifacts",
-                    "/agents" to "Agents",
-                    "/cron" to "Scheduler",
-                    "/messaging" to "Messaging",
-                )
-                webUiRoutes.forEach { (path, label) ->
-                    val selected = activeSurface == MainSurface.WEB_UI &&
-                        (currentPath == path || (path == "/" && currentPath.isEmpty()))
-                    NavigationDrawerItem(
-                        label = { Text(label) },
-                        selected = selected,
-                        onClick = {
-                            val targetUrl = webUiUrl.trimEnd('/') + path
-                            if (UrlPolicy(allowedHosts).isAllowed(targetUrl)) {
-                                viewModel.selectSurface(MainSurface.WEB_UI, targetUrl)
-                                webView.loadUrl(targetUrl)
-                            }
-                            onSelectSurface(MainSurface.WEB_UI)
-                        },
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                    )
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-
-                // ── Tools ────────────────────────────────────────────────
-                NavigationDrawerItem(
-                    label = { Text("Terminal") },
-                    selected = activeSurface == MainSurface.TERMINAL,
-                    onClick = { onSelectSurface(MainSurface.TERMINAL) },
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-
-                // ── App ──────────────────────────────────────────────────
-                NavigationDrawerItem(
-                    label = { Text("App Settings") },
-                    selected = false,
-                    onClick = onOpenSettings,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                )
-                NavigationDrawerItem(
-                    label = { Text("Reset web session") },
-                    selected = false,
-                    onClick = onResetSession,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                )
             }
         }
     }
@@ -463,6 +284,8 @@ class MainActivity : ComponentActivity() {
             settings.loadsImagesAutomatically = true
             settings.mediaPlaybackRequiresUserGesture = true
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.javaScriptCanOpenWindowsAutomatically = true
+            settings.setSupportMultipleWindows(true)
             settings.userAgentString = settings.userAgentString + " Hermes-Android/0.1"
             disableWebViewDarkening(settings)
 
@@ -470,6 +293,42 @@ class MainActivity : ComponentActivity() {
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
 
             webChromeClient = object : WebChromeClient() {
+                override fun onCreateWindow(
+                    view: WebView?,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: Message?
+                ): Boolean {
+                    val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+                    val popup = WebView(this@MainActivity)
+                    popup.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): Boolean {
+                            val target = request?.url?.toString() ?: return true
+                            handleNewWindowUrl(target)
+                            popup.destroy()
+                            return true
+                        }
+
+                        override fun onPageStarted(
+                            view: WebView?,
+                            url: String?,
+                            favicon: android.graphics.Bitmap?
+                        ) {
+                            super.onPageStarted(view, url, favicon)
+                            if (!url.isNullOrBlank()) {
+                                handleNewWindowUrl(url)
+                                popup.destroy()
+                            }
+                        }
+                    }
+                    transport.webView = popup
+                    resultMsg.sendToTarget()
+                    return true
+                }
+
                 override fun onShowFileChooser(
                     webView: WebView?,
                     filePathCallback: ValueCallback<Array<Uri>>?,
@@ -492,6 +351,10 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val target = request?.url?.toString() ?: return true
+                    if (matchesConfiguredDashboardRoute(target)) {
+                        openDashboardInApp(target)
+                        return true
+                    }
                     return when (UrlPolicy(allowedHosts).navigationDecision(target)) {
                         NavigationDecision.ALLOW_IN_WEBVIEW -> false
                         NavigationDecision.OPEN_IN_EXTERNAL_BROWSER -> {
@@ -509,13 +372,16 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
                     super.onPageCommitVisible(view, url)
-                    applyHermesWebViewCompatibilityFixes(view)
+                    applyHermesWebViewCompatibilityFixes(view, url)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    applyHermesWebViewCompatibilityFixes(view)
-                    viewModel.onPageFinished(url)
+                    applyHermesWebViewCompatibilityFixes(view, url)
+                    viewModel.onPageFinished(
+                        url = url,
+                        rememberLastUrl = !matchesConfiguredDashboardRoute(url)
+                    )
                     CookieManager.getInstance().flush()
                 }
 
@@ -550,14 +416,157 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun applyHermesWebViewCompatibilityFixes(view: WebView?) {
+    private fun applyHermesWebViewCompatibilityFixes(view: WebView?, url: String?) {
+        if (view == null) return
+        if (!matchesConfiguredWebUiRoute(url ?: viewModel.uiState.value.currentUrl)) return
+
         // Android WebView can report supported dynamic viewport units while computing them as 0px.
         // Hermes WebUI uses 100dvh for the root flex shell, so force the measured viewport height.
-        view?.evaluateJavascript(HermesWebViewViewportFixScript, null)
+        view.evaluateJavascript(HermesWebViewViewportFixScript, null)
 
-        // Optionally hide the WebUI hamburger button to avoid conflict with the native drawer trigger.
-        if (viewModel.uiState.value.settings.hideWebUIMenuButton) {
-            view?.evaluateJavascript(HermesHideMenuButtonScript, null)
+        val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
+        if (dashboardUrl.isNotBlank()) {
+            view.evaluateJavascript(buildHermesDashboardConfigScript(dashboardUrl), null)
+        }
+    }
+
+    private fun buildHermesDashboardConfigScript(dashboardUrl: String): String {
+        val quotedDashboardUrl = JSONObject.quote(dashboardUrl)
+        return """
+            (function() {
+              var dashboardUrl = $quotedDashboardUrl;
+              if (!dashboardUrl || !window.fetch) return;
+
+              var normalize = function(value) {
+                return String(value || '').trim().replace(/\/+${'$'}/, '');
+              };
+              var dashboardConfigUrl = '';
+              try {
+                var parsedDashboardUrl = new URL(dashboardUrl, window.location.href);
+                parsedDashboardUrl.pathname = '';
+                parsedDashboardUrl.search = '';
+                parsedDashboardUrl.hash = '';
+                dashboardConfigUrl = normalize(parsedDashboardUrl.toString());
+              } catch (_) {
+                return;
+              }
+              var targetUrl = dashboardConfigUrl;
+              if (!targetUrl) return;
+
+              var applyControls = function(config) {
+                var modeEl = document.getElementById('settingsDashboardMode');
+                var urlEl = document.getElementById('settingsDashboardUrl');
+                if (modeEl && config && config.enabled) modeEl.value = config.enabled;
+                if (urlEl) {
+                  urlEl.value = (config && config.url) || dashboardConfigUrl;
+                }
+              };
+              var refreshDashboardLink = function(config) {
+                applyControls(config);
+                if (typeof window.refreshDashboardStatus === 'function') {
+                  try { window.refreshDashboardStatus(true); } catch (_) {}
+                }
+              };
+
+              if (window.__hermesAndroidDashboardSeedComplete === targetUrl ||
+                  window.__hermesAndroidDashboardSeedInFlight === targetUrl) {
+                return;
+              }
+              window.__hermesAndroidDashboardSeedInFlight = targetUrl;
+
+              var clearInFlight = function() {
+                if (window.__hermesAndroidDashboardSeedInFlight === targetUrl) {
+                  window.__hermesAndroidDashboardSeedInFlight = '';
+                }
+              };
+              var markComplete = function() {
+                window.__hermesAndroidDashboardSeedComplete = targetUrl;
+                clearInFlight();
+              };
+
+              fetch('/api/dashboard/config', { credentials: 'same-origin' })
+                .then(function(response) {
+                  if (!response || !response.ok) throw new Error('dashboard config unavailable');
+                  return response.json();
+                })
+                .then(function(config) {
+                  var currentUrl = normalize(config && config.url);
+                  if (currentUrl) {
+                    refreshDashboardLink(config);
+                    markComplete();
+                    return null;
+                  }
+                  return fetch('/api/dashboard/config', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: 'always', url: dashboardConfigUrl })
+                  }).then(function(response) {
+                    if (!response || !response.ok) throw new Error('dashboard config save failed');
+                    return response.json();
+                  });
+                })
+                .then(function(saved) {
+                  if (saved) {
+                    refreshDashboardLink(saved);
+                    markComplete();
+                  }
+                })
+                .catch(function() {
+                  clearInFlight();
+                  applyControls({ enabled: 'always', url: dashboardConfigUrl });
+                });
+            })();
+        """.trimIndent()
+    }
+
+    private fun matchesConfiguredWebUiRoute(url: String?): Boolean {
+        val settings = viewModel.uiState.value.settings
+        return hasSameOriginAs(url, settings.serverUrl) && !matchesConfiguredDashboardRoute(url)
+    }
+
+    private fun matchesConfiguredDashboardRoute(url: String?): Boolean {
+        val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
+        if (url.isNullOrBlank() || dashboardUrl.isBlank()) return false
+        if (!hasSameOriginAs(url, dashboardUrl)) return false
+
+        val targetPath = runCatching { url.toUri().path.orEmpty().trimEnd('/') }.getOrDefault("")
+        val dashboardPath = runCatching { dashboardUrl.toUri().path.orEmpty().trimEnd('/') }.getOrDefault("")
+        if (dashboardPath.isBlank()) return true
+        return targetPath == dashboardPath || targetPath.startsWith("$dashboardPath/")
+    }
+
+    private fun handleNewWindowUrl(url: String) {
+        if (matchesConfiguredDashboardRoute(url)) {
+            openDashboardInApp(url)
+            return
+        }
+        when (UrlPolicy(allowedHosts).navigationDecision(url)) {
+            NavigationDecision.ALLOW_IN_WEBVIEW -> webView.loadUrl(url)
+            NavigationDecision.OPEN_IN_EXTERNAL_BROWSER -> openInExternalBrowser(url)
+            NavigationDecision.BLOCK -> Unit
+        }
+    }
+
+    private fun hasSameOriginAs(url: String?, baseUrl: String): Boolean {
+        if (url.isNullOrBlank() || baseUrl.isBlank()) return false
+        val target = runCatching { url.toUri() }.getOrNull() ?: return false
+        val base = runCatching { baseUrl.toUri() }.getOrNull() ?: return false
+        val targetScheme = target.scheme?.lowercase() ?: return false
+        val baseScheme = base.scheme?.lowercase() ?: return false
+        val targetHost = target.host?.lowercase() ?: return false
+        val baseHost = base.host?.lowercase() ?: return false
+        return targetScheme == baseScheme &&
+            targetHost == baseHost &&
+            effectivePort(target) == effectivePort(base)
+    }
+
+    private fun effectivePort(uri: Uri): Int {
+        if (uri.port != -1) return uri.port
+        return when (uri.scheme?.lowercase()) {
+            "https" -> 443
+            "http" -> 80
+            else -> -1
         }
     }
 
@@ -583,37 +592,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveSettings(serverUrl: String, dashboardTerminalUrl: String) {
+    private fun saveSettings(serverUrl: String) {
         if (!serverUrlValidator.isValid(serverUrl)) {
             Toast.makeText(this, "Server URL must be a valid https:// URL", Toast.LENGTH_LONG).show()
             return
         }
-        if (dashboardTerminalUrl.isNotBlank() && !serverUrlValidator.isValid(dashboardTerminalUrl)) {
-            Toast.makeText(this, "Terminal URL must be blank or a valid https:// URL", Toast.LENGTH_LONG).show()
+        val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
+        if (dashboardUrl.isNotBlank() && !serverUrlValidator.isValid(dashboardUrl)) {
+            Toast.makeText(this, "Dashboard URL must be blank or a valid https:// URL", Toast.LENGTH_LONG).show()
             return
         }
-        viewModel.saveAppUrls(serverUrl, dashboardTerminalUrl)
+        viewModel.saveAppUrls(serverUrl, dashboardUrl)
         allowedHosts = viewModel.uiState.value.settings.allowedHosts
         webView.loadUrl(serverUrl)
-    }
-
-    private fun selectSurface(surface: MainSurface) {
-        val settings = viewModel.uiState.value.settings
-        val targetUrl = when (surface) {
-            MainSurface.WEB_UI -> settings.serverUrl
-            MainSurface.TERMINAL -> settings.dashboardTerminalUrl
-        }
-        if (targetUrl.isBlank()) {
-            Toast.makeText(this, "Configure a terminal URL in Settings first", Toast.LENGTH_LONG).show()
-            viewModel.openSettings()
-            return
-        }
-        if (!UrlPolicy(settings.allowedHosts).isAllowed(targetUrl)) {
-            Toast.makeText(this, "Target URL is not allowlisted", Toast.LENGTH_LONG).show()
-            return
-        }
-        viewModel.selectSurface(surface, targetUrl)
-        webView.loadUrl(targetUrl)
     }
 
     private fun resetWebSession() {
@@ -634,6 +625,10 @@ class MainActivity : ComponentActivity() {
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(this, "No browser found to open link", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun openDashboardInApp(url: String) {
+        startActivity(DashboardActivity.createIntent(this, url))
     }
 
     private fun handleShareIntent(intent: Intent?) {

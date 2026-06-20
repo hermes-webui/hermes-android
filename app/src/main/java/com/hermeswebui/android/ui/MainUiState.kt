@@ -2,11 +2,6 @@ package com.hermeswebui.android.ui
 
 import com.hermeswebui.android.data.AppSettings
 
-enum class MainSurface {
-    WEB_UI,
-    TERMINAL
-}
-
 data class MainUiState(
     val settings: AppSettings,
     val isLoading: Boolean = true,
@@ -15,6 +10,5 @@ data class MainUiState(
     val canRetry: Boolean = true,
     val isSettingsVisible: Boolean = false,
     val pendingShareBanner: String? = null,
-    val currentUrl: String = settings.serverUrl,
-    val activeSurface: MainSurface = MainSurface.WEB_UI
+    val currentUrl: String = settings.serverUrl
 )

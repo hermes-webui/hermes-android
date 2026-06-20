@@ -51,10 +51,12 @@ Requirements:
 - Kotlin + Jetpack Compose Android app
 - Hardened WebView for Hermes WebUI
 - Android WebView compatibility fixes for Hermes WebUI viewport rendering
-- Native drawer with WebUI routes (Chat, Skills, Artifacts, Agents, Scheduler, Messaging, Terminal)
+- System-bar inset handling so WebView content and native controls avoid status and navigation bars
+- WebUI-owned navigation with Android seeding the WebUI Official Hermes Dashboard origin when needed
+- Official Hermes Dashboard links open in an app-owned dashboard WebView instead of the default browser
 - Deep link support: `hermes://session/{id}` navigates to Hermes sessions
 - Server health probing on WebView errors to distinguish server-down from content errors
-- First-run settings flow for WebUI and terminal URLs
+- First-run settings flow for the Hermes WebUI URL; the dashboard URL is managed by WebUI Settings > System after Android seeds it
 - Back handling, pull-to-refresh, loading, offline, and error states
 
 ### 🔌 Android integration
@@ -85,7 +87,7 @@ Default endpoints live in:
 Important values:
 
 - `default_server_url` - default Hermes WebUI URL
-- `default_dashboard_terminal_url` - default Dashboard Terminal route
+- `default_dashboard_url` - default Official Hermes Dashboard origin URL seeded into WebUI config when WebUI has no dashboard URL; path/query fragments are stripped before Android storage
 - `app_name` - Android launcher label
 
 Android identity lives in:
@@ -123,7 +125,7 @@ Optional checks:
 
 | Color | Area | Files | Purpose |
 |---|---|---|---|
-| 🔵 | Platform boundary | `app/src/main/java/com/hermeswebui/android/MainActivity.kt` | WebView setup, intents, file chooser, downloads, navigation hooks |
+| 🔵 | Platform boundary | `app/src/main/java/com/hermeswebui/android/MainActivity.kt`, `app/src/main/java/com/hermeswebui/android/DashboardActivity.kt` | Main Hermes WebUI host plus in-app Official Hermes Dashboard host, including navigation/intents and WebView lifecycle |
 | 🟣 | Security | `app/src/main/java/com/hermeswebui/android/core/security/UrlPolicy.kt` | HTTPS and allowlist decisions |
 | 🟢 | Data | `app/src/main/java/com/hermeswebui/android/data/` | Encrypted app settings and staged share payloads |
 | 🟠 | Domain | `app/src/main/java/com/hermeswebui/android/domain/` | URL validation and Android share intent parsing |

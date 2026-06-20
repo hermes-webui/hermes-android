@@ -12,13 +12,13 @@
 | Surface | Status |
 |---|---|
 | Secure WebView shell | Done - HTTPS-only navigation, host allowlist, hardened defaults |
-| WebUI integration | Done - first-run URL settings, session persistence, pull-to-refresh |
-| WebView compatibility | Done - disables forced darkening and patches Android viewport-unit collapse |
-| Dashboard Terminal route | Done - native drawer destination for configured `/chat` URL |
+| WebUI integration | Done - first-run WebUI URL setting, dashboard config seeding, session persistence, pull-to-refresh |
+| WebView compatibility | Done - disables forced darkening, patches Android viewport-unit collapse, and respects system-bar safe insets |
+| Official dashboard link | Done - Android seeds WebUI's Official Hermes Dashboard origin when WebUI has none, opens dashboard-origin requests in an app-owned dashboard WebView, and avoids persisting dashboard pages as startup state |
 | Android sharing | Done - share-to-app intake for text and files |
 | Files | Done - WebView upload/download integration |
 | Local settings | Done - encrypted settings storage |
-| Native navigation | Done - drawer with WebUI routes, hamburger-hiding shim, deep links |
+| Native navigation | Done - WebUI-owned dashboard link integration and deep links |
 | Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
 | Native distribution polish | Partial - app identity exists; release signing workflow still open |
 | Phase 2 native features | Planned - biometric lock, server profiles, push notifications, camera, sessions panel |
@@ -30,7 +30,7 @@
 ### MVP shell
 
 - [x] Secure WebView opens a configured Hermes WebUI URL
-- [x] First-run URL prompt and settings surface
+- [x] First-run WebUI URL prompt and settings surface
 - [x] HTTPS-only URL validation
 - [x] Host allowlist for in-app navigation
 - [x] External handoff for non-allowlisted HTTPS links
@@ -49,8 +49,8 @@
 - [x] Share-to-app intake for files
 - [x] Native launcher identity
 - [x] Splash and app theme
-- [x] Native drawer with WebUI routes
-- [x] Dashboard Terminal route
+- [x] WebUI Official Hermes Dashboard URL seeding
+- [x] Official dashboard link route
 - [x] Deep links (`hermes://session/{id}`)
 - [x] Server health probing
 - [ ] Camera capture in file chooser
@@ -67,8 +67,8 @@
 - [ ] Notification channel strategy
 - [ ] Notification click routing to WebUI routes via deep links
 - [ ] Expanded native settings for theme, notifications, and profiles
-- [ ] Drawer destination: native sessions list (requires authenticated API access)
-- [ ] Drawer destinations for files, kanban, and status
+- [ ] Optional native sessions list (requires authenticated API access)
+- [ ] WebUI menu shortcuts for files, kanban, and status if needed
 - [ ] Instrumentation tests for WebView navigation and intent flows
 - [x] Final package/application ID decision before first public release
 - [ ] Release signing automation docs and snippets
@@ -85,7 +85,7 @@
 | A-008 | P2 | Todo | Attachments | Add camera capture in file chooser flow | Include permissions and fallback behavior |
 | A-010 | P2 | Todo | Tests | Add instrumentation tests for navigation, share, and deep links | Emulator-ready where practical |
 | A-011 | P3 | Todo | Release | Add release signing automation docs and snippets | Keep keystore secrets out of repo |
-| A-013 | P2 | Todo | Navigation | Add drawer for native sessions list + other routes | Requires authenticated API access (A-009 strategy) |
+| A-013 | P2 | Todo | Navigation | Add optional sessions/files/kanban/status shortcuts without replacing WebUI navigation | Sessions require authenticated API access (A-009 strategy) |
 
 Recommended next order:
 
@@ -105,7 +105,7 @@ Recommended next order:
 | A-002 | 2026-06-19 | Security | Enforced HTTPS-only URL policy with validation and tests |
 | A-003 | 2026-06-19 | Tooling | Aligned AGP/Gradle to avoid Gradle 10 deprecation pressure |
 | A-004 | 2026-06-19 | UI | Migrated deprecated accompanist swipe refresh to Compose pull refresh |
-| A-012 | 2026-06-20 | Navigation | Added native drawer and Dashboard Terminal route |
+| A-012 | 2026-06-20 | Navigation | Superseded native drawer experiment for Dashboard Terminal route |
 | DOC-001 | 2026-06-20 | Docs | Cleaned README and created this roadmap as the progress and wishlist tracker |
 | BRAND-001 | 2026-06-20 | Branding | Renamed APK output to `hermes-android`; replaced placeholder icon with Hermes WebUI caduceus (vector + density PNGs); icon background aligned to WebUI dark `#1a1a1a` |
 | COMPAT-001 | 2026-06-20 | Android compatibility | Guarded share-intent parcelable parsing across pre- and post-Android 13 APIs |
@@ -114,8 +114,12 @@ Recommended next order:
 | API-001 | 2026-06-20 | API integration | Added `HermesApiClient` probing `/api/status` (public endpoint) on WebView errors to distinguish server-down from content errors |
 | NAV-001 | 2026-06-20 | Navigation | Reworked native drawer with WebUI route sections (Chat, Skills, Artifacts, Agents, Scheduler, Messaging); replaced floating button with compact hamburger-in-card trigger |
 | NAV-002 | 2026-06-20 | UI integration | Added hamburger-hiding DOM shim + user toggle to avoid visual conflict between native drawer and WebUI menu button; gracefully degrades if WebUI markup changes |
+| NAV-003 | 2026-06-20 | Navigation | Removed the temporary native drawer and menu-hiding shim; seeded WebUI's Official Hermes Dashboard config instead of adding a custom Android Terminal button |
 | BUG-001 | 2026-06-20 | UI | Fixed unreadable text by applying an explicit native color scheme and disabling WebView algorithmic darkening |
 | BUG-002 | 2026-06-20 | WebView | Fixed Hermes WebUI text/content visibility by injecting a measured viewport-height shim when Android WebView computes `100dvh` as `0px` |
+| BUG-003 | 2026-06-20 | UI | Added safe-drawing system insets so WebView content and native controls do not overlap status or navigation bars |
+| BUG-004 | 2026-06-20 | Navigation | Fixed dashboard redirect/blue-screen recovery by normalizing stored dashboard URLs to their origin, opening dashboard-origin new-window requests in `DashboardActivity`, applying dashboard-scoped viewport compatibility, and preventing dashboard pages from becoming app startup state |
+| BUILD-001 | 2026-06-20 | Tooling | Migrated AGP config to built-in Kotlin, removed legacy compatibility flags, and eliminated obsolete variant API plus dependency-constraints sync warnings |
 
 ---
 

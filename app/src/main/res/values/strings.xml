@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Hermes-Android</string>
     <string name="default_server_url">https://forge.tailcef5d8.ts.net:8457</string>
-    <string name="default_dashboard_terminal_url">https://forge.tailcef5d8.ts.net:8455/chat</string>
+    <string name="default_dashboard_url">https://forge.tailcef5d8.ts.net:8455</string>
     <string name="webview_offline_title">You are offline</string>
     <string name="webview_offline_body">Check your connection and try again.</string>
     <string name="webview_error_title">Unable to open Hermes</string>

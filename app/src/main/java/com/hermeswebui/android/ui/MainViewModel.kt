@@ -14,9 +14,9 @@ import kotlinx.coroutines.launch
 class MainViewModel(
     private val settingsRepository: SettingsRepository,
     private val defaultUrl: String,
-    private val defaultDashboardTerminalUrl: String
+    private val defaultDashboardUrl: String
 ) : ViewModel() {
-    private val settings = settingsRepository.getSettings(defaultUrl, defaultDashboardTerminalUrl)
+    private val settings = settingsRepository.getSettings(defaultUrl, defaultDashboardUrl)
 
     private val _uiState = MutableStateFlow(MainUiState(settings = settings))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -35,9 +35,11 @@ class MainViewModel(
         }
     }
 
-    fun onPageFinished(url: String?) {
+    fun onPageFinished(url: String?, rememberLastUrl: Boolean = true) {
         val next = url ?: _uiState.value.currentUrl
-        settingsRepository.saveLastLoadedUrl(next)
+        if (rememberLastUrl) {
+            settingsRepository.saveLastLoadedUrl(next)
+        }
         _uiState.update { it.copy(isLoading = false, currentUrl = next) }
     }
 
@@ -100,26 +102,14 @@ class MainViewModel(
         _uiState.update { it.copy(isSettingsVisible = false) }
     }
 
-    fun saveAppUrls(serverUrl: String, dashboardTerminalUrl: String) {
-        settingsRepository.saveAppUrls(serverUrl, dashboardTerminalUrl)
-        val refreshed = settingsRepository.getSettings(defaultUrl, defaultDashboardTerminalUrl)
+    fun saveAppUrls(serverUrl: String, dashboardUrl: String) {
+        settingsRepository.saveAppUrls(serverUrl, dashboardUrl)
+        val refreshed = settingsRepository.getSettings(defaultUrl, defaultDashboardUrl)
         _uiState.update {
             it.copy(
                 settings = refreshed,
                 currentUrl = refreshed.serverUrl,
                 isSettingsVisible = false,
-                errorMessage = null,
-                isOffline = false
-            )
-        }
-    }
-
-    fun selectSurface(surface: MainSurface, url: String) {
-        _uiState.update {
-            it.copy(
-                activeSurface = surface,
-                currentUrl = url,
-                isLoading = true,
                 errorMessage = null,
                 isOffline = false
             )

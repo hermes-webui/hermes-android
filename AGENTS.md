@@ -33,7 +33,7 @@ Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 - Forced/algorithmic WebView darkening is disabled so Hermes WebUI keeps its own colors.
 - A measured viewport-height shim is injected because some Android WebView builds compute Hermes WebUI `100dvh` root layout height as `0px`, which hides page text/content.
 - Android normalizes the Official Hermes Dashboard URL to its origin, seeds it through WebUI `/api/dashboard/config` when WebUI has no dashboard URL, opens dashboard-origin new-window requests in Chrome Custom Tabs with minimal browser UI, and does not persist dashboard-origin pages as the app startup URL.
-- WebView microphone access is handled in `MainActivity.kt` through Android `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, plus `WebChromeClient.onPermissionRequest`; grant only `PermissionRequest.RESOURCE_AUDIO_CAPTURE` for trusted Hermes pages (prefer explicit allowlisted HTTPS origins, with null/opaque-origin fallback only while the active main-frame URL is the configured Hermes WebUI route).
+- WebView microphone access is handled in `MainActivity.kt` through Android `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS`, plus `WebChromeClient.onPermissionRequest`; grant only `PermissionRequest.RESOURCE_AUDIO_CAPTURE` for trusted Hermes pages (prefer explicit allowlisted HTTP/HTTPS origins, with null/opaque-origin fallback only while the active main-frame URL is the configured Hermes WebUI route).
 - Android WebView can expose Web Speech API objects that fail with `not-allowed` before the WebView permission bridge is used. Keep the document-start `mic_force_mediarecorder` fallback scoped to the configured Hermes WebUI origin so WebUI voice input uses MediaRecorder/getUserMedia instead.
 - Do not reintroduce a parallel native drawer or custom Android Terminal/menu button for the dashboard link.
 - Hermes WebUI DOM/CSS compatibility shims must stay scoped to the configured WebUI route. Do not inject the Hermes WebUI viewport/config shim into the official dashboard origin; dashboard links should use Chrome Custom Tabs unless a future task explicitly reopens the app-WebView approach.
@@ -68,10 +68,10 @@ roadmap or user request explicitly calls for it.
 
 ## Security rules
 
-- Preserve HTTPS-only behavior.
+- Preserve HTTP and HTTPS support for configured Hermes hosts.
 - Preserve host allowlist enforcement.
-- Externalize non-allowlisted HTTPS navigation.
-- Keep cleartext traffic disabled.
+- Externalize non-allowlisted HTTP/HTTPS navigation.
+- Keep non-web schemes blocked.
 - Do not add JavaScript bridges for secrets.
 - Keep signing keys, API keys, passwords, and local machine paths out of git.
 

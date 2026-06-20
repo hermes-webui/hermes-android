@@ -11,7 +11,7 @@
 
 | Surface | Status |
 |---|---|
-| Secure WebView shell | Done - HTTPS-only navigation, host allowlist, hardened defaults |
+| Secure WebView shell | Done - HTTP/HTTPS navigation, host allowlist, hardened defaults |
 | WebUI integration | Done - first-run WebUI URL setting, dashboard config seeding, session persistence, pull-to-refresh |
 | WebView compatibility | Done - disables forced darkening, patches Android viewport-unit collapse, respects system-bar safe insets, and forces WebUI microphone input onto the Android-compatible MediaRecorder path |
 | Official dashboard link | Done - Android seeds WebUI's Official Hermes Dashboard origin when WebUI has none, opens dashboard-origin requests in a Chrome Custom Tab with minimal browser UI, and avoids persisting dashboard pages as startup state |
@@ -32,10 +32,10 @@
 
 - [x] Secure WebView opens a configured Hermes WebUI URL
 - [x] First-run WebUI URL prompt and settings surface
-- [x] HTTPS-only URL validation
+- [x] HTTP/HTTPS URL validation
 - [x] Host allowlist for in-app navigation
-- [x] External handoff for non-allowlisted HTTPS links
-- [x] Cleartext traffic disabled
+- [x] External handoff for non-allowlisted HTTP/HTTPS links
+- [x] Cleartext traffic permitted for configured HTTP deployments
 - [x] Back handling and WebView history behavior
 - [x] Pull-to-refresh
 - [x] Loading, error, and offline states
@@ -104,7 +104,7 @@ Recommended next order:
 | ID | Date | Area | Summary |
 |---|---|---|---|
 | A-001 | 2026-06-19 | Build | Fixed Java/Gradle setup and verified `test` plus `assembleDebug` |
-| A-002 | 2026-06-19 | Security | Enforced HTTPS-only URL policy with validation and tests |
+| A-002 | 2026-06-19 | Security | Added URL policy validation and tests |
 | A-003 | 2026-06-19 | Tooling | Aligned AGP/Gradle to avoid Gradle 10 deprecation pressure |
 | A-004 | 2026-06-19 | UI | Migrated deprecated accompanist swipe refresh to Compose pull refresh |
 | A-012 | 2026-06-20 | Navigation | Superseded native drawer experiment for Dashboard Terminal route |
@@ -131,6 +131,8 @@ Recommended next order:
 | BUILD-001 | 2026-06-20 | Tooling | Migrated AGP config to built-in Kotlin, removed legacy compatibility flags, and eliminated obsolete variant API plus dependency-constraints sync warnings |
 | PERM-001 | 2026-06-20 | Permissions | Added Android `RECORD_AUDIO` plus an allowlisted WebView audio-capture permission bridge so WebUI microphone input can prompt and grant correctly |
 | PERM-002 | 2026-06-20 | Permissions | Added a document-start WebUI microphone fallback flag for the configured Hermes origin so Android WebView skips the unreliable Web Speech API path and uses MediaRecorder/getUserMedia |
+| SEC-002 | 2026-06-20 | Security | Relaxed URL policy to allow configured HTTP or HTTPS Hermes hosts while retaining host allowlist checks and non-web scheme blocking |
+| UX-001 | 2026-06-20 | Settings | Changed the first-run server URL sample from prefilled text to placeholder text that disappears on focus |
 
 ---
 

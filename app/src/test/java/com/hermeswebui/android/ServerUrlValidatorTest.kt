@@ -13,8 +13,8 @@ class ServerUrlValidatorTest {
     }
 
     @Test
-    fun `rejects valid http host`() {
-        assertThat(validator.isValid("http://hermes.example.com")).isFalse()
+    fun `accepts valid http host`() {
+        assertThat(validator.isValid("http://hermes.example.com")).isTrue()
     }
 
     @Test

@@ -16,16 +16,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 
 @Composable
 fun SettingsBottomSheet(
     initialServerUrl: String,
+    isConfigured: Boolean,
     onSave: (String) -> Unit,
     onResetSession: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var serverUrl by remember(initialServerUrl) { mutableStateOf(initialServerUrl) }
+    var serverUrl by remember(initialServerUrl, isConfigured) {
+        mutableStateOf(if (isConfigured) initialServerUrl else "")
+    }
+    var isServerUrlFocused by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -35,12 +40,19 @@ fun SettingsBottomSheet(
     ) {
         Text(text = "App settings", style = MaterialTheme.typography.headlineSmall)
         OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { isServerUrlFocused = it.isFocused },
             value = serverUrl,
             onValueChange = { serverUrl = it },
             singleLine = true,
             label = { Text("Hermes server URL") },
-            supportingText = { Text("HTTPS only. Host is automatically allowlisted.") }
+            placeholder = {
+                if (!isConfigured && !isServerUrlFocused && serverUrl.isBlank()) {
+                    Text(initialServerUrl)
+                }
+            },
+            supportingText = { Text("HTTP or HTTPS. Host is automatically allowlisted.") }
         )
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

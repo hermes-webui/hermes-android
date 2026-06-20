@@ -354,6 +354,7 @@ class MainActivity : ComponentActivity() {
                 ModalBottomSheet(onDismissRequest = { viewModel.closeSettings() }) {
                     SettingsBottomSheet(
                         initialServerUrl = uiState.settings.serverUrl,
+                        isConfigured = uiState.settings.isConfigured,
                         onSave = onSaveSettings,
                         onResetSession = onResetSession,
                         onDismiss = { viewModel.closeSettings() }
@@ -561,7 +562,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun normalizePermissionOrigin(origin: Uri): String? {
-        val scheme = origin.scheme?.lowercase()?.takeIf { it == "https" } ?: return null
+        val scheme = origin.scheme?.lowercase()?.takeIf { it == "http" || it == "https" } ?: return null
         val host = origin.host
             ?.trim()
             ?.trimEnd('.')
@@ -757,12 +758,12 @@ class MainActivity : ComponentActivity() {
 
     private fun saveSettings(serverUrl: String) {
         if (!serverUrlValidator.isValid(serverUrl)) {
-            Toast.makeText(this, "Server URL must be a valid https:// URL", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
         val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
         if (dashboardUrl.isNotBlank() && !serverUrlValidator.isValid(dashboardUrl)) {
-            Toast.makeText(this, "Dashboard URL must be blank or a valid https:// URL", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Dashboard URL must be blank or a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
         viewModel.saveAppUrls(serverUrl, dashboardUrl)

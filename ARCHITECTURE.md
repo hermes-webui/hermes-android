@@ -24,8 +24,8 @@
 5. On the Hermes WebUI route, Android seeds the WebUI `/api/dashboard/config` origin URL when WebUI has no dashboard URL and Android has one stored/defaulted. Dashboard URLs are normalized to their origin before Android stores or matches them. WebUI then owns rendering and behavior for the Official Hermes Dashboard link in its rail/sidebar.
 6. Official Hermes Dashboard links are treated as secondary browser surfaces. Android handles WebView new-window requests and dashboard-origin navigations by launching a Chrome Custom Tab with title/share UI minimized, instead of replacing the primary Hermes WebUI WebView or opening the full default browser UI.
 7. Dashboard-origin pages are not saved as the app startup URL. If a dashboard URL is ever the last observed WebView URL, the next launch falls back to the configured Hermes WebUI URL.
-8. `UrlPolicy` enforces HTTPS + domain allowlist for every navigation.
-9. WebView microphone permission requests are accepted only for audio capture on trusted Hermes pages. Android prefers explicit allowlisted HTTPS origins, normalizes edge-case origin formatting, and allows null/opaque-origin requests only when the active main-frame URL is the configured Hermes WebUI route. Android runtime microphone permission is requested on demand before granting the WebView request.
+8. `UrlPolicy` enforces supported web schemes (`http`/`https`) + domain allowlist for every navigation.
+9. WebView microphone permission requests are accepted only for audio capture on trusted Hermes pages. Android prefers explicit allowlisted HTTP/HTTPS origins, normalizes edge-case origin formatting, and allows null/opaque-origin requests only when the active main-frame URL is the configured Hermes WebUI route. Android runtime microphone permission is requested on demand before granting the WebView request.
 10. `MainViewModel` drives loading/error/offline/share UI state.
 11. Share intents are parsed in `domain`, staged in ViewModel, then pushed into WebView flow.
 12. Settings updates rewrite encrypted preferences and reload trusted hosts. The Android setup sheet only asks for the Hermes WebUI URL; the dashboard origin is visible and editable in WebUI Settings > System after seeding.
@@ -37,9 +37,9 @@
 - Trust boundary is the configured Hermes WebUI and dashboard URL host set.
 - In-app navigation remains inside trust boundary only.
 - Everything else is blocked or externalized.
-- The official dashboard is browser-rendered through Custom Tabs so Chrome handles dashboard compatibility, cookies, TLS, and same-origin navigation.
+- The official dashboard is browser-rendered through Custom Tabs so Chrome handles dashboard compatibility, cookies, transport behavior, and same-origin navigation.
 - Microphone access requires Android `RECORD_AUDIO` plus `MODIFY_AUDIO_SETTINGS` and a trusted WebView context (allowlisted origin, with a null/opaque-origin fallback only while the active main frame is the configured Hermes WebUI route). Android grants only `RESOURCE_AUDIO_CAPTURE`; camera/video capture remains denied. Android also seeds WebUI's `mic_force_mediarecorder` localStorage flag at document start for the configured WebUI origin only, avoiding Web Speech API false-denied errors in Android WebView.
-- Cleartext disabled at network config level.
+- Android cleartext traffic is permitted so configured HTTP deployments can load. App-level URL policy still limits trusted in-app navigation and downloads to the configured host allowlist.
 - Sensitive app-side config is encrypted with Android Keystore-backed keys.
 
 ## Extensibility points

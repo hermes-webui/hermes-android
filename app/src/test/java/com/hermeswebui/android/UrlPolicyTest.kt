@@ -15,13 +15,18 @@ class UrlPolicyTest {
     }
 
     @Test
-    fun `blocks allowlisted host over http`() {
-        assertThat(policy.navigationDecision("http://hermes.example.com")).isEqualTo(NavigationDecision.BLOCK)
+    fun `allows allowlisted host over http`() {
+        assertThat(policy.navigationDecision("http://hermes.example.com")).isEqualTo(NavigationDecision.ALLOW_IN_WEBVIEW)
     }
 
     @Test
     fun `opens non allowlisted https hosts externally`() {
         assertThat(policy.navigationDecision("https://example.org/docs")).isEqualTo(NavigationDecision.OPEN_IN_EXTERNAL_BROWSER)
+    }
+
+    @Test
+    fun `opens non allowlisted http hosts externally`() {
+        assertThat(policy.navigationDecision("http://example.org/docs")).isEqualTo(NavigationDecision.OPEN_IN_EXTERNAL_BROWSER)
     }
 
     @Test
@@ -75,6 +80,12 @@ class UrlPolicyTest {
     fun `builds document start origin rule with explicit port`() {
         assertThat(UrlOrigins.documentStartOriginRule("https://hermes.example.com:8457/path"))
             .isEqualTo("https://hermes.example.com:8457")
+    }
+
+    @Test
+    fun `builds document start origin rule for http`() {
+        assertThat(UrlOrigins.documentStartOriginRule("http://hermes.example.com:8457/path"))
+            .isEqualTo("http://hermes.example.com:8457")
     }
 
     @Test

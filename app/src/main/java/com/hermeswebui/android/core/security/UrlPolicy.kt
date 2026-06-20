@@ -18,13 +18,13 @@ class UrlPolicy(private val allowedHosts: Set<String>) {
 
     fun isAllowed(url: String): Boolean {
         val uri = url.toUriOrNull() ?: return false
-        if (!uri.isHttpsScheme()) return false
+        if (!uri.isHttpOrHttpsScheme()) return false
         return uri.hasAllowedHost()
     }
 
     fun navigationDecision(url: String): NavigationDecision {
         val uri = url.toUriOrNull() ?: return NavigationDecision.BLOCK
-        if (!uri.isHttpsScheme()) return NavigationDecision.BLOCK
+        if (!uri.isHttpOrHttpsScheme()) return NavigationDecision.BLOCK
         return if (uri.hasAllowedHost()) {
             NavigationDecision.ALLOW_IN_WEBVIEW
         } else {
@@ -39,8 +39,8 @@ class UrlPolicy(private val allowedHosts: Set<String>) {
         return host in normalizedAllowedHosts || normalizedAllowedHosts.any { host.endsWith(".$it") }
     }
 
-    private fun URI.isHttpsScheme(): Boolean {
-        return scheme.equals("https", ignoreCase = true)
+    private fun URI.isHttpOrHttpsScheme(): Boolean {
+        return scheme.equals("http", ignoreCase = true) || scheme.equals("https", ignoreCase = true)
     }
 
     private fun URI.normalizedHost(): String? = host?.lowercase(Locale.US)
@@ -66,7 +66,10 @@ object UrlOrigins {
 
     fun documentStartOriginRule(url: String): String? {
         val uri = url.toUriOrNull() ?: return null
-        val scheme = uri.scheme?.lowercase(Locale.US)?.takeIf { it == "https" } ?: return null
+        val scheme = uri.scheme
+            ?.lowercase(Locale.US)
+            ?.takeIf { it == "http" || it == "https" }
+            ?: return null
         val host = uri.normalizedHost()?.takeIf { it.isNotBlank() } ?: return null
         val hostRule = if (host.contains(":") && !host.startsWith("[")) "[$host]" else host
         val portRule = if (uri.port != -1) ":${uri.port}" else ""

@@ -6,7 +6,7 @@ Hermes web app as the primary interface and adds the Android pieces that should
 live on-device: secure WebView hosting, native navigation, sharing, downloads,
 and encrypted local settings.
 
-> 🔒 HTTPS-only · 🌐 host allowlist · 📂 sharing + downloads · 🧊 encrypted settings
+> 🔒 HTTP/HTTPS URL policy · 🌐 host allowlist · 📂 sharing + downloads · 🧊 encrypted settings
 
 The app is intentionally thin. Hermes behavior stays server-delivered through
 WebUI, while this repo owns Android integration and device safety.
@@ -51,7 +51,7 @@ Requirements:
 
 - Android Studio with Android SDK 37
 - JDK 17 or newer runtime compatible with Gradle
-- A reachable HTTPS Hermes WebUI URL
+- A reachable HTTP or HTTPS Hermes WebUI URL
 
 ---
 
@@ -83,12 +83,12 @@ Requirements:
 
 ### 🛡️ Security
 
-- HTTPS-only URL validation
+- HTTP/HTTPS URL validation
 - Host allowlist for in-app navigation
-- External browser handoff for non-allowlisted HTTPS links
+- External browser handoff for non-allowlisted HTTP/HTTPS links
 - WebView microphone grants are limited to trusted Hermes WebUI pages and audio capture only (with Android `RECORD_AUDIO` + `MODIFY_AUDIO_SETTINGS` permissions)
 - Android seeds WebUI's MediaRecorder microphone fallback for the configured Hermes origin only
-- Cleartext traffic disabled
+- Cleartext traffic permitted so configured HTTP deployments can load; HTTPS remains recommended outside trusted local networks
 - Hardened WebView defaults and SSL-error cancellation
 
 ---
@@ -106,7 +106,7 @@ Important values:
 - `default_dashboard_url` - default Official Hermes Dashboard origin URL seeded into WebUI config when WebUI has no dashboard URL; path/query fragments are stripped before Android storage
 - `app_name` - Android launcher label
 
-The shipped defaults are placeholder HTTPS origins. Configure your real Hermes WebUI URL in app settings on first run.
+The shipped defaults are placeholder HTTPS origins. Configure your real Hermes WebUI URL in app settings on first run; both `http://` and `https://` URLs are accepted.
 
 Android identity lives in:
 
@@ -144,7 +144,7 @@ Optional checks:
 | Color | Area | Files | Purpose |
 |---|---|---|---|
 | 🔵 | Platform boundary | `app/src/main/java/com/hermeswebui/android/MainActivity.kt` | Main Hermes WebUI host, Android intents, WebView lifecycle, and dashboard Custom Tab handoff |
-| 🟣 | Security | `app/src/main/java/com/hermeswebui/android/core/security/UrlPolicy.kt` | HTTPS and allowlist decisions |
+| 🟣 | Security | `app/src/main/java/com/hermeswebui/android/core/security/UrlPolicy.kt` | HTTP/HTTPS and allowlist decisions |
 | 🟢 | Data | `app/src/main/java/com/hermeswebui/android/data/` | Encrypted app settings and staged share payloads |
 | 🟠 | Domain | `app/src/main/java/com/hermeswebui/android/domain/` | URL validation and Android share intent parsing |
 | 🟡 | UI | `app/src/main/java/com/hermeswebui/android/ui/` | Compose screens and ViewModel state |

@@ -20,13 +20,14 @@
 1. App starts, loads encrypted WebUI and Dashboard Terminal settings (`SettingsRepository`).
 2. WebView boots with hardened configuration.
 3. Android WebView compatibility shims disable forced darkening and patch Hermes WebUI root viewport height when `100dvh` collapses to `0px`.
-4. `UrlPolicy` enforces HTTPS + domain allowlist for every navigation.
-5. Native drawer actions switch the WebView between the configured WebUI and Terminal routes.
-6. `MainViewModel` drives active surface, loading/error/offline/share UI state.
-7. Share intents are parsed in `domain`, staged in ViewModel, then pushed into WebView flow.
-8. Settings updates rewrite encrypted preferences and reload trusted hosts.
-9. On WebView load failure, `MainViewModel` probes `{serverUrl}/api/status` (Hermes WebUI public liveness endpoint) to distinguish "server is down" from a transient content/navigation error. This refines the `isOffline` state and the copy shown to the user in `WebShell`.
-10. `hermes://session/{id}` deep links are handled in `MainActivity.onNewIntent`, navigating the WebView to `{serverUrl}/{id}` — the Hermes WebUI session route contract (see `apps/desktop/src/app/routes.ts: sessionRoute()` in hermes-agent).
+4. If the user has enabled "Hide WebUI menu button" in settings (default true), a DOM shim is injected to hide the WebUI's hamburger trigger, avoiding visual conflict with the native drawer.
+5. `UrlPolicy` enforces HTTPS + domain allowlist for every navigation.
+6. Native drawer offers WebUI routes (Chat `/`, Skills, Artifacts, Agents, Scheduler, Messaging), Tools (Terminal), and App options (App Settings, Reset session). Each WebUI route item loads `{serverUrl}{path}` and highlights based on current URL.
+7. `MainViewModel` drives active surface, loading/error/offline/share UI state.
+8. Share intents are parsed in `domain`, staged in ViewModel, then pushed into WebView flow.
+9. Settings updates rewrite encrypted preferences and reload trusted hosts.
+10. On WebView load failure, `MainViewModel` probes `{serverUrl}/api/status` (Hermes WebUI public liveness endpoint) to distinguish "server is down" from a transient content/navigation error. This refines the `isOffline` state and the copy shown to the user in `WebShell`.
+11. `hermes://session/{id}` deep links are handled in `MainActivity.onNewIntent`, navigating the WebView to `{serverUrl}/{id}` — the Hermes WebUI session route contract (see `apps/desktop/src/app/routes.ts: sessionRoute()` in hermes-agent).
 
 ## Security model
 

@@ -51,7 +51,9 @@ Requirements:
 - Kotlin + Jetpack Compose Android app
 - Hardened WebView for Hermes WebUI
 - Android WebView compatibility fixes for Hermes WebUI viewport rendering
-- Native drawer with WebUI and Dashboard Terminal destinations
+- Native drawer with WebUI routes (Chat, Skills, Artifacts, Agents, Scheduler, Messaging, Terminal)
+- Deep link support: `hermes://session/{id}` navigates to Hermes sessions
+- Server health probing on WebView errors to distinguish server-down from content errors
 - First-run settings flow for WebUI and terminal URLs
 - Back handling, pull-to-refresh, loading, offline, and error states
 

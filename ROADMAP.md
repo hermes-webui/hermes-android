@@ -18,8 +18,10 @@
 | Android sharing | Done - share-to-app intake for text and files |
 | Files | Done - WebView upload/download integration |
 | Local settings | Done - encrypted settings storage |
+| Native navigation | Done - drawer with WebUI routes, hamburger-hiding shim, deep links |
+| Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
 | Native distribution polish | Partial - app identity exists; release signing workflow still open |
-| Phase 2 native features | Planned - deep links, notifications, biometrics, profiles, camera |
+| Phase 2 native features | Planned - biometric lock, server profiles, push notifications, camera, sessions panel |
 
 ---
 
@@ -47,22 +49,26 @@
 - [x] Share-to-app intake for files
 - [x] Native launcher identity
 - [x] Splash and app theme
-- [x] Native drawer
+- [x] Native drawer with WebUI routes
 - [x] Dashboard Terminal route
+- [x] Deep links (`hermes://session/{id}`)
+- [x] Server health probing
 - [ ] Camera capture in file chooser
 - [ ] Direct share-file auto-attach flow
 - [ ] Attachment progress and retry UX
 
 ### Platform-native wishlist
 
-- [x] Deep links — `hermes://session/{id}` handled natively
+- [x] Deep links and verified app links to Hermes routes
+- [x] Server health probing to refine offline/error states
 - [ ] Server profile list for multiple Hermes hosts
 - [ ] Optional biometric app lock before showing WebView
 - [ ] FCM push notification plumbing
 - [ ] Notification channel strategy
-- [ ] Notification click routing to WebUI routes
+- [ ] Notification click routing to WebUI routes via deep links
 - [ ] Expanded native settings for theme, notifications, and profiles
-- [ ] Drawer destinations for files, kanban, sessions, and status
+- [ ] Drawer destination: native sessions list (requires authenticated API access)
+- [ ] Drawer destinations for files, kanban, and status
 - [ ] Instrumentation tests for WebView navigation and intent flows
 - [x] Final package/application ID decision before first public release
 - [ ] Release signing automation docs and snippets
@@ -73,22 +79,21 @@
 
 | ID | Priority | Status | Area | Task | Notes |
 |---|---|---|---|---|---|
-| A-005 | P1 | Done | Deep links | Add deep-link intent filter and route mapping | `hermes://session/{id}` → `{serverUrl}/{id}` per WebUI route contract |
 | A-009 | P1 | Todo | Settings | Add server profile list | Needed before broader multi-host use |
 | A-007 | P1 | Todo | Security UX | Add optional biometric app lock gate | Feature-flagged in settings |
 | A-006 | P1 | Todo | Notifications | Add FCM plumbing, channels, and click routing | Requires infrastructure decision for push source |
 | A-008 | P2 | Todo | Attachments | Add camera capture in file chooser flow | Include permissions and fallback behavior |
 | A-010 | P2 | Todo | Tests | Add instrumentation tests for navigation, share, and deep links | Emulator-ready where practical |
 | A-011 | P3 | Todo | Release | Add release signing automation docs and snippets | Keep keystore secrets out of repo |
-| A-013 | P2 | Todo | Navigation | Add more drawer destinations | Wait for stable WebUI routes for files, kanban, sessions, status |
+| A-013 | P2 | Todo | Navigation | Add drawer for native sessions list + other routes | Requires authenticated API access (A-009 strategy) |
 
 Recommended next order:
 
-1. A-005 Deep links
+1. A-007 Biometric lock
 2. A-009 Server profile list
-3. A-007 Biometric lock
-4. A-006 Push notifications
-5. A-008 Attachment and camera enhancements
+3. A-006 Push notifications
+4. A-008 Attachment and camera enhancements
+5. A-010 Instrumentation tests
 
 ---
 
@@ -107,6 +112,8 @@ Recommended next order:
 | A-014 | 2026-06-20 | Release | Finalized package ID and namespace as `com.hermeswebui.android` before first public release |
 | A-005 | 2026-06-20 | Deep links | Added `hermes://session/{id}` intent filter; navigates WebView to `{serverUrl}/{id}` per WebUI route contract |
 | API-001 | 2026-06-20 | API integration | Added `HermesApiClient` probing `/api/status` (public endpoint) on WebView errors to distinguish server-down from content errors |
+| NAV-001 | 2026-06-20 | Navigation | Reworked native drawer with WebUI route sections (Chat, Skills, Artifacts, Agents, Scheduler, Messaging); replaced floating button with compact hamburger-in-card trigger |
+| NAV-002 | 2026-06-20 | UI integration | Added hamburger-hiding DOM shim + user toggle to avoid visual conflict between native drawer and WebUI menu button; gracefully degrades if WebUI markup changes |
 | BUG-001 | 2026-06-20 | UI | Fixed unreadable text by applying an explicit native color scheme and disabling WebView algorithmic darkening |
 | BUG-002 | 2026-06-20 | WebView | Fixed Hermes WebUI text/content visibility by injecting a measured viewport-height shim when Android WebView computes `100dvh` as `0px` |
 

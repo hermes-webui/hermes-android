@@ -29,24 +29,31 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -280,13 +287,22 @@ class MainActivity : ComponentActivity() {
                         onRetry = onReload,
                         onOpenExternal = onOpenExternal
                     )
-                    Button(
+                    // Compact hamburger trigger. Uses a semi-transparent surface card
+                    // so it is readable over any WebUI background without blocking content.
+                    Surface(
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(12.dp),
-                        onClick = { scope.launch { drawerState.open() } }
+                            .padding(8.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                        shadowElevation = 2.dp
                     ) {
-                        Text("Menu")
+                        IconButton(
+                            modifier = Modifier.size(40.dp),
+                            onClick = { scope.launch { drawerState.open() } }
+                        ) {
+                            Icon(Icons.Filled.Menu, contentDescription = "Open menu")
+                        }
                     }
                     SnackbarHost(hostState = snackbarHostState)
                 }
@@ -315,50 +331,92 @@ class MainActivity : ComponentActivity() {
         onOpenSettings: () -> Unit,
         onResetSession: () -> Unit
     ) {
+        // Derive current WebUI path from the tracked URL so items highlight correctly.
+        val currentPath = remember(viewModel.uiState.value.currentUrl) {
+            try {
+                java.net.URI(viewModel.uiState.value.currentUrl).rawPath.ifBlank { "/" }
+            } catch (_: Exception) { "/" }
+        }
+
         ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 16.dp)
             ) {
-                Text(text = "Hermes", style = MaterialTheme.typography.headlineSmall)
-                Text(text = webUiUrl, style = MaterialTheme.typography.bodySmall)
-                DrawerButton(
-                    text = "Chat",
-                    selected = activeSurface == MainSurface.WEB_UI,
-                    enabled = webUiUrl.isNotBlank(),
-                    onClick = { onSelectSurface(MainSurface.WEB_UI) }
-                )
-                DrawerButton(
-                    text = "Terminal",
-                    selected = activeSurface == MainSurface.TERMINAL,
-                    enabled = terminalUrl.isNotBlank(),
-                    onClick = { onSelectSurface(MainSurface.TERMINAL) }
-                )
-                TextButton(onClick = onOpenSettings) {
-                    Text("Settings")
+                // ── Header ───────────────────────────────────────────────
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                    Text(text = "Hermes", style = MaterialTheme.typography.headlineSmall)
+                    if (webUiUrl.isNotBlank()) {
+                        Text(
+                            text = webUiUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1
+                        )
+                    }
                 }
-                TextButton(onClick = onResetSession) {
-                    Text("Reset web session")
-                }
-            }
-        }
-    }
 
-    @Composable
-    private fun DrawerButton(
-        text: String,
-        selected: Boolean,
-        enabled: Boolean,
-        onClick: () -> Unit
-    ) {
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = enabled,
-            onClick = onClick
-        ) {
-            Text(if (selected) "$text *" else text)
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
+                // ── WebUI routes ─────────────────────────────────────────
+                // Paths match the Hermes WebUI route contract (apps/desktop/src/app/routes.ts).
+                val webUiRoutes = listOf(
+                    "/" to "Chat",
+                    "/skills" to "Skills",
+                    "/artifacts" to "Artifacts",
+                    "/agents" to "Agents",
+                    "/cron" to "Scheduler",
+                    "/messaging" to "Messaging",
+                )
+                webUiRoutes.forEach { (path, label) ->
+                    val selected = activeSurface == MainSurface.WEB_UI &&
+                        (currentPath == path || (path == "/" && currentPath.isEmpty()))
+                    NavigationDrawerItem(
+                        label = { Text(label) },
+                        selected = selected,
+                        onClick = {
+                            val targetUrl = webUiUrl.trimEnd('/') + path
+                            if (UrlPolicy(allowedHosts).isAllowed(targetUrl)) {
+                                viewModel.selectSurface(MainSurface.WEB_UI, targetUrl)
+                                webView.loadUrl(targetUrl)
+                            }
+                            onSelectSurface(MainSurface.WEB_UI)
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
+                // ── Tools ────────────────────────────────────────────────
+                NavigationDrawerItem(
+                    label = { Text("Terminal") },
+                    selected = activeSurface == MainSurface.TERMINAL,
+                    onClick = { onSelectSurface(MainSurface.TERMINAL) },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
+                // ── App ──────────────────────────────────────────────────
+                NavigationDrawerItem(
+                    label = { Text("App Settings") },
+                    selected = false,
+                    onClick = onOpenSettings,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+                NavigationDrawerItem(
+                    label = { Text("Reset web session") },
+                    selected = false,
+                    onClick = onResetSession,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+            }
         }
     }
 

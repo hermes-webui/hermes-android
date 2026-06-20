@@ -140,10 +140,38 @@ private val HermesWebViewViewportFixScript = """
     })();
 """.trimIndent()
 
+private val HermesHideMenuButtonScript = """
+    (function() {
+      var tryHideMenuButton = function() {
+        var selectors = [
+          'button[aria-label*="menu" i]',
+          'button[aria-label*="toggle" i]',
+          '[data-testid="sidebar-toggle"]',
+          '.sidebar-toggle',
+          '.menu-button'
+        ];
+        for (var i = 0; i < selectors.length; i++) {
+          var btn = document.querySelector(selectors[i]);
+          if (btn && btn.offsetParent !== null) {
+            btn.style.display = 'none';
+            return;
+          }
+        }
+      };
+      tryHideMenuButton();
+      if (!window.__hermesAndroidMenuButtonHiddenInstalled) {
+        window.__hermesAndroidMenuButtonHiddenInstalled = true;
+        var observer = new MutationObserver(function() { tryHideMenuButton(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+    })();
+""".trimIndent()
+
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: MainViewModel
     private lateinit var webView: WebView
+    private lateinit var settingsRepository: SettingsRepository
 
     private var allowedHosts: Set<String> = emptySet()
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -160,7 +188,7 @@ class MainActivity : ComponentActivity() {
 
         val defaultUrl = getString(R.string.default_server_url)
         val defaultDashboardTerminalUrl = getString(R.string.default_dashboard_terminal_url)
-        val settingsRepository = SettingsRepository(applicationContext)
+        settingsRepository = SettingsRepository(applicationContext)
         viewModel = ViewModelProvider(
             this,
             MainViewModelFactory(settingsRepository, defaultUrl, defaultDashboardTerminalUrl)
@@ -313,7 +341,11 @@ class MainActivity : ComponentActivity() {
                     SettingsBottomSheet(
                         initialServerUrl = uiState.settings.serverUrl,
                         initialDashboardTerminalUrl = uiState.settings.dashboardTerminalUrl,
+                        initialHideWebUIMenuButton = uiState.settings.hideWebUIMenuButton,
                         onSave = onSaveSettings,
+                        onHideWebUIMenuButtonChanged = { hide ->
+                            settingsRepository.setHideWebUIMenuButton(hide)
+                        },
                         onResetSession = onResetSession,
                         onDismiss = { viewModel.closeSettings() }
                     )
@@ -522,6 +554,11 @@ class MainActivity : ComponentActivity() {
         // Android WebView can report supported dynamic viewport units while computing them as 0px.
         // Hermes WebUI uses 100dvh for the root flex shell, so force the measured viewport height.
         view?.evaluateJavascript(HermesWebViewViewportFixScript, null)
+
+        // Optionally hide the WebUI hamburger button to avoid conflict with the native drawer trigger.
+        if (viewModel.uiState.value.settings.hideWebUIMenuButton) {
+            view?.evaluateJavascript(HermesHideMenuButtonScript, null)
+        }
     }
 
     private fun buildDownloadListener(context: Context): DownloadListener {

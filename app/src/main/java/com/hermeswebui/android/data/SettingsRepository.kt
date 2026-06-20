@@ -28,6 +28,7 @@ class SettingsRepository(context: Context) {
             .toSet()
         val hostCsv = sharedPreferences.getString(KEY_ALLOWED_HOSTS, parsedHosts.joinToString(",")).orEmpty()
         val isConfigured = sharedPreferences.getBoolean(KEY_IS_CONFIGURED, false)
+        val hideWebUIMenuButton = sharedPreferences.getBoolean(KEY_HIDE_WEBUI_MENU_BUTTON, true)
         val allowlist = hostCsv
             .split(',')
             .map { it.trim().lowercase() }
@@ -37,7 +38,8 @@ class SettingsRepository(context: Context) {
             serverUrl = serverUrl,
             dashboardTerminalUrl = dashboardTerminalUrl,
             allowedHosts = allowlist,
-            isConfigured = isConfigured
+            isConfigured = isConfigured,
+            hideWebUIMenuButton = hideWebUIMenuButton
         )
     }
 
@@ -52,6 +54,10 @@ class SettingsRepository(context: Context) {
             .putString(KEY_ALLOWED_HOSTS, hosts.joinToString(","))
             .putBoolean(KEY_IS_CONFIGURED, true)
             .apply()
+    }
+
+    fun setHideWebUIMenuButton(hide: Boolean) {
+        sharedPreferences.edit().putBoolean(KEY_HIDE_WEBUI_MENU_BUTTON, hide).apply()
     }
 
     fun clearWebSession() {
@@ -71,5 +77,6 @@ class SettingsRepository(context: Context) {
         private const val KEY_ALLOWED_HOSTS = "allowed_hosts"
         private const val KEY_LAST_URL = "last_url"
         private const val KEY_IS_CONFIGURED = "is_configured"
+        private const val KEY_HIDE_WEBUI_MENU_BUTTON = "hide_webui_menu_button"
     }
 }

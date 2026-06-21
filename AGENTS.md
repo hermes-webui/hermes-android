@@ -47,6 +47,11 @@ This repository is the standalone Android app.
 - Modify this repo only unless the human explicitly asks for sibling repo work.
 - The sibling `hermes-webui` repo may be read for reference, but do not edit it
   from this workspace task without explicit instruction.
+- Treat this project as a stable Android wrapper. Bugs and PRs here should be
+  Android-app-specific: WebView hosting, permissions, settings, share/download,
+  notifications, deep links, build, signing, and release behavior.
+- Redirect WebUI layout, styling, animation, routing, API behavior, and product
+  workflow changes to the Hermes WebUI repository.
 - Keep the Android app a thin, secure companion to Hermes WebUI.
 - Prefer incremental changes over broad rewrites.
 - Treat `applicationId` and `namespace` as release-critical identity. Do not

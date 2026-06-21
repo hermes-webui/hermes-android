@@ -1,7 +1,7 @@
 # Hermes-Android Roadmap
 
-> Native Android companion for Hermes Web UI. Secure WebView shell first,
-> selective Android-native features over time.
+> Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
+> good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
 > Last updated: 2026-06-21
 
@@ -23,7 +23,8 @@
 | Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
 | Browser notifications | Done - WebUI Notification API bridge, Android runtime permission, notification channel, and trusted WebUI tap routing |
 | Native distribution polish | Done - app identity and signed release automation are wired for local builds plus GitHub Actions |
-| Phase 2 native features | Planned - biometric lock, server profiles, FCM push, camera, sessions panel |
+| Maintenance posture | Stable - accept Android-wrapper fixes, compatibility updates, dependency updates, and release maintenance |
+| Native feature expansion | Deferred - revisit only for Android-specific needs with a clear WebUI/API boundary |
 
 ---
 
@@ -62,7 +63,11 @@
 - [ ] Direct share-file auto-attach flow
 - [ ] Attachment progress and retry UX
 
-### Platform-native wishlist
+### Deferred Android-only ideas
+
+These are not active priorities. Revisit only if a specific Android platform
+need justifies native work. WebUI layout, styling, animations, and product
+workflow changes should be made in Hermes WebUI instead.
 
 - [x] Deep links and verified app links to Hermes routes
 - [x] Server health probing to refine offline/error states
@@ -80,25 +85,14 @@
 
 ---
 
-## Forward work
+## Maintenance work
 
 | ID | Priority | Status | Area | Task | Notes |
 |---|---|---|---|---|---|
-| A-009 | P1 | Todo | Settings | Add server profile list | Needed before broader multi-host use |
-| A-007 | P1 | Todo | Security UX | Add optional biometric app lock gate | Feature-flagged in settings |
-| A-006 | P1 | Todo | Notifications | Add FCM push plumbing | Browser notification bridge, channel, and click routing are done; external push source still needs an infrastructure decision |
-| A-015 | P2 | Todo | Security | Plan encrypted settings migration off deprecated AndroidX Security Crypto APIs | Preserve existing encrypted preference keys and user settings during migration |
-| A-008 | P2 | Todo | Attachments | Add camera capture in file chooser flow | Include permissions and fallback behavior |
-| A-010 | P2 | Todo | Tests | Add instrumentation tests for navigation, share, and deep links | Emulator-ready where practical |
-| A-013 | P2 | Todo | Navigation | Add optional sessions/files/kanban/status shortcuts without replacing WebUI navigation | Sessions require authenticated API access (A-009 strategy) |
-
-Recommended next order:
-
-1. A-007 Biometric lock
-2. A-009 Server profile list
-3. A-006 Push notifications
-4. A-008 Attachment and camera enhancements
-5. A-010 Instrumentation tests
+| M-001 | As needed | Open | Platform | Keep Android, Gradle, Kotlin, and dependency compatibility current | Wrapper stability and Play distribution maintenance |
+| M-002 | As needed | Open | Security | Keep WebView, URL policy, permissions, and encrypted settings behavior hardened | Preserve HTTP/HTTPS configured-host support and host allowlist enforcement |
+| M-003 | As needed | Open | Bugfix | Fix Android-wrapper regressions | Scope to WebView hosting, permissions, share/download, notifications, deep links, settings, and release flow |
+| M-004 | As needed | Open | Release | Keep signed release automation current | Maintain alignment between Gradle metadata, `keystore.properties.example`, and GitHub Actions secrets |
 
 ---
 
@@ -150,8 +144,10 @@ Recommended next order:
 
 ## Update rules
 
-- Add new user wishlist items to [Platform-native wishlist](#platform-native-wishlist).
-- Track actionable work in [Forward work](#forward-work) with an ID, priority,
+- Add only Android-wrapper-specific ideas to [Deferred Android-only ideas](#deferred-android-only-ideas).
+- Redirect WebUI layout, styling, animations, routes, API behavior, and product
+  workflow requests to Hermes WebUI.
+- Track actionable Android-wrapper maintenance in [Maintenance work](#maintenance-work) with an ID, priority,
   status, area, task, and notes.
 - Move finished work to [Completed work](#completed-work) after verification.
 - Keep `README.md`, `ARCHITECTURE.md`, and `AGENTS.md` aligned when behavior,

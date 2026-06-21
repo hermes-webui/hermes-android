@@ -1,16 +1,32 @@
 # Hermes-Android 🤖📱
 
-Hermes-Android is the native Android companion for
+Hermes-Android is the native Android wrapper for
 [Hermes Web UI](https://github.com/nesquena/hermes-webui). It keeps the
-Hermes web app as the primary interface and adds the Android pieces that should
-live on-device: secure WebView hosting, native navigation, sharing, downloads,
-and encrypted local settings.
+Hermes web app as the primary interface and adds only the Android pieces that
+should live on-device: secure WebView hosting, native navigation, sharing,
+downloads, notifications, and encrypted local settings.
 
 > 🔒 HTTP/HTTPS URL policy · 🌐 host allowlist · 📂 sharing + downloads · 🧊 encrypted settings
 > 🔔 Android-backed WebUI notifications
 
-The app is intentionally thin. Hermes behavior stays server-delivered through
-WebUI, while this repo owns Android integration and device safety.
+The app is intentionally thin. Hermes product behavior, UI layout, styling, and
+feature workflows stay server-delivered through WebUI, while this repo owns
+Android integration and device safety.
+
+## Repository Scope
+
+Use this repository for Android-wrapper issues and PRs only:
+
+- WebView hosting, navigation, compatibility, and Android lifecycle behavior
+- Android permissions, microphone, notifications, sharing, uploads, downloads, and deep links
+- Local encrypted settings, app identity, build, signing, and Play distribution
+
+Open WebUI/product issues in
+[Hermes Web UI](https://github.com/nesquena/hermes-webui) instead:
+
+- Hermes UI layout, styling, animations, routing, and dashboard behavior
+- Chat/session behavior, product features, API behavior, and WebUI bugs
+- Feature requests that should work the same in browser, desktop, and Android
 
 ---
 
@@ -37,6 +53,7 @@ Current Android build metadata:
 
 ## 🧭 Contents
 
+- Repository scope
 - ⚡ Quick start
 - ✨ Features
 - ⚙️ Configuration

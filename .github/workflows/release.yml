@@ -43,12 +43,15 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/signing"
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
+          test -f "$ANDROID_KEYSTORE_FILE" || { echo "Keystore file was not created"; exit 1; }
+          ls -lh "$ANDROID_KEYSTORE_FILE"
+          echo "Keystore file size: $(wc -c < "$ANDROID_KEYSTORE_FILE") bytes"
 
       - name: Build and stage signed release artifacts
         shell: bash
         run: |
           chmod +x ./gradlew
-          ./gradlew test :app:assembleDebug :app:stageReleaseArtifacts --no-daemon
+          ./gradlew test :app:stageReleaseArtifacts --no-daemon
 
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4

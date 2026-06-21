@@ -1,8 +1,71 @@
 import com.android.build.api.dsl.ApplicationExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
+import java.util.Properties
 
 val appVersionName = "0.1.3-pre-release"
 val distributionArtifactName = "hermes-webui-v$appVersionName"
+
+val keystoreProperties = Properties().apply {
+    val propertiesFile = rootProject.file("keystore.properties")
+    if (propertiesFile.exists()) {
+        propertiesFile.inputStream().use(::load)
+    }
+}
+
+fun signingValue(environmentVariable: String, propertyName: String): String? {
+    return providers.environmentVariable(environmentVariable).orNull
+        ?.takeIf { it.isMeaningfulSigningValue() }
+        ?: keystoreProperties.getProperty(propertyName)?.takeIf { it.isMeaningfulSigningValue() }
+}
+
+fun String.isMeaningfulSigningValue(): Boolean {
+    val normalized = trim()
+    return normalized.isNotEmpty() && normalized.lowercase() !in setOf("change-me", "replace-me")
+}
+
+fun resolveSigningFile(path: String): File {
+    val candidate = File(path)
+    return if (candidate.isAbsolute) candidate else rootProject.file(path)
+}
+
+val releaseStoreFilePath = signingValue("ANDROID_KEYSTORE_FILE", "storeFile")
+val releaseStorePassword = signingValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
+val releaseKeyAlias = signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+val releaseKeyPassword = signingValue("ANDROID_KEY_PASSWORD", "keyPassword")
+val releaseStoreFile = releaseStoreFilePath?.let(::resolveSigningFile)
+val releaseSigningConfigured = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { it != null }
+
+val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
+    group = "verification"
+    description = "Fails fast when release signing credentials are missing or invalid."
+
+    doLast {
+        if (!releaseSigningConfigured) {
+            error(
+                """
+                Release signing is not configured.
+                Provide either:
+                - ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+                - or a root keystore.properties file with storeFile, storePassword, keyAlias, keyPassword
+                """.trimIndent()
+            )
+        }
+
+        val signingFile = requireNotNull(releaseStoreFile)
+        check(signingFile.exists()) {
+            "Release keystore file does not exist: ${signingFile.path}"
+        }
+        check(signingFile.isFile) {
+            "Release keystore path is not a file: ${signingFile.path}"
+        }
+    }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -18,6 +81,17 @@ extensions.configure<ApplicationExtension>("android") {
     namespace = "com.hermeswebui.android"
     compileSdk = 37
 
+    signingConfigs {
+        create("release") {
+            if (releaseSigningConfigured) {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.hermeswebui.android"
         minSdk = 26
@@ -32,6 +106,9 @@ extensions.configure<ApplicationExtension>("android") {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -56,6 +133,10 @@ extensions.configure<ApplicationExtension>("android") {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+    dependsOn(verifyReleaseSigning)
 }
 
 kotlin {
@@ -96,23 +177,25 @@ fun copyFirstExistingArtifact(candidates: List<File>, target: File) {
 
 tasks.register("stageGithubReleaseApk") {
     group = "distribution"
-    description = "Builds the release APK and stages it as release/$distributionArtifactName.apk."
+    description = "Builds the release APK and stages it as build/release/$distributionArtifactName.apk."
+    dependsOn(verifyReleaseSigning)
     dependsOn("assembleRelease")
 
     doLast {
         copyFirstExistingArtifact(
             candidates = listOf(
                 layout.buildDirectory.file("outputs/apk/release/$distributionArtifactName-release.apk").get().asFile,
-                layout.buildDirectory.file("outputs/apk/release/$distributionArtifactName-release-unsigned.apk").get().asFile
+                layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
             ),
-            target = rootProject.layout.projectDirectory.file("release/$distributionArtifactName.apk").asFile
+            target = rootProject.layout.buildDirectory.file("release/$distributionArtifactName.apk").get().asFile
         )
     }
 }
 
 tasks.register("stagePlayReleaseBundle") {
     group = "distribution"
-    description = "Builds the release app bundle and stages it as release/$distributionArtifactName.aab."
+    description = "Builds the release app bundle and stages it as build/release/$distributionArtifactName.aab."
+    dependsOn(verifyReleaseSigning)
     dependsOn("bundleRelease")
 
     doLast {
@@ -121,7 +204,7 @@ tasks.register("stagePlayReleaseBundle") {
                 layout.buildDirectory.file("outputs/bundle/release/$distributionArtifactName-release.aab").get().asFile,
                 layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile
             ),
-            target = rootProject.layout.projectDirectory.file("release/$distributionArtifactName.aab").asFile
+            target = rootProject.layout.buildDirectory.file("release/$distributionArtifactName.aab").get().asFile
         )
     }
 }

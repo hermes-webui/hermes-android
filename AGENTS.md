@@ -75,6 +75,7 @@ roadmap or user request explicitly calls for it.
 - Keep non-web schemes blocked.
 - Do not add JavaScript bridges for secrets.
 - Keep signing keys, API keys, passwords, and local machine paths out of git.
+- Local release signing must use the untracked repo-root `keystore.properties`; CI release signing must use `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` inputs or environment variables.
 
 ## Documentation rules
 
@@ -92,6 +93,10 @@ clearly out of scope or already tracked.
 
 When package identity, release signing, store distribution, or public release
 behavior changes, update `ROADMAP.md` and `README.md` in the same change.
+
+The repo includes `.github/workflows/release.yml` for signed release automation.
+Keep it aligned with `app/build.gradle.kts`, `keystore.properties.example`, and
+the documented GitHub secrets whenever the release flow changes.
 
 ## Verification
 

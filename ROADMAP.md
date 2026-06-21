@@ -22,7 +22,7 @@
 | Native navigation | Done - WebUI-owned dashboard link integration and deep links |
 | Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
 | Browser notifications | Done - WebUI Notification API bridge, Android runtime permission, notification channel, and trusted WebUI tap routing |
-| Native distribution polish | Partial - app identity exists; release signing workflow still open |
+| Native distribution polish | Done - app identity and signed release automation are wired for local builds plus GitHub Actions |
 | Phase 2 native features | Planned - biometric lock, server profiles, FCM push, camera, sessions panel |
 
 ---
@@ -75,7 +75,7 @@
 - [ ] WebUI menu shortcuts for files, kanban, and status if needed
 - [ ] Instrumentation tests for WebView navigation and intent flows
 - [x] Final package/application ID decision before first public release
-- [ ] Release signing automation docs and snippets
+- [x] Release signing automation docs and snippets
 
 ---
 
@@ -88,7 +88,6 @@
 | A-006 | P1 | Todo | Notifications | Add FCM push plumbing | Browser notification bridge, channel, and click routing are done; external push source still needs an infrastructure decision |
 | A-008 | P2 | Todo | Attachments | Add camera capture in file chooser flow | Include permissions and fallback behavior |
 | A-010 | P2 | Todo | Tests | Add instrumentation tests for navigation, share, and deep links | Emulator-ready where practical |
-| A-011 | P3 | Todo | Release | Add release signing automation docs and snippets | Keep keystore secrets out of repo |
 | A-013 | P2 | Todo | Navigation | Add optional sessions/files/kanban/status shortcuts without replacing WebUI navigation | Sessions require authenticated API access (A-009 strategy) |
 
 Recommended next order:
@@ -139,6 +138,8 @@ Recommended next order:
 | NOTIF-001 | 2026-06-21 | Notifications | Added Android-backed WebUI browser notifications with `POST_NOTIFICATIONS`, a native channel, a scoped WebView Notification API bridge, service-worker notification fallback, and allowlisted notification tap routing |
 | REL-003 | 2026-06-21 | Release | Updated Android app version metadata to `0.1.3-pre-release` with `versionCode` 4 for the next pre-release build |
 | REL-004 | 2026-06-21 | Release | Changed distribution artifact staging to use `hermes-webui-v<version>.apk` for GitHub and `hermes-webui-v<version>.aab` for Google Play instead of repository-name filenames |
+| A-011 | 2026-06-21 | Release | Added local `keystore.properties` plus GitHub Actions secret-based signing so release APK/AAB builds fail fast unless they are signed and ready for distribution |
+| CLEANUP-003 | 2026-06-21 | Build | Moved staged release artifacts from root `release/` into ignored `build/release/` and ignored legacy root release outputs |
 
 ---
 

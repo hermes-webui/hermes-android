@@ -33,6 +33,13 @@
 14. On WebView load failure, `MainViewModel` probes `{serverUrl}/api/status` (Hermes WebUI public liveness endpoint) to distinguish "server is down" from a transient content/navigation error. This refines the `isOffline` state and the copy shown to the user in `WebShell`.
 15. `hermes://session/{id}` deep links are handled in `MainActivity.onNewIntent`, navigating the WebView to `{serverUrl}/{id}` — the Hermes WebUI session route contract (see `apps/desktop/src/app/routes.ts: sessionRoute()` in hermes-agent).
 
+## Build and release flow
+
+- Local signed release builds load upload-key credentials from an untracked repo-root `keystore.properties` file.
+- CI signed release builds load the same values from `ANDROID_KEYSTORE_*` environment variables, with the keystore file decoded from the `ANDROID_KEYSTORE_BASE64` GitHub Actions secret.
+- `:app:assembleRelease`, `:app:bundleRelease`, and `:app:stageReleaseArtifacts` fail fast when signing credentials are missing or the keystore file path is invalid, preventing unsigned distribution artifacts from being staged as release-ready output.
+- `:app:stageReleaseArtifacts` copies signed APK/AAB distribution files into the ignored root `build/release/` output folder so generated binaries do not live beside source files.
+
 ## Security model
 
 - Trust boundary is the configured Hermes WebUI and dashboard URL host set.

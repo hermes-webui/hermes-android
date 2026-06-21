@@ -119,8 +119,54 @@ Android identity lives in:
 - `settings.gradle.kts` - Gradle project name
 - `app/src/main/AndroidManifest.xml` - launcher, permissions, intent filters
 
-Release signing is not wired yet. Track that work in [ROADMAP.md](./ROADMAP.md)
-before adding signing config, and keep secrets out of the repository.
+Release signing is wired for both local builds and GitHub Actions without
+committing secrets.
+
+### Local signed release setup
+
+1. Copy `keystore.properties.example` to `keystore.properties`.
+2. Fill in your real keystore path and passwords.
+3. Keep `keystore.properties` untracked.
+
+Example `keystore.properties` values:
+
+```properties
+storeFile=C:/path/to/upload-keystore.jks
+storePassword=replace-me
+keyAlias=upload
+keyPassword=replace-me
+```
+
+With that file present, release builds automatically sign the APK and AAB.
+
+```powershell
+Copy-Item .\keystore.properties.example .\keystore.properties
+.\gradlew.bat :app:stageReleaseArtifacts --no-daemon
+```
+
+If signing values are missing, `release` tasks fail fast with a clear message
+instead of producing unsigned distribution artifacts.
+
+### GitHub Actions signed release setup
+
+Add these repository secrets before running the release workflow:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+To create the Base64 keystore value on Windows PowerShell:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:/path/to/upload-keystore.jks")) | Set-Clipboard
+```
+
+The workflow in `.github/workflows/release.yml` can then:
+
+- build and sign release APK/AAB artifacts
+- upload them as workflow artifacts on manual runs
+- attach them to a GitHub Release automatically when you push a `v*` tag
 
 Google Play listing assets:
 
@@ -135,10 +181,11 @@ Release artifact naming:
 .\gradlew.bat :app:stageReleaseArtifacts --no-daemon
 ```
 
-This stages distribution files with the product name and version:
+When signing is configured, this stages signed distribution files under
+Gradle's ignored build output directory with the product name and version:
 
-- `release/hermes-webui-v<version>.apk` - GitHub/device APK artifact
-- `release/hermes-webui-v<version>.aab` - Google Play app bundle artifact
+- `build/release/hermes-webui-v<version>.apk` - GitHub/device APK artifact
+- `build/release/hermes-webui-v<version>.aab` - Google Play app bundle artifact
 
 ---
 

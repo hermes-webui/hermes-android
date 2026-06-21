@@ -9,3 +9,6 @@
 .DS_Store
 
 app/release/
+/release/
+/keystore.properties
+/signing/

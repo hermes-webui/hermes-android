@@ -256,6 +256,47 @@ class MainViewModelTest {
         assertThat(viewModel.uiState.value.isLoading).isTrue()
     }
 
+    @Test
+    fun `resumeAutoRetryIfNeeded restarts polling after cancel when still in error state`() = runTest(testDispatcher) {
+        var probeCount = 0
+        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+            probeCount++
+            false
+        }
+
+        viewModel.onPageError("error", isOffline = false)
+        runCurrent()
+        assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+
+        viewModel.cancelAutoRetry()
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+
+        viewModel.resumeAutoRetryIfNeeded()
+        runCurrent()
+        assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+
+        advanceTimeBy(1_001L)
+        runCurrent()
+        assertThat(probeCount).isEqualTo(1)
+    }
+
+    @Test
+    fun `resumeAutoRetryIfNeeded does nothing without error state`() = runTest(testDispatcher) {
+        var probeCount = 0
+        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+            probeCount++
+            false
+        }
+
+        viewModel.resumeAutoRetryIfNeeded()
+        runCurrent()
+
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertThat(probeCount).isEqualTo(0)
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+    }
+
     private class FakeSettingsStore : SettingsStore {
         private var settings = AppSettings(
             serverUrl = "https://hermes.example.com",

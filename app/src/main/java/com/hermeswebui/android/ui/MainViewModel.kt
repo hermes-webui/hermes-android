@@ -129,6 +129,17 @@ class MainViewModel(
         _uiState.update { it.copy(isReconnecting = false) }
     }
 
+    /**
+     * Restarts bounded auto-retry when returning to foreground and the app is
+     * still showing a load error.
+     */
+    fun resumeAutoRetryIfNeeded() {
+        val state = _uiState.value
+        if (state.errorMessage == null || state.isLoading) return
+        if (autoRetryJob?.isActive == true) return
+        startAutoRetry()
+    }
+
     private var sharedText: String? = null
     private var sharedFileUris: List<String> = emptyList()
 

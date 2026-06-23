@@ -341,7 +341,14 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (::webView.isInitialized) {
             updateWebNotificationPermissionState()
+            viewModel.resumeAutoRetryIfNeeded()
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Avoid background polling; restart on resume if the error screen is still active.
+        viewModel.cancelAutoRetry()
     }
 
     /** Handles hermes://session/{session_id} deep links.

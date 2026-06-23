@@ -20,8 +20,8 @@ For implementation work, also inspect the relevant source files under
 Useful entry points:
 
 - `MainActivity.kt` - Android platform boundary, WebView, intents, downloads, dashboard Custom Tab launch
-- `core/security/UrlPolicy.kt` - URL and navigation decisions
-- `data/SettingsRepository.kt` - encrypted settings persistence
+- `core/security/UrlPolicy.kt` - URL and navigation decisions; also contains the top-level `UrlOrigins` object with origin/URL normalization utilities (`hostFrom`, `hasSameOrigin`, `documentStartOriginRule`, `normalizeOriginUrl`, `normalizedPath`) — use these helpers rather than ad-hoc URI parsing
+- `data/SettingsRepository.kt` - encrypted settings persistence; implements `SettingsStore` interface. Uses a versioned `runMigration()` pattern (`KEY_LAST_MIGRATION_VERSION`): when adding new data schema changes, increment `currentMigrationVersion` and add a corresponding migration block. Non-interface methods (`hasRequestedNotificationPermission`, `markNotificationPermissionRequested`, `getLastLoadedUrl`) are called directly by `MainActivity`.
 - `domain/ServerUrlValidator.kt` - server URL validation rules
 - `domain/ShareIntentParser.kt` - Android share-sheet parsing
 - `ui/MainViewModel.kt` - app state orchestration
@@ -62,7 +62,10 @@ This repository is the standalone Android app.
 - Preserve the channel identity split: Google Play builds use the official
   `release` build type and `com.hermeswebui.android`; GitHub APK builds use the
   `github` build type, `com.hermeswebui.android.github`, and a `-github`
-  version name suffix so both channels can install side by side.
+  version name suffix so both channels can install side by side. Debug builds
+  use `applicationIdSuffix = ".debug"` (`com.hermeswebui.android.debug`) and
+  display as "Hermes DEBUG" so test builds are visually distinct from release
+  builds on the same device.
 
 ## Product direction
 
@@ -107,11 +110,16 @@ When package identity, release signing, store distribution, or public release
 behavior changes, update `ROADMAP.md` and `README.md` in the same change.
 
 The repo includes `.github/workflows/release.yml` for signed GitHub APK release
-automation. Keep it aligned with `app/build.gradle.kts`,
-`keystore.properties.example`, and the documented GitHub secrets whenever the
-release flow changes. The GitHub workflow should publish only the
-`hermes-webui-v<version>-github.apk` APK, and tag-triggered releases should
-match the Gradle `versionName`.
+automation and `.github/workflows/play-aab.yml` for building/uploading a signed
+AAB to the Google Play internal testing track. Keep both aligned with
+`app/build.gradle.kts`, `keystore.properties.example`, and the documented GitHub
+secrets whenever the release flow changes. Keep `play-aab.yml` aligned with the
+`GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64` secret when the Play upload flow
+changes. The GitHub workflow should publish only the
+`hermes-webui-v<version>-github.apk` APK, tag-triggered releases should match
+the Gradle `versionName`, and the release body should keep the explicit build
+metadata block (version/tag, commit SHA, APK filename, SHA-256, workflow run
+URL) ahead of generated notes.
 
 ## Verification
 
@@ -120,6 +128,13 @@ Run from the repository root:
 ```powershell
 .\gradlew.bat test --no-daemon
 .\gradlew.bat assembleDebug --no-daemon
+```
+
+For a local signed release build:
+
+```powershell
+.\gradlew.bat stageGithubReleaseApk --no-daemon   # builds signed github APK into build/release/
+.\gradlew.bat printReleaseVersionName --no-daemon  # prints current versionName for automation
 ```
 
 For docs-only changes, Gradle verification may be skipped if the final response

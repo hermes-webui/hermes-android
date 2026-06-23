@@ -74,6 +74,44 @@ jobs:
           ./gradlew test :app:stageGithubReleaseApk --no-daemon
           find build/release -maxdepth 1 -type f -name '*.apk' -print
 
+      - name: Build release notes body
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_version.outputs.tag_name }}
+        run: |
+          apk_path="$(find build/release -maxdepth 1 -type f -name 'hermes-webui-v*-github.apk' | head -n 1)"
+          test -n "$apk_path" || { echo "No staged GitHub APK found"; exit 1; }
+          apk_name="$(basename "$apk_path")"
+          apk_sha256="$(sha256sum "$apk_path" | awk '{print $1}')"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          generated_notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="$GITHUB_SHA" \
+            --jq '.body')"
+
+          cat > build/release/release-notes.md <<EOF
+          ## Release Details
+
+          - Version: \
+            `${{ steps.release_version.outputs.version_name }}`
+          - Tag: \
+            `$RELEASE_TAG`
+          - Commit: \
+            `$GITHUB_SHA`
+          - Artifact: \
+            `$apk_name`
+          - SHA-256: \
+            `$apk_sha256`
+          - Workflow run: \
+            $run_url
+
+          ---
+
+          $generated_notes
+          EOF
+
       - name: Upload signed GitHub APK artifact
         uses: actions/upload-artifact@v7
         with:
@@ -89,13 +127,16 @@ jobs:
           RELEASE_TAG: ${{ steps.release_version.outputs.tag_name }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --notes-file build/release/release-notes.md
             gh release upload "$RELEASE_TAG" build/release/*.apk --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$RELEASE_TAG" build/release/*.apk \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Hermes WebUI Android $RELEASE_TAG" \
-              --generate-notes
+              --notes-file build/release/release-notes.md
           fi
 

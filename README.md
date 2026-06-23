@@ -195,6 +195,7 @@ The workflow in `.github/workflows/release.yml` can then:
 - upload it as a workflow artifact on manual runs
 - create or update a GitHub Release automatically from manual runs using the Gradle Android `versionName`
 - attach the APK to a GitHub Release automatically when you push a matching `v*` tag
+- include a release body with explicit build details (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) plus generated GitHub notes
 - fail a tag release when the tag, such as `v0.1.8`, does not match the Android `versionName`
 - keep release notes scoped to app/runtime changes in that release (exclude workflow-only and docs-only updates)
 

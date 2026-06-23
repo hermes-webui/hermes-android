@@ -1,4 +1,4 @@
-name: Signed release
+name: GitHub APK release
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build-signed-release:
+  build-github-apk:
     runs-on: ubuntu-latest
 
     env:
@@ -44,50 +44,57 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/signing"
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
           test -f "$ANDROID_KEYSTORE_FILE" || { echo "Keystore file was not created"; exit 1; }
-          ls -lh "$ANDROID_KEYSTORE_FILE"
           echo "Keystore file size: $(wc -c < "$ANDROID_KEYSTORE_FILE") bytes"
 
-      - name: Build and stage signed release artifacts
+      - name: Read Android release version
+        id: release_version
         shell: bash
         run: |
           chmod +x ./gradlew
-          ./gradlew test :app:stageReleaseArtifacts --no-daemon
+          version_name="$(./gradlew -q :app:printReleaseVersionName)"
+          test -n "$version_name" || { echo "Gradle returned an empty versionName"; exit 1; }
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "tag_name=v$version_name" >> "$GITHUB_OUTPUT"
+          echo "Android versionName: $version_name"
 
-      - name: Upload signed release artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: signed-release-artifacts
-          path: |
-            build/release/*.apk
-            build/release/*.aab
-          if-no-files-found: error
-
-      - name: Detect Google Play credentials
-        id: play_credentials
+      - name: Validate release tag matches app version
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          if [ -n "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
+          expected_tag="${{ steps.release_version.outputs.tag_name }}"
+          if [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match Android versionName ${{ steps.release_version.outputs.version_name }}."
+            echo "Update app/build.gradle.kts or push tag $expected_tag."
+            exit 1
           fi
 
-      - name: Upload to Google Play (internal track)
-        if: startsWith(github.ref, 'refs/tags/v') && steps.play_credentials.outputs.available == 'true'
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonBase64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
-          packageName: com.hermeswebui.android
-          releaseFiles: 'build/release/*.aab'
-          track: internal
-          inAppUpdatePriority: 5
+      - name: Build and stage signed GitHub APK
+        shell: bash
+        run: |
+          ./gradlew test :app:stageGithubReleaseApk --no-daemon
+          find build/release -maxdepth 1 -type f -name '*.apk' -print
 
-      - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+      - name: Upload signed GitHub APK artifact
+        uses: actions/upload-artifact@v7
         with:
-          files: |
-            build/release/*.apk
-            build/release/*.aab
-          generate_release_notes: true
+          name: hermes-webui-v${{ steps.release_version.outputs.version_name }}-github-apk
+          path: build/release/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub release APK
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_version.outputs.tag_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" build/release/*.apk --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" build/release/*.apk \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Hermes WebUI Android $RELEASE_TAG" \
+              --generate-notes
+          fi
 

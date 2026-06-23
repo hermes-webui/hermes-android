@@ -193,8 +193,9 @@ The workflow in `.github/workflows/release.yml` can then:
 
 - build and sign one GitHub release APK
 - upload them as workflow artifacts on manual runs
-- attach the APK to a GitHub Release automatically when you push a `v*` tag
-- fail a tag release when the tag, such as `v0.1.6`, does not match the Android `versionName`
+- create or update a GitHub Release automatically from manual runs using the Gradle Android `versionName`
+- attach the APK to a GitHub Release automatically when you push a matching `v*` tag
+- fail a tag release when the tag, such as `v0.1.7`, does not match the Android `versionName`
 - keep release notes scoped to app/runtime changes in that release (exclude workflow-only and docs-only updates)
 
 For Google Play upload preparation (without Play publishing yet), run the manual
@@ -227,7 +228,9 @@ release channel:
 - `build/release/hermes-webui-v<version>.aab` - Play upload artifact (manual workflow)
 
 Before each GitHub release, increment both `appVersionName` and `versionCode` in
-`app/build.gradle.kts`, then push the matching tag, for example `v0.1.7`.
+`app/build.gradle.kts`. Manual workflow runs create or update `v<versionName>`
+automatically; tag-triggered runs must use the matching tag, for example
+`v0.1.7`.
 
 ---
 

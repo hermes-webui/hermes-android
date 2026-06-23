@@ -1,0 +1,71 @@
+name: Play AAB artifact
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-play-aab:
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_KEYSTORE_FILE: ${{ github.workspace }}/signing/upload-keystore.jks
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Validate signing secrets
+        shell: bash
+        run: |
+          test -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" || { echo "Missing ANDROID_KEYSTORE_BASE64"; exit 1; }
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "Missing ANDROID_KEYSTORE_PASSWORD"; exit 1; }
+          test -n "$ANDROID_KEY_ALIAS" || { echo "Missing ANDROID_KEY_ALIAS"; exit 1; }
+          test -n "$ANDROID_KEY_PASSWORD" || { echo "Missing ANDROID_KEY_PASSWORD"; exit 1; }
+
+      - name: Decode release keystore
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/signing"
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
+          test -f "$ANDROID_KEYSTORE_FILE" || { echo "Keystore file was not created"; exit 1; }
+
+      - name: Read Android release version
+        id: release_version
+        shell: bash
+        run: |
+          chmod +x ./gradlew
+          version_name="$(./gradlew -q :app:printReleaseVersionName)"
+          test -n "$version_name" || { echo "Gradle returned an empty versionName"; exit 1; }
+          echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
+          echo "Android versionName: $version_name"
+
+      - name: Build signed release AAB
+        shell: bash
+        run: |
+          ./gradlew :app:bundleRelease --no-daemon
+          mkdir -p build/release
+          src_aab="$(find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n 1)"
+          test -n "$src_aab" || { echo "No release AAB found"; exit 1; }
+          cp "$src_aab" "build/release/hermes-webui-v${{ steps.release_version.outputs.version_name }}.aab"
+          ls -lah build/release/*.aab
+
+      - name: Upload Play AAB artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: hermes-webui-v${{ steps.release_version.outputs.version_name }}-play-aab
+          path: build/release/*.aab
+          if-no-files-found: error
+

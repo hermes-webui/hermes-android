@@ -196,6 +196,15 @@ The workflow in `.github/workflows/release.yml` can then:
 - attach the APK to a GitHub Release automatically when you push a `v*` tag
 - fail a tag release when the tag, such as `v0.1.6`, does not match the Android `versionName`
 
+For Google Play upload preparation (without Play publishing yet), run the manual
+workflow in `.github/workflows/play-aab.yml`.
+
+It will:
+
+- build and sign one release AAB
+- rename it to `hermes-webui-v<version>.aab`
+- upload it as a GitHub Actions artifact for manual download and Play Console upload
+
 Google Play listing assets:
 
 - `play-store/icon-512.png` - 512x512 high-res app icon for Play Console store listing (opaque PNG)
@@ -214,6 +223,7 @@ Gradle's ignored build output directory with the product name, version, and
 release channel:
 
 - `build/release/hermes-webui-v<version>-github.apk` - GitHub/device APK artifact
+- `build/release/hermes-webui-v<version>.aab` - Play upload artifact (manual workflow)
 
 Before each GitHub release, increment both `appVersionName` and `versionCode` in
 `app/build.gradle.kts`, then push the matching tag, for example `v0.1.6`.

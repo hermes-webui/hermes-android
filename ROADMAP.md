@@ -149,6 +149,7 @@ workflow changes should be made in Hermes WebUI instead.
 | BUG-011 | 2026-06-22 | WebView | Fixed Issue 5 cold-start workspace restore by persisting client-side route/history updates via WebView visited-history callbacks, so the app reopens the active Hermes session route after process death instead of falling back to a stale root URL that can show an empty workspace panel until manual re-selection |
 | BUG-012 | 2026-06-22 | WebView | Added a resilient Issue 5 fallback: on the configured WebUI origin, if the workspace toggle is tapped from a blank root state and the panel still remains hidden, Android redirects to the last known trusted in-app session route so WebUI can rehydrate workspace state instead of no-oping |
 | REL-008 | 2026-06-23 | Release | Updated Android app version metadata to `0.1.6` with `versionCode` 7; narrowed GitHub release automation to build and publish only `hermes-webui-v0.1.6-github.apk`, with tag/version validation before release upload |
+| REL-009 | 2026-06-23 | Release | Added a separate manual GitHub Actions workflow (`.github/workflows/play-aab.yml`) that builds/signs a release AAB, renames it to `hermes-webui-v<version>.aab`, and uploads it as an artifact for manual Google Play Console upload until automated Play publishing is wired |
 
 ---
 

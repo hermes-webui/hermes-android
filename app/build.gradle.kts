@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
 
-val appVersionName = "0.1.7"
+val appVersionName = "0.1.8"
 val githubReleaseArtifactName = "hermes-webui-v$appVersionName-github"
 
 val keystoreProperties = Properties().apply {
@@ -96,7 +96,7 @@ extensions.configure<ApplicationExtension>("android") {
         applicationId = "com.hermeswebui.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
+        versionCode = 9
         versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -163,7 +163,13 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.truth)
 
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.truth)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
 fun copyFirstExistingArtifact(candidates: List<File>, target: File) {

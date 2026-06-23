@@ -151,6 +151,8 @@ workflow changes should be made in Hermes WebUI instead.
 | REL-008 | 2026-06-23 | Release | Updated Android app version metadata to `0.1.6` with `versionCode` 7; narrowed GitHub release automation to build and publish only `hermes-webui-v0.1.6-github.apk`, with tag/version validation before release upload |
 | REL-009 | 2026-06-23 | Release | Added a separate manual GitHub Actions workflow (`.github/workflows/play-aab.yml`) that builds/signs a release AAB, renames it to `hermes-webui-v<version>.aab`, and uploads it as an artifact for manual Google Play Console upload until automated Play publishing is wired |
 | REL-010 | 2026-06-22 | Release | Incremented Android app version metadata to `0.1.7` with `versionCode` 8 and documented release-note scoping so app releases summarize runtime/app changes only (excluding workflow-only and docs-only updates) |
+| BUG-013 | 2026-06-22 | UI | Fixed Issue 8 by adding an **Edit server URL** recovery action to the native error screen so users can reopen Settings and correct a bad saved Hermes server URL without clearing app data |
+| REL-011 | 2026-06-22 | Release | Updated Android app version metadata to `0.1.8` with `versionCode` 9 |
 
 ---
 

@@ -289,4 +289,5 @@ points.
 - [ROADMAP.md](./ROADMAP.md) - status, wishlist, forward work, and progress
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - runtime flow and security model
 - [RELEASE.md](./RELEASE.md) - release workflow checklist and retry procedure
+- [ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md](./ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md) - phased implementation proposal for background continuity, ongoing activity notifications, and tray approvals (Issue 10)
 - [AGENTS.md](./AGENTS.md) - instructions for AI assistants working in this repo

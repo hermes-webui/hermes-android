@@ -41,7 +41,7 @@
 - `:app:assembleRelease`, `:app:stageGithubReleaseApk`, and `:app:stageReleaseArtifacts` fail fast when signing credentials are missing or the keystore file path is invalid, preventing unsigned distribution artifacts from being staged as release-ready output.
 - `:app:stageGithubReleaseApk` copies the signed APK into the ignored root `build/release/` output folder as `hermes-webui-v<version>-github.apk` so generated binaries do not live beside source files.
 - The GitHub APK release workflow (`.github/workflows/release.yml`) builds only that APK. Manual runs create or update release `v<versionName>` from the checked-out commit; tag-triggered releases require the tag to match the Gradle Android `versionName` exactly, such as `v0.1.7`, before upload.
-- A separate manual Play artifact workflow (`.github/workflows/play-aab.yml`) builds/signs a release AAB and uploads `hermes-webui-v<version>.aab` as a downloadable workflow artifact for manual Play Console upload.
+- A separate manual Play upload workflow (`.github/workflows/play-aab.yml`) builds/signs a release AAB, uploads `hermes-webui-v<version>.aab` as a downloadable workflow artifact, and submits the same AAB to the Google Play internal testing track with the configured Play service account.
 
 ## Security model
 

@@ -1,4 +1,4 @@
-name: Play AAB artifact
+name: Play AAB upload
 
 on:
   workflow_dispatch:
@@ -34,6 +34,7 @@ jobs:
           test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "Missing ANDROID_KEYSTORE_PASSWORD"; exit 1; }
           test -n "$ANDROID_KEY_ALIAS" || { echo "Missing ANDROID_KEY_ALIAS"; exit 1; }
           test -n "$ANDROID_KEY_PASSWORD" || { echo "Missing ANDROID_KEY_PASSWORD"; exit 1; }
+          test -n "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" || { echo "Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"; exit 1; }
 
       - name: Decode release keystore
         shell: bash
@@ -41,6 +42,12 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/signing"
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
           test -f "$ANDROID_KEYSTORE_FILE" || { echo "Keystore file was not created"; exit 1; }
+
+      - name: Decode Google Play service account
+        shell: bash
+        run: |
+          echo "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/signing/google-play-service-account.json"
+          test -f "$GITHUB_WORKSPACE/signing/google-play-service-account.json" || { echo "Google Play service account file was not created"; exit 1; }
 
       - name: Read Android release version
         id: release_version
@@ -68,4 +75,14 @@ jobs:
           name: hermes-webui-v${{ steps.release_version.outputs.version_name }}-play-aab
           path: build/release/*.aab
           if-no-files-found: error
+
+      - name: Upload AAB to Google Play internal testing
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: signing/google-play-service-account.json
+          packageName: com.hermeswebui.android
+          releaseFiles: build/release/*.aab
+          track: internal
+          status: completed
+          releaseName: Hermes WebUI Android v${{ steps.release_version.outputs.version_name }}
 

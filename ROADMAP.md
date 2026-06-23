@@ -83,6 +83,7 @@ workflow changes should be made in Hermes WebUI instead.
 - [ ] Evaluate a Trusted Web Activity (TWA) variant rendered in real Chrome, gated on Hermes WebUI serving `/.well-known/assetlinks.json` (draft + fingerprint in `twa/`); accept loss of native bridges and HTTPS-only verification before pursuing
 - [x] Final package/application ID decision before first public release
 - [x] Release signing automation docs and snippets
+- [ ] Background continuity while app is backgrounded (Issue 10): staged plan for resume polish, optional ongoing activity notification, and optional tray approvals in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`
 
 ---
 
@@ -94,6 +95,7 @@ workflow changes should be made in Hermes WebUI instead.
 | M-002 | As needed | Open | Security | Keep WebView, URL policy, permissions, and encrypted settings behavior hardened | Preserve HTTP/HTTPS configured-host support and host allowlist enforcement |
 | M-003 | As needed | Open | Bugfix | Fix Android-wrapper regressions | Scope to WebView hosting, permissions, share/download, notifications, deep links, settings, and release flow |
 | M-004 | As needed | Open | Release | Keep signed release automation current | Maintain alignment between Gradle metadata, `keystore.properties.example`, and GitHub Actions secrets |
+| M-005 | High | Open | Platform | Triage and stage Issue 10 background-execution work (A/B/C phases) | Proposal documented in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`; execute in incremental phases to manage API and battery risk |
 
 ---
 
@@ -160,16 +162,5 @@ workflow changes should be made in Hermes WebUI instead.
 | REL-014 | 2026-06-23 | Release | Enhanced `.github/workflows/release.yml` GitHub Release notes: each release now includes explicit build metadata (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) followed by generated GitHub notes, for both create and update paths |
 | REL-015 | 2026-06-23 | Release | Consolidated release automation into numbered workflows: `1-orchestration-release.yml` builds both signed artifacts, then fans out to `2-publish-github-apk.yml` for GitHub Releases and `3-publish-play-store-release.yml` for Google Play internal testing |
 | REL-016 | 2026-06-23 | Release | Added release workflow concurrency, exact-one artifact validation guards, and `RELEASE.md` operator guidance for manual publish retries |
+| REL-017 | 2026-06-23 | Release | Added Play Store What's New changelog generation from the same GitHub generated release notes used for GitHub Releases |
 
----
-
-## Update rules
-
-- Add only Android-wrapper-specific ideas to [Deferred Android-only ideas](#deferred-android-only-ideas).
-- Redirect WebUI layout, styling, animations, routes, API behavior, and product
-  workflow requests to Hermes WebUI.
-- Track actionable Android-wrapper maintenance in [Maintenance work](#maintenance-work) with an ID, priority,
-  status, area, task, and notes.
-- Move finished work to [Completed work](#completed-work) after verification.
-- Keep `README.md`, `ARCHITECTURE.md`, and `AGENTS.md` aligned when behavior,
-  setup, architecture, or workflow changes.

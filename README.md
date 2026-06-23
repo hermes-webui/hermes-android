@@ -199,7 +199,8 @@ The workflow in `.github/workflows/1-orchestration-release.yml` can then:
 - create or update a GitHub Release using the Gradle Android `versionName`
 - attach only the GitHub APK to the GitHub Release
 - upload only the Play AAB to the Google Play internal testing track
-- include a release body with explicit build details (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) plus generated GitHub notes
+- include a GitHub Release body with explicit build details (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) plus generated GitHub notes
+- include a Play Store `en-US` What's New changelog generated from the same GitHub release notes
 - fail a tag release when the tag, such as `v0.1.8`, does not match the Android `versionName`
 - keep release notes scoped to app/runtime changes in that release (exclude workflow-only and docs-only updates)
 
@@ -289,4 +290,5 @@ points.
 - [ROADMAP.md](./ROADMAP.md) - status, wishlist, forward work, and progress
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - runtime flow and security model
 - [RELEASE.md](./RELEASE.md) - release workflow checklist and retry procedure
+- [ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md](./docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md) - phased implementation proposal for background continuity, ongoing activity notifications, and tray approvals (Issue 10)
 - [AGENTS.md](./AGENTS.md) - instructions for AI assistants working in this repo

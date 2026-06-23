@@ -174,4 +174,6 @@ jobs:
     with:
       artifact_name: ${{ needs.build-release-artifacts.outputs.play_aab_artifact_name }}
       build_run_id: ${{ github.run_id }}
+      commit_sha: ${{ needs.build-release-artifacts.outputs.commit_sha }}
+      tag_name: ${{ needs.build-release-artifacts.outputs.tag_name }}
       version_name: ${{ needs.build-release-artifacts.outputs.version_name }}

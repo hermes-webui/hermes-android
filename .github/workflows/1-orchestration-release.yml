@@ -168,7 +168,7 @@ jobs:
     needs: build-release-artifacts
     uses: ./.github/workflows/3-publish-play-store-release.yml
     permissions:
-      contents: read
+      contents: write
       actions: read
     secrets: inherit
     with:

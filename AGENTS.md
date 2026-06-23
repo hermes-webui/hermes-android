@@ -53,6 +53,12 @@ AI agents working in this repository have access to the GitHub CLI (GH CLI) and 
 
 When a user references GitHub issues (e.g., by URL or issue number), agents should use GH CLI to retrieve full issue details rather than asking the user to copy-paste them.
 
+### PR markdown formatting
+
+- When creating or editing PR bodies from PowerShell, prefer `gh pr create --body-file <path>` or `gh pr edit --body-file <path>` with a multi-line markdown file.
+- Do not pass escaped newline sequences (for example `\n`) as literal text in `--body`.
+- After PR updates, verify rendering with `gh pr view` and fix immediately if markdown appears as literal escape sequences.
+
 ## Scope
 
 This repository is the standalone Android app.
@@ -132,6 +138,9 @@ submit only the `hermes-webui-v<version>.aab` AAB to internal testing,
 tag-triggered releases should match the Gradle `versionName`, and the release
 body should keep the explicit build metadata block (version/tag, commit SHA,
 APK filename, SHA-256, workflow run URL) ahead of generated notes.
+GitHub releases should use full generated GitHub release notes; Play Store
+uploads should include an `en-US` What's New changelog generated from those
+same notes through `whatsNewDirectory`.
 Keep `RELEASE.md` aligned with the workflow operator path whenever release
 automation changes.
 

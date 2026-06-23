@@ -58,6 +58,9 @@ When a user references GitHub issues (e.g., by URL or issue number), agents shou
 - When creating or editing PR bodies from PowerShell, prefer `gh pr create --body-file <path>` or `gh pr edit --body-file <path>` with a multi-line markdown file.
 - Do not pass escaped newline sequences (for example `\n`) as literal text in `--body`.
 - After PR updates, verify rendering with `gh pr view` and fix immediately if markdown appears as literal escape sequences.
+- Apply the same rule to issue comments and release/edit bodies: use file-based multiline markdown (`--body-file`) instead of inline escaped text.
+- If you must use inline `--body`, use a true PowerShell multiline here-string and verify output immediately.
+- Consider markdown rendering broken until verified in a non-JSON view (`gh pr view`, `gh issue view`, or GitHub web UI) after each update.
 
 ## Scope
 

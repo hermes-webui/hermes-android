@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
 
-val appVersionName = "0.1.8"
+val appVersionName = "0.1.9"
 val distributionArtifactName = "hermes-webui-v$appVersionName"
 val githubReleaseArtifactName = "$distributionArtifactName-github"
 
@@ -97,7 +97,7 @@ extensions.configure<ApplicationExtension>("android") {
         applicationId = "com.hermeswebui.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
+        versionCode = 10
         versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -166,6 +166,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.google.material)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.webkit)

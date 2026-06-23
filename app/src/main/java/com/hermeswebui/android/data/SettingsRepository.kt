@@ -5,6 +5,8 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.hermeswebui.android.core.security.UrlOrigins
+import org.json.JSONArray
+import org.json.JSONObject
 
 @Suppress("DEPRECATION")
 class SettingsRepository(context: Context) : SettingsStore {
@@ -28,14 +30,27 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 1 // Increment this when adding new migrations
+        val currentMigrationVersion = 2 // Increment this when adding new migrations
 
-        if (lastMigrationVersion < currentMigrationVersion) {
+        if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
             sharedPreferences.edit {
                 remove(KEY_DASHBOARD_URL)
-                putInt(KEY_LAST_MIGRATION_VERSION, 1)
             }
+        }
+
+        if (lastMigrationVersion < 2) {
+            // Migration 2: Migrate single server URL to profiles list
+            val oldUrl = sharedPreferences.getString(KEY_SERVER_URL, null)
+            if (oldUrl != null && getProfiles().isEmpty()) {
+                val profile = ServerProfile(name = "Default", url = oldUrl, isActive = true)
+                saveProfiles(listOf(profile))
+                setActiveProfile(profile.id)
+            }
+        }
+
+        sharedPreferences.edit {
+            putInt(KEY_LAST_MIGRATION_VERSION, currentMigrationVersion)
         }
     }
 
@@ -95,6 +110,87 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     fun getLastLoadedUrl(): String? = sharedPreferences.getString(KEY_LAST_URL, null)
 
+    // Server Profile CRUD operations
+    fun addProfile(name: String, url: String): ServerProfile {
+        val profile = ServerProfile(name = name, url = url, isActive = false)
+        val profiles = getProfiles().toMutableList()
+        profiles.add(profile)
+        saveProfiles(profiles)
+        return profile
+    }
+
+    fun deleteProfile(profileId: String) {
+        val profiles = getProfiles().toMutableList()
+        profiles.removeAll { it.id == profileId }
+        saveProfiles(profiles)
+        // If deleted profile was active, clear active state
+        if (sharedPreferences.getString(KEY_ACTIVE_PROFILE_ID, null) == profileId) {
+            sharedPreferences.edit { remove(KEY_ACTIVE_PROFILE_ID) }
+        }
+    }
+
+    fun renameProfile(profileId: String, newName: String) {
+        val profiles = getProfiles().map { profile ->
+            if (profile.id == profileId) profile.copy(name = newName.trim().ifBlank { profile.url })
+            else profile
+        }
+        saveProfiles(profiles)
+    }
+
+    fun updateProfile(profileId: String, newName: String, newUrl: String) {
+        val profiles = getProfiles().map { profile ->
+            if (profile.id == profileId) profile.copy(
+                name = newName.trim().ifBlank { newUrl },
+                url = newUrl.trim()
+            )
+            else profile
+        }
+        saveProfiles(profiles)
+    }
+
+    fun getProfiles(): List<ServerProfile> {
+        val json = sharedPreferences.getString(KEY_SERVER_PROFILES, "[]") ?: "[]"
+        return try {
+            val jsonArray = JSONArray(json)
+            (0 until jsonArray.length()).map { index ->
+                val obj = jsonArray.getJSONObject(index)
+                ServerProfile(
+                    id = obj.getString("id"),
+                    name = obj.getString("name"),
+                    url = obj.getString("url"),
+                    createdAt = obj.getLong("createdAt"),
+                    isActive = obj.getBoolean("isActive")
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun setActiveProfile(profileId: String) {
+        sharedPreferences.edit { putString(KEY_ACTIVE_PROFILE_ID, profileId) }
+    }
+
+    fun getActiveProfile(): ServerProfile? {
+        val activeId = sharedPreferences.getString(KEY_ACTIVE_PROFILE_ID, null) ?: return null
+        return getProfiles().firstOrNull { it.id == activeId }
+    }
+
+    private fun saveProfiles(profiles: List<ServerProfile>) {
+        val jsonArray = JSONArray()
+        profiles.forEach { profile ->
+            val obj = JSONObject().apply {
+                put("id", profile.id)
+                put("name", profile.name)
+                put("url", profile.url)
+                put("createdAt", profile.createdAt)
+                put("isActive", profile.isActive)
+            }
+            jsonArray.put(obj)
+        }
+        sharedPreferences.edit { putString(KEY_SERVER_PROFILES, jsonArray.toString()) }
+    }
+
     companion object {
         private const val FILE_NAME = "hermes_secure_prefs"
         private const val KEY_SERVER_URL = "server_url"
@@ -105,5 +201,8 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_IS_CONFIGURED = "is_configured"
         private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
         private const val KEY_LAST_MIGRATION_VERSION = "last_migration_version"
+        // Profile-related keys
+        private const val KEY_SERVER_PROFILES = "server_profiles"
+        private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
     }
 }

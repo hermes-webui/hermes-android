@@ -3,6 +3,8 @@ package com.hermeswebui.android.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hermeswebui.android.data.HermesApiClient
+import com.hermeswebui.android.data.ServerProfile
+import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.data.SettingsStore
 import com.hermeswebui.android.data.SharePayload
 import kotlinx.coroutines.Job
@@ -18,6 +20,7 @@ import kotlinx.coroutines.launch
 
 class MainViewModel(
     private val settingsRepository: SettingsStore,
+    private val settingsRepositoryImpl: SettingsRepository? = null,
     private val defaultUrl: String,
     private val defaultDashboardUrl: String,
     private val serverReachabilityChecker: suspend (String) -> Boolean = HermesApiClient::isServerReachable
@@ -26,6 +29,12 @@ class MainViewModel(
 
     private val _uiState = MutableStateFlow(MainUiState(settings = settings))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
+    // Server profiles state
+    private val _serverProfiles = MutableStateFlow<List<ServerProfile>>(
+        settingsRepositoryImpl?.getProfiles() ?: emptyList()
+    )
+    val serverProfiles: StateFlow<List<ServerProfile>> = _serverProfiles.asStateFlow()
 
     /** Emits a single Unit when the auto-retry loop detects the server is back.
      *  The UI layer (MainActivity) should call webView.reload() on each emission. */
@@ -161,11 +170,57 @@ class MainViewModel(
         return staged
     }
 
-    fun dismissShareBanner() {
-        _uiState.update { it.copy(pendingShareBanner = null) }
-    }
+     fun dismissShareBanner() {
+         _uiState.update { it.copy(pendingShareBanner = null) }
+     }
 
-    fun openSettings() {
+     // Server profile management
+     fun addServerProfile(name: String, url: String): ServerProfile? {
+         return settingsRepositoryImpl?.let {
+             val profile = it.addProfile(name, url)
+             refreshProfiles()
+             profile
+         }
+     }
+
+     fun deleteServerProfile(profileId: String) {
+         settingsRepositoryImpl?.deleteProfile(profileId)
+         refreshProfiles()
+     }
+
+     fun renameServerProfile(profileId: String, newName: String) {
+         settingsRepositoryImpl?.renameProfile(profileId, newName)
+         refreshProfiles()
+     }
+
+     fun updateServerProfile(profileId: String, newName: String, newUrl: String) {
+         settingsRepositoryImpl?.updateProfile(profileId, newName, newUrl)
+         refreshProfiles()
+     }
+
+     fun switchServerProfile(profileId: String) {
+         val profile = settingsRepositoryImpl?.getProfiles()?.firstOrNull { it.id == profileId } ?: return
+         settingsRepositoryImpl?.setActiveProfile(profileId)
+         refreshProfiles()
+         // Trigger a reload with the new server URL
+         _uiState.update {
+             it.copy(
+                 currentUrl = profile.url,
+                 isLoading = true,
+                 hasLoadedContent = false,
+                 errorMessage = null,
+                 isOffline = false
+             )
+         }
+     }
+
+     private fun refreshProfiles() {
+         settingsRepositoryImpl?.let { repo ->
+             _serverProfiles.update { repo.getProfiles() }
+         }
+     }
+
+     fun openSettings() {
         _uiState.update { it.copy(isSettingsVisible = true) }
     }
 

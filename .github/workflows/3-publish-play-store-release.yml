@@ -9,6 +9,12 @@ on:
       build_run_id:
         required: true
         type: string
+      commit_sha:
+        required: true
+        type: string
+      tag_name:
+        required: true
+        type: string
       version_name:
         required: true
         type: string
@@ -25,13 +31,21 @@ on:
         description: GitHub Actions run ID that created the AAB artifact.
         required: true
         type: string
+      commit_sha:
+        description: Commit SHA used by the build run.
+        required: true
+        type: string
+      tag_name:
+        description: Release tag, such as v0.1.8.
+        required: true
+        type: string
       version_name:
         description: Android versionName, such as 0.1.8.
         required: true
         type: string
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
@@ -74,6 +88,32 @@ jobs:
           echo "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 --decode > signing/google-play-service-account.json
           test -f signing/google-play-service-account.json || { echo "Google Play service account file was not created"; exit 1; }
 
+      - name: Build Play Store changelog
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag_name }}
+          RELEASE_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          mkdir -p build/play-whatsnew
+
+          generated_notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="$RELEASE_COMMIT" \
+            --jq '.body')"
+
+          plain_notes="$(printf '%s\n' "$generated_notes" \
+            | sed -E 's/^#{1,6}[[:space:]]*//; s/^\*[[:space:]]*/- /; s/\[([^]]+)\]\([^)]+\)/\1/g; s/`//g' \
+            | sed '/^[[:space:]]*$/d')"
+
+          if [ -z "$plain_notes" ]; then
+            plain_notes="Hermes WebUI Android $RELEASE_TAG"
+          fi
+
+          printf '%s\n' "$plain_notes" | head -c 500 > build/play-whatsnew/whatsnew-en-US
+          echo >> build/play-whatsnew/whatsnew-en-US
+          cat build/play-whatsnew/whatsnew-en-US
+
       - name: Upload AAB to Google Play internal testing
         uses: r0adkll/upload-google-play@v1
         with:
@@ -83,3 +123,4 @@ jobs:
           tracks: internal
           status: completed
           releaseName: Hermes WebUI Android v${{ inputs.version_name }}
+          whatsNewDirectory: build/play-whatsnew

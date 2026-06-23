@@ -48,10 +48,16 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -93,9 +99,11 @@ private data class NotificationPermissionReply(
     val replyProxy: JavaScriptReplyProxy
 )
 
-private val HermesColorScheme = darkColorScheme(
+private val HermesDarkColorScheme = darkColorScheme(
     primary = Color(0xFFFFD700),
     onPrimary = Color(0xFF16110A),
+    primaryContainer = Color(0xFF4A3800),
+    onPrimaryContainer = Color(0xFFFFDF6B),
     secondary = Color(0xFF4DD0E1),
     onSecondary = Color(0xFF061417),
     background = Color(0xFF0D0D1A),
@@ -104,8 +112,29 @@ private val HermesColorScheme = darkColorScheme(
     onSurface = Color(0xFFFFF8DC),
     surfaceVariant = Color(0xFF1A1A2E),
     onSurfaceVariant = Color(0xFFE6E0C8),
+    outline = Color(0xFF5A5A7A),
+    outlineVariant = Color(0xFF3A3A55),
     error = Color(0xFFEF5350),
     onError = Color(0xFF1F0505)
+)
+
+private val HermesLightColorScheme = lightColorScheme(
+    primary = Color(0xFF7A5900),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFFDF6B),
+    onPrimaryContainer = Color(0xFF261A00),
+    secondary = Color(0xFF006874),
+    onSecondary = Color(0xFFFFFFFF),
+    background = Color(0xFFFFFBF0),
+    onBackground = Color(0xFF1C1B00),
+    surface = Color(0xFFFFF8F2),
+    onSurface = Color(0xFF1C1B00),
+    surfaceVariant = Color(0xFFEEEAD8),
+    onSurfaceVariant = Color(0xFF4B4737),
+    outline = Color(0xFF7C7866),
+    outlineVariant = Color(0xFFCFC9B6),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF)
 )
 
 private val HermesWebViewViewportFixScript = """
@@ -228,6 +257,239 @@ private val HermesWebUiMicrophoneFallbackScript = """
      })();
 """.trimIndent()
 
+private val HermesWebUiAppSettingsEntryScript = """
+    (function() {
+      var appSettingsHref = 'hermes://app/settings';
+      var markerAttr = 'data-hermes-android-app-settings-entry';
+
+      var textContainsHelp = function(value) {
+        var normalized = String(value || '').trim().toLowerCase();
+        return normalized === 'help' || normalized.indexOf('help ') === 0 || normalized.indexOf(' help') !== -1;
+      };
+
+      var clearActiveState = function(root) {
+        if (!root || !root.querySelectorAll) return;
+        root.querySelectorAll('[aria-current], [aria-selected], .active, .selected, .is-active').forEach(function(el) {
+          el.removeAttribute('aria-current');
+          el.removeAttribute('aria-selected');
+          el.classList.remove('active');
+          el.classList.remove('selected');
+          el.classList.remove('is-active');
+        });
+      };
+
+      var stripRoutingAttributes = function(root) {
+        if (!root || !root.querySelectorAll) return;
+        var routeAttrPattern = /(route|router|nav|href|path|url|target|rel|onclick)/i;
+        root.querySelectorAll('*').forEach(function(el) {
+          var names = [];
+          for (var i = 0; i < el.attributes.length; i++) {
+            names.push(el.attributes[i].name);
+          }
+          names.forEach(function(name) {
+            if (routeAttrPattern.test(name)) {
+              el.removeAttribute(name);
+            }
+          });
+        });
+      };
+
+      var bindNativeSettingsClick = function(el) {
+        if (!el) return;
+        var openNativeSettings = function(event) {
+          if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof event.stopImmediatePropagation === 'function') {
+              event.stopImmediatePropagation();
+            }
+          }
+          window.location.href = appSettingsHref;
+          return false;
+        };
+        el.addEventListener('click', openNativeSettings, true);
+        el.addEventListener('auxclick', openNativeSettings, true);
+        el.addEventListener('keydown', function(event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            openNativeSettings(event);
+          }
+        }, true);
+      };
+
+      var createAppIconSvg = function(className) {
+        var svgNs = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(svgNs, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1.8');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        if (className) svg.setAttribute('class', className);
+
+        var frame = document.createElementNS(svgNs, 'rect');
+        frame.setAttribute('x', '7');
+        frame.setAttribute('y', '2');
+        frame.setAttribute('width', '10');
+        frame.setAttribute('height', '20');
+        frame.setAttribute('rx', '2.5');
+        frame.setAttribute('ry', '2.5');
+
+        var speaker = document.createElementNS(svgNs, 'line');
+        speaker.setAttribute('x1', '10');
+        speaker.setAttribute('y1', '5');
+        speaker.setAttribute('x2', '14');
+        speaker.setAttribute('y2', '5');
+
+        var home = document.createElementNS(svgNs, 'circle');
+        home.setAttribute('cx', '12');
+        home.setAttribute('cy', '18');
+        home.setAttribute('r', '1');
+
+        svg.appendChild(frame);
+        svg.appendChild(speaker);
+        svg.appendChild(home);
+        return svg;
+      };
+
+      var applyApplicationIcon = function(interactive) {
+        if (!interactive) return;
+        var existing = interactive.querySelector('svg, i, [data-icon], [class*="icon"]');
+        var className = '';
+        if (existing && existing.getAttribute) {
+          className = existing.getAttribute('class') || '';
+        }
+        var appIcon = createAppIconSvg(className);
+        appIcon.setAttribute(markerAttr, 'icon');
+
+        if (existing && existing.parentNode) {
+          existing.parentNode.replaceChild(appIcon, existing);
+        } else {
+          interactive.insertBefore(appIcon, interactive.firstChild);
+        }
+      };
+
+      var replaceHelpLabel = function(root) {
+        var changed = false;
+        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+        var node = walker.nextNode();
+        while (node) {
+          if (textContainsHelp(node.nodeValue)) {
+            node.nodeValue = 'Application Settings';
+            changed = true;
+          }
+          node = walker.nextNode();
+        }
+        return changed;
+      };
+
+      var forceVisibleLabel = function(root) {
+        if (!root || !root.querySelectorAll) return;
+        var changed = false;
+        root.querySelectorAll('span, p, div, strong, em').forEach(function(el) {
+          if (textContainsHelp(el.textContent)) {
+            el.textContent = 'Application Settings';
+            changed = true;
+          }
+        });
+        if (changed) return;
+        var fallback = document.createElement('span');
+        fallback.textContent = 'Application Settings';
+        fallback.setAttribute(markerAttr, 'label');
+        root.appendChild(fallback);
+      };
+
+      var findHelpInScope = function(scope) {
+        if (!scope || !scope.querySelectorAll) return null;
+        var nodes = scope.querySelectorAll('a, button, [role="button"], [role="menuitem"]');
+        for (var i = 0; i < nodes.length; i++) {
+          var node = nodes[i];
+          if (textContainsHelp(node.textContent)) return node;
+          var aria = node.getAttribute('aria-label');
+          if (textContainsHelp(aria)) return node;
+          var title = node.getAttribute('title');
+          if (textContainsHelp(title)) return node;
+        }
+        return null;
+      };
+
+      var findHelpInteractive = function() {
+        var scopedSelectors = ['.sidebar', '.rail', '.leftpanel', 'aside', 'nav'];
+        for (var i = 0; i < scopedSelectors.length; i++) {
+          var scope = document.querySelector(scopedSelectors[i]);
+          var hit = findHelpInScope(scope);
+          if (hit) return hit;
+        }
+        return findHelpInScope(document);
+      };
+
+      var ensureEntry = function() {
+        try {
+          if (document.querySelector('[' + markerAttr + '="1"]')) return;
+          var helpInteractive = findHelpInteractive();
+          if (!helpInteractive) return;
+
+          var helpContainer = helpInteractive.closest('li, [role="menuitem"], .menu-item, .nav-item, .sidebar-item, [data-menu-item]') || helpInteractive;
+          if (!helpContainer || !helpContainer.parentNode) return;
+
+          var cloned = helpContainer.cloneNode(false);
+          cloned.setAttribute(markerAttr, '1');
+          cloned.removeAttribute('id');
+          clearActiveState(cloned);
+          stripRoutingAttributes(cloned);
+
+          var helpIsInteractive = helpContainer.matches('a, button, [role="button"], [role="menuitem"]');
+          var interactive = helpIsInteractive ? cloned : helpInteractive.cloneNode(false);
+          if (!helpIsInteractive) {
+            interactive.removeAttribute('id');
+            clearActiveState(interactive);
+            stripRoutingAttributes(interactive);
+            cloned.appendChild(interactive);
+          }
+
+          if (!interactive) return;
+
+          interactive.textContent = '';
+          var label = document.createElement('span');
+          label.textContent = 'Application Settings';
+          label.setAttribute(markerAttr, 'label');
+          interactive.appendChild(label);
+          applyApplicationIcon(interactive);
+
+          if (interactive.tagName && interactive.tagName.toLowerCase() === 'a') {
+            interactive.setAttribute('href', appSettingsHref);
+          } else {
+            interactive.setAttribute('role', 'link');
+            interactive.setAttribute('tabindex', '0');
+          }
+          bindNativeSettingsClick(interactive);
+          interactive.setAttribute('aria-label', 'Application Settings');
+          interactive.setAttribute('title', 'Application Settings');
+          interactive.removeAttribute('aria-current');
+          interactive.removeAttribute('aria-selected');
+          interactive.classList.remove('active');
+          interactive.classList.remove('selected');
+          interactive.classList.remove('is-active');
+          interactive.setAttribute(markerAttr, '1');
+          bindNativeSettingsClick(cloned);
+
+          helpContainer.parentNode.insertBefore(cloned, helpContainer.nextSibling);
+        } catch (_) {}
+      };
+
+      ensureEntry();
+
+      if (!window.__hermesAndroidAppSettingsEntryInstalled) {
+        window.__hermesAndroidAppSettingsEntryInstalled = true;
+        var observer = new MutationObserver(function() { ensureEntry(); });
+        observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
+        window.addEventListener('pageshow', ensureEntry, { passive: true });
+        window.addEventListener('focus', ensureEntry, { passive: true });
+      }
+    })();
+""".trimIndent()
+
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -244,12 +506,16 @@ class MainActivity : ComponentActivity() {
     private var microphoneFallbackScriptHandler: ScriptHandler? = null
     private var notificationBridgeScriptHandler: ScriptHandler? = null
     private var routeRecoveryScriptHandler: ScriptHandler? = null
+    private var appSettingsEntryScriptHandler: ScriptHandler? = null
 
     private var activeOAuthPopup: WebView? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
 
     private val serverUrlValidator = ServerUrlValidator()
+
+    private var lastBackPressTime: Long = 0
+    private val BACK_PRESS_TIMEOUT_MS = 2000L // 2 seconds
 
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         filePathCallback?.onReceiveValue(uris.takeIf { it.isNotEmpty() }?.toTypedArray())
@@ -293,7 +559,7 @@ class MainActivity : ComponentActivity() {
         settingsRepository = SettingsRepository(applicationContext)
         viewModel = ViewModelProvider(
             this,
-            MainViewModelFactory(settingsRepository, defaultUrl, defaultDashboardUrl)
+            MainViewModelFactory(settingsRepository, settingsRepository, defaultUrl, defaultDashboardUrl)
         )[MainViewModel::class.java]
         urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
 
@@ -397,6 +663,7 @@ class MainActivity : ComponentActivity() {
         onRequestExit: () -> Unit
     ) {
         val uiState by viewModel.uiState.collectAsState()
+        val serverProfiles by viewModel.serverProfiles.collectAsState()
         val snackbarHostState = remember { SnackbarHostState() }
 
         LaunchedEffect(uiState.pendingShareBanner) {
@@ -415,11 +682,28 @@ class MainActivity : ComponentActivity() {
             when {
                 uiState.isSettingsVisible -> viewModel.closeSettings()
                 webView.canGoBack() -> webView.goBack()
-                else -> onRequestExit()
+                else -> {
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastBackPressTime < BACK_PRESS_TIMEOUT_MS) {
+                        // Second back press within timeout: exit app
+                        onRequestExit()
+                    } else {
+                        // First back press: show toast and reset timer
+                        lastBackPressTime = currentTime
+                        Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
 
-        MaterialTheme(colorScheme = HermesColorScheme) {
+        val isDark = isSystemInDarkTheme()
+        val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val ctx = LocalContext.current
+            if (isDark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+        } else {
+            if (isDark) HermesDarkColorScheme else HermesLightColorScheme
+        }
+        MaterialTheme(colorScheme = colorScheme) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.background
@@ -442,20 +726,30 @@ class MainActivity : ComponentActivity() {
                             onReload()
                         },
                         onOpenExternal = onOpenExternal,
-                        onOpenSettings = { viewModel.openSettings() }
+                        onOpenSettings = { viewModel.openSettings() },
+                        onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
                     )
                     SnackbarHost(hostState = snackbarHostState)
                 }
             }
 
             if (uiState.isSettingsVisible) {
-                ModalBottomSheet(onDismissRequest = { viewModel.closeSettings() }) {
+                ModalBottomSheet(
+                    onDismissRequest = { viewModel.closeSettings() },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ) {
                     SettingsBottomSheet(
                         initialServerUrl = uiState.settings.serverUrl,
                         isConfigured = uiState.settings.isConfigured,
                         onSave = onSaveSettings,
                         onResetSession = onResetSession,
-                        onDismiss = { viewModel.closeSettings() }
+                        onDismiss = { viewModel.closeSettings() },
+                        serverProfiles = serverProfiles,
+                        onAddProfile = { name, url -> handleAddServerProfile(name, url) },
+                        onDeleteProfile = { profileId -> handleDeleteServerProfile(profileId) },
+                        onRenameProfile = { profileId, newName -> viewModel.renameServerProfile(profileId, newName) },
+                        onEditProfile = { profileId, newName, newUrl -> handleEditServerProfile(profileId, newName, newUrl) },
+                        onSwitchProfile = { profileId -> handleSwitchServerProfile(profileId) }
                     )
                 }
             }
@@ -498,6 +792,10 @@ class MainActivity : ComponentActivity() {
                             request: WebResourceRequest?
                         ): Boolean {
                             val target = request?.url?.toString() ?: return true
+                            if (handleAppSettingsNavigation(target)) {
+                                popup.destroy()
+                                return true
+                            }
 
                             // If this is an OAuth/OIDC URL, keep the popup alive to preserve PKCE state.
                             // OAuth flows require multiple redirects with persistent cookies.
@@ -584,6 +882,7 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val target = request?.url?.toString() ?: return true
+                    if (handleAppSettingsNavigation(target)) return true
                     if (matchesConfiguredDashboardRoute(target)) {
                         openDashboardInCustomTab(target)
                         return true
@@ -988,6 +1287,7 @@ class MainActivity : ComponentActivity() {
         view.evaluateJavascript(HermesWebUiMicrophoneFallbackScript, null)
         view.evaluateJavascript(buildHermesWebUiNotificationBridgeScript(), null)
         view.evaluateJavascript(buildHermesWebUiRouteRecoveryScript(), null)
+        view.evaluateJavascript(HermesWebUiAppSettingsEntryScript, null)
     }
 
 
@@ -998,6 +1298,7 @@ class MainActivity : ComponentActivity() {
         microphoneFallbackScriptHandler?.remove()
         notificationBridgeScriptHandler?.remove()
         routeRecoveryScriptHandler?.remove()
+        appSettingsEntryScriptHandler?.remove()
         microphoneFallbackScriptHandler = runCatching {
             WebViewCompat.addDocumentStartJavaScript(
                 view,
@@ -1019,6 +1320,23 @@ class MainActivity : ComponentActivity() {
                 setOf(originRule)
             )
         }.getOrNull()
+        appSettingsEntryScriptHandler = runCatching {
+            WebViewCompat.addDocumentStartJavaScript(
+                view,
+                HermesWebUiAppSettingsEntryScript,
+                setOf(originRule)
+            )
+        }.getOrNull()
+    }
+
+    private fun handleAppSettingsNavigation(url: String?): Boolean {
+        val parsed = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        if (parsed.scheme != "hermes") return false
+        if (parsed.host != "app") return false
+        val path = parsed.path?.trimEnd('/')
+        if (path != "/settings") return false
+        viewModel.openSettings()
+        return true
     }
 
     private fun buildHermesWebUiRouteRecoveryScript(): String {
@@ -1411,6 +1729,72 @@ class MainActivity : ComponentActivity() {
         webView.loadUrl(viewModel.uiState.value.settings.serverUrl)
     }
 
+    private fun handleAddServerProfile(name: String, url: String) {
+        val trimmedName = name.trim()
+        val trimmedUrl = url.trim()
+
+        if (!serverUrlValidator.isValid(trimmedUrl)) {
+            Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val existingProfiles = settingsRepository.getProfiles()
+        if (existingProfiles.any { normalizeServerProfileUrl(it.url) == normalizeServerProfileUrl(trimmedUrl) }) {
+            Toast.makeText(this, "A server with this URL already exists", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (trimmedName.isNotBlank() && existingProfiles.any { it.name.trim().equals(trimmedName, ignoreCase = true) }) {
+            Toast.makeText(this, "A server with this name already exists", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val profile = viewModel.addServerProfile(
+            name = trimmedName.ifBlank { trimmedUrl },
+            url = trimmedUrl
+        )
+        if (profile != null) {
+            Toast.makeText(this, "Server profile \"${profile.name}\" added", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Failed to add profile", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleEditServerProfile(profileId: String, newName: String, newUrl: String) {
+        if (!serverUrlValidator.isValid(newUrl)) {
+            Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
+            return
+        }
+        viewModel.updateServerProfile(profileId, newName, newUrl)
+        Toast.makeText(this, "Profile updated", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun handleDeleteServerProfile(profileId: String) {
+        viewModel.deleteServerProfile(profileId)
+        Toast.makeText(this, "Profile deleted", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun handleSwitchServerProfile(profileId: String) {
+        val newProfile = settingsRepository.getProfiles().firstOrNull { it.id == profileId } ?: return
+
+        // Validate the server URL before switching
+        if (!serverUrlValidator.isValid(newProfile.url)) {
+            Toast.makeText(this, "Invalid server URL: ${newProfile.url}", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        // Clear old server's cookies and cache
+        CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().flush()
+        WebStorage.getInstance().deleteAllData()
+        webView.clearCache(true)
+
+        // Switch the profile and reload
+        viewModel.switchServerProfile(profileId)
+        webView.loadUrl(newProfile.url)
+        viewModel.closeSettings()
+        Toast.makeText(this, "Switched to ${newProfile.name}", Toast.LENGTH_SHORT).show()
+    }
+
     private fun openInExternalBrowser(url: String) {
         val browserIntent = Intent(Intent.ACTION_VIEW, url.toUri())
         try {
@@ -1549,5 +1933,9 @@ class MainActivity : ComponentActivity() {
             }
             activeOAuthPopup = null
         }
+    }
+
+    private fun normalizeServerProfileUrl(url: String): String {
+        return url.trim().trimEnd('/').lowercase()
     }
 }

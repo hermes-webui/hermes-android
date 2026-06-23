@@ -71,7 +71,7 @@ workflow changes should be made in Hermes WebUI instead.
 
 - [x] Deep links and verified app links to Hermes routes
 - [x] Server health probing to refine offline/error states
-- [ ] Server profile list for multiple Hermes hosts
+- [~] Server profile list for multiple Hermes hosts (Phase 1 complete: native entry point added; Phase 2-3 pending: encrypted storage + profile switching logic)
 - [ ] Optional biometric app lock before showing WebView
 - [ ] FCM push notification plumbing
 - [x] Notification channel strategy
@@ -96,6 +96,11 @@ workflow changes should be made in Hermes WebUI instead.
 | M-003 | As needed | Open | Bugfix | Fix Android-wrapper regressions | Scope to WebView hosting, permissions, share/download, notifications, deep links, settings, and release flow |
 | M-004 | As needed | Open | Release | Keep signed release automation current | Maintain alignment between Gradle metadata, `keystore.properties.example`, and GitHub Actions secrets |
 | M-005 | High | Open | Platform | Triage and stage Issue 10 background-execution work (A/B/C phases) | Proposal documented in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`; execute in incremental phases to manage API and battery risk |
+<<<<<<< HEAD
+=======
+| A-020-P2 | Medium | Open | Settings | Multi-server profile storage (Issue #20 Phase 2) | Add encrypted multi-server profile persistence in `SettingsRepository` with versioned migration; extend `SettingsBottomSheet` UI with profile list, add/edit/delete dialogs, and active server selector |
+| A-020-P3 | Medium | Open | Navigation | Multi-server profile switching (Issue #20 Phase 3) | Implement profile activation flow: reload WebView with new server, clear old session/cookies, validate new server against allowlist, update dashboard config, run comprehensive profile CRUD and switching tests |
+>>>>>>> A-020-multi-server-profiles
 
 ---
 
@@ -162,4 +167,9 @@ workflow changes should be made in Hermes WebUI instead.
 | REL-014 | 2026-06-23 | Release | Enhanced `.github/workflows/release.yml` GitHub Release notes: each release now includes explicit build metadata (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) followed by generated GitHub notes, for both create and update paths |
 | REL-015 | 2026-06-23 | Release | Consolidated release automation into numbered workflows: `1-orchestration-release.yml` builds both signed artifacts, then fans out to `2-publish-github-apk.yml` for GitHub Releases and `3-publish-play-store-release.yml` for Google Play internal testing |
 | REL-016 | 2026-06-23 | Release | Added release workflow concurrency, exact-one artifact validation guards, and `RELEASE.md` operator guidance for manual publish retries |
+| REL-017 | 2026-06-23 | Release | Added Play Store What's New changelog generation from the same GitHub generated release notes used for GitHub Releases |
+| A-020-P1 | 2026-06-23 | Settings | Implemented Phase 1 of multi-server profile support (Issue #20): added native "Application Settings" entry point in Hermes WebUI sidebar below Help via WebView document-start shim, wired `hermes://app/settings` deep link handling to open native settings bottom sheet, injected phone-outline SVG icon for visual consistency, and validated with unit tests and emulator deployment |
+| BUG-016 | 2026-06-23 | Navigation | Fixed back button closing app on first press: implemented "press back again to exit" pattern that requires two back presses within 2 seconds to close app when no WebView history is available, prevents accidental app closure from stuck states, and shows "Press back again to exit" toast on first back press |
+| BUG-017 | 2026-06-23 | Settings | Tightened multi-server add flow: server profile creation now rejects duplicates by normalized URL and case-insensitive name, and the Add Server dialog explicitly prompts for an optional friendly name while preserving URL fallback when blank |
+| REL-018 | 2026-06-23 | Release | Updated Android app version metadata to `0.1.9` with `versionCode` 10 |
 

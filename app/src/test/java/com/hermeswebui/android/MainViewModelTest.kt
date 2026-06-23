@@ -37,7 +37,7 @@ class MainViewModelTest {
     @Test
     fun `visible commit marks loaded content`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
 
         viewModel.onPageStarted(defaultServerUrl)
         viewModel.onPageCommitVisible(defaultServerUrl)
@@ -52,7 +52,7 @@ class MainViewModelTest {
     @Test
     fun `page finished without visible commit does not mark loaded content`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
 
         viewModel.onPageStarted(defaultServerUrl)
         viewModel.onPageFinished(defaultServerUrl)
@@ -66,7 +66,7 @@ class MainViewModelTest {
     @Test
     fun `main frame error prevents later page finished from marking loaded content or saving last url`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
         val failedUrl = "$defaultServerUrl/unavailable"
 
         viewModel.onPageStarted(failedUrl)
@@ -83,7 +83,7 @@ class MainViewModelTest {
     @Test
     fun `server url switch resets loaded content state`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
 
         viewModel.onPageStarted(defaultServerUrl)
         viewModel.onPageCommitVisible(defaultServerUrl)
@@ -101,7 +101,7 @@ class MainViewModelTest {
     @Test
     fun `openSettings sets isSettingsVisible`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
 
         viewModel.openSettings()
 
@@ -111,7 +111,7 @@ class MainViewModelTest {
     @Test
     fun `openSettings from error state shows settings without clearing error`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
 
         viewModel.onPageStarted(defaultServerUrl)
         viewModel.onPageError("Connection refused", isOffline = true)
@@ -125,7 +125,7 @@ class MainViewModelTest {
     @Test
     fun `saveAppUrls from error state clears error and starts loading new url`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
 
         viewModel.onPageStarted(defaultServerUrl)
         viewModel.onPageError("Connection refused", isOffline = true)
@@ -141,7 +141,7 @@ class MainViewModelTest {
     @Test
     fun `reset session resets loaded content state`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
 
         viewModel.onPageStarted(defaultServerUrl)
         viewModel.onPageCommitVisible(defaultServerUrl)
@@ -159,7 +159,7 @@ class MainViewModelTest {
     @Test
     fun `url visited persists last url for client-side navigation`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
         val sessionUrl = "$defaultServerUrl/session-123"
 
         viewModel.onPageStarted(defaultServerUrl)
@@ -175,7 +175,7 @@ class MainViewModelTest {
     @Test
     fun `url visited does not persist when remember last url is false`() {
         val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
         val dashboardUrl = "https://dashboard.example.com"
 
         viewModel.onPageStarted(defaultServerUrl)
@@ -193,7 +193,7 @@ class MainViewModelTest {
     @Test
     fun `auto-retry sets isReconnecting and auto-reload fires when server becomes reachable`() = runTest(testDispatcher) {
         var probeCount = 0
-        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+        val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ ->
             probeCount++
             probeCount >= 2 // fail first probe, succeed on second
         }
@@ -224,7 +224,7 @@ class MainViewModelTest {
     @Test
     fun `cancelAutoRetry stops polling and clears isReconnecting`() = runTest(testDispatcher) {
         var probeCount = 0
-        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+        val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ ->
             probeCount++
             false // never succeed
         }
@@ -244,7 +244,7 @@ class MainViewModelTest {
 
     @Test
     fun `onPageStarted cancels auto-retry and clears error`() = runTest(testDispatcher) {
-        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ -> false }
+        val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ -> false }
 
         viewModel.onPageError("error", isOffline = false)
         runCurrent()
@@ -259,7 +259,7 @@ class MainViewModelTest {
     @Test
     fun `resumeAutoRetryIfNeeded restarts polling after cancel when still in error state`() = runTest(testDispatcher) {
         var probeCount = 0
-        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+        val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ ->
             probeCount++
             false
         }
@@ -283,7 +283,7 @@ class MainViewModelTest {
     @Test
     fun `resumeAutoRetryIfNeeded does nothing without error state`() = runTest(testDispatcher) {
         var probeCount = 0
-        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+        val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ ->
             probeCount++
             false
         }

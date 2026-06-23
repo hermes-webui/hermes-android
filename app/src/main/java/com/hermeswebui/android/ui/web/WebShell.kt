@@ -35,7 +35,8 @@ fun WebShell(
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onOpenExternal: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isLoading,
@@ -99,6 +100,11 @@ fun WebShell(
                 }
                 Button(modifier = Modifier.padding(top = 8.dp), onClick = onOpenSettings) {
                     Text(stringResource(R.string.action_edit_server_url))
+                }
+                if (onBack != null) {
+                    Button(modifier = Modifier.padding(top = 8.dp), onClick = onBack) {
+                        Text("Go back")
+                    }
                 }
             }
         }

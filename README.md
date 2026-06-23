@@ -38,7 +38,7 @@ To get added, **message [@Paladin173](https://github.com/Paladin173) your Gmail 
 
 Once added, the app will appear in the Play Store for you to install and receive automatic updates.
 
-Current pre-release version: `v0.1.8`.
+Current pre-release version: `v0.1.9`.
 
 Current Android build metadata:
 
@@ -199,7 +199,8 @@ The workflow in `.github/workflows/1-orchestration-release.yml` can then:
 - create or update a GitHub Release using the Gradle Android `versionName`
 - attach only the GitHub APK to the GitHub Release
 - upload only the Play AAB to the Google Play internal testing track
-- include a release body with explicit build details (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) plus generated GitHub notes
+- include a GitHub Release body with explicit build details (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) plus generated GitHub notes
+- include a Play Store `en-US` What's New changelog generated from the same GitHub release notes
 - fail a tag release when the tag, such as `v0.1.8`, does not match the Android `versionName`
 - keep release notes scoped to app/runtime changes in that release (exclude workflow-only and docs-only updates)
 

@@ -2,4 +2,5 @@
     <string name="app_name">Hermes WebUI</string>
     <string name="default_server_url">https://hermes.example.com</string>
     <string name="default_dashboard_url"></string>
+    <string name="action_edit_server_url">Edit server URL</string>
 </resources>

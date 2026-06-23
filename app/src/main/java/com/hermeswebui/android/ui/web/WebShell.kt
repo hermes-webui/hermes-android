@@ -18,8 +18,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.hermeswebui.android.R
 
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
@@ -31,7 +33,8 @@ fun WebShell(
     errorMessage: String?,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
-    onOpenExternal: () -> Unit
+    onOpenExternal: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isLoading,
@@ -84,6 +87,9 @@ fun WebShell(
                 }
                 Button(modifier = Modifier.padding(top = 8.dp), onClick = onOpenExternal) {
                     Text("Open in browser")
+                }
+                Button(modifier = Modifier.padding(top = 8.dp), onClick = onOpenSettings) {
+                    Text(stringResource(R.string.action_edit_server_url))
                 }
             }
         }

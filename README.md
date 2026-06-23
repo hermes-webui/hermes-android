@@ -38,12 +38,12 @@ To get added, **message [@Paladin173](https://github.com/Paladin173) your Gmail 
 
 Once added, the app will appear in the Play Store for you to install and receive automatic updates.
 
-Current pre-release version: `v0.1.7`.
+Current pre-release version: `v0.1.8`.
 
 Current Android build metadata:
 
-- Version name: `0.1.7`
-- Version code: `8`
+- Version name: `0.1.8`
+- Version code: `9`
 - Application ID: `com.hermeswebui.android`
 - Compile/target SDK: `37`
 
@@ -100,7 +100,7 @@ Requirements:
 - Cold-start restore keeps the active Hermes session/workspace route when the app process is restarted, with a WebUI-origin-scoped workspace-button recovery fallback that reloads the last known in-app session route if the panel is tapped from a blank root state
 - Server health probing on WebView errors to distinguish server-down from content errors
 - First-run settings flow for the Hermes WebUI URL; the dashboard URL is managed only by WebUI Settings > System
-- Back handling, pull-to-refresh, loading, offline, and error states
+- Back handling, pull-to-refresh, loading, offline, and error states, including direct server-URL recovery from the native error screen
 
 ### 🔌 Android integration
 

@@ -713,7 +713,8 @@ class MainActivity : ComponentActivity() {
                             onReload()
                         },
                         onOpenExternal = onOpenExternal,
-                        onOpenSettings = { viewModel.openSettings() }
+                        onOpenSettings = { viewModel.openSettings() },
+                        onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
                     )
                     SnackbarHost(hostState = snackbarHostState)
                 }

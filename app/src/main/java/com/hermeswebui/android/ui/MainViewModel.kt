@@ -5,8 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.SettingsStore
 import com.hermeswebui.android.data.SharePayload
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -14,18 +19,24 @@ import kotlinx.coroutines.launch
 class MainViewModel(
     private val settingsRepository: SettingsStore,
     private val defaultUrl: String,
-    private val defaultDashboardUrl: String
+    private val defaultDashboardUrl: String,
+    private val serverReachabilityChecker: suspend (String) -> Boolean = HermesApiClient::isServerReachable
 ) : ViewModel() {
     private val settings = settingsRepository.getSettings(defaultUrl, defaultDashboardUrl)
 
     private val _uiState = MutableStateFlow(MainUiState(settings = settings))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
-    private var sharedText: String? = null
-    private var sharedFileUris: List<String> = emptyList()
+    /** Emits a single Unit when the auto-retry loop detects the server is back.
+     *  The UI layer (MainActivity) should call webView.reload() on each emission. */
+    private val _autoReloadEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val autoReloadEvent: SharedFlow<Unit> = _autoReloadEvent.asSharedFlow()
+
+    private var autoRetryJob: Job? = null
     private var currentLoadHasMainFrameError = false
 
     fun onPageStarted(url: String?) {
+        cancelAutoRetry()
         currentLoadHasMainFrameError = false
         _uiState.update {
             it.copy(
@@ -73,20 +84,53 @@ class MainViewModel(
                 isOffline = isOffline
             )
         }
-        // If the device appears online but the page failed, probe /api/status to
-        // distinguish "server is down" from a transient content/navigation error.
-        // /api/status is the public liveness endpoint on Hermes WebUI; no auth needed.
-        if (!isOffline) {
-            val serverUrl = _uiState.value.settings.serverUrl
-            if (serverUrl.isNotBlank()) {
-                viewModelScope.launch {
-                    if (!HermesApiClient.isServerReachable(serverUrl)) {
-                        _uiState.update { it.copy(isOffline = true) }
-                    }
+        startAutoRetry()
+    }
+
+    /** Starts the bounded auto-retry polling loop.
+     *
+     * Polls [serverReachabilityChecker] with exponential backoff starting at 1 s,
+     * capped at 10 s per interval, for up to 60 s total. On the first successful
+     * probe it emits [autoReloadEvent] so the UI can trigger a WebView reload.
+     * Sets [MainUiState.isReconnecting] while the loop is active.
+     */
+    private fun startAutoRetry() {
+        autoRetryJob?.cancel()
+        val serverUrl = _uiState.value.settings.serverUrl
+        if (serverUrl.isBlank()) return
+
+        autoRetryJob = viewModelScope.launch {
+            var intervalMs = 1_000L
+            val maxIntervalMs = 10_000L
+            val deadlineMs = System.currentTimeMillis() + 60_000L
+            _uiState.update { it.copy(isReconnecting = true) }
+
+            while (System.currentTimeMillis() < deadlineMs) {
+                delay(intervalMs)
+                if (serverReachabilityChecker(serverUrl)) {
+                    _uiState.update { it.copy(isReconnecting = false) }
+                    _autoReloadEvent.tryEmit(Unit)
+                    return@launch
                 }
+                // Server still unreachable — confirm offline state and back off.
+                _uiState.update { it.copy(isOffline = true) }
+                intervalMs = (intervalMs * 2).coerceAtMost(maxIntervalMs)
             }
+
+            // Timed out after ~60 s: give up, leave error screen, stop spinning.
+            _uiState.update { it.copy(isReconnecting = false) }
         }
     }
+
+    /** Cancels any active auto-retry loop and clears the reconnecting indicator. */
+    fun cancelAutoRetry() {
+        autoRetryJob?.cancel()
+        autoRetryJob = null
+        _uiState.update { it.copy(isReconnecting = false) }
+    }
+
+    private var sharedText: String? = null
+    private var sharedFileUris: List<String> = emptyList()
 
     fun consumeSharePayload(payload: SharePayload) {
         sharedText = payload.sharedText?.takeIf { it.isNotBlank() }
@@ -119,6 +163,7 @@ class MainViewModel(
     }
 
     fun saveAppUrls(serverUrl: String, dashboardUrl: String) {
+        cancelAutoRetry()
         settingsRepository.saveAppUrls(serverUrl, dashboardUrl)
         val refreshed = settingsRepository.getSettings(defaultUrl, defaultDashboardUrl)
         _uiState.update {
@@ -135,6 +180,7 @@ class MainViewModel(
     }
 
     fun resetSession() {
+        cancelAutoRetry()
         settingsRepository.clearWebSession()
         _uiState.update {
             it.copy(

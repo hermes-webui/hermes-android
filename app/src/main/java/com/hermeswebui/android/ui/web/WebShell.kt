@@ -30,6 +30,7 @@ fun WebShell(
     isLoading: Boolean,
     hasLoadedContent: Boolean,
     isOffline: Boolean,
+    isReconnecting: Boolean,
     errorMessage: String?,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
@@ -78,10 +79,18 @@ fun WebShell(
                     style = MaterialTheme.typography.headlineSmall
                 )
                 Text(
-                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                    modifier = Modifier.padding(top = 8.dp, bottom = if (isReconnecting) 4.dp else 16.dp),
                     text = errorMessage,
                     style = MaterialTheme.typography.bodyMedium
                 )
+                if (isReconnecting) {
+                    Text(
+                        modifier = Modifier.padding(bottom = 16.dp),
+                        text = "Reconnecting\u2026",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
                 Button(onClick = onRetry) {
                     Text("Retry")
                 }

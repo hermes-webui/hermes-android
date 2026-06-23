@@ -385,6 +385,13 @@ class MainActivity : ComponentActivity() {
             snackbarHostState.showSnackbar(banner)
         }
 
+        // Auto-reload when the retry loop detects the server is back.
+        LaunchedEffect(Unit) {
+            viewModel.autoReloadEvent.collect {
+                webView.reload()
+            }
+        }
+
         BackHandler {
             when {
                 uiState.isSettingsVisible -> viewModel.closeSettings()
@@ -408,9 +415,13 @@ class MainActivity : ComponentActivity() {
                         isLoading = uiState.isLoading,
                         hasLoadedContent = uiState.hasLoadedContent,
                         isOffline = uiState.isOffline,
+                        isReconnecting = uiState.isReconnecting,
                         errorMessage = uiState.errorMessage,
                         onRefresh = onReload,
-                        onRetry = onReload,
+                        onRetry = {
+                            viewModel.cancelAutoRetry()
+                            onReload()
+                        },
                         onOpenExternal = onOpenExternal,
                         onOpenSettings = { viewModel.openSettings() }
                     )

@@ -156,6 +156,7 @@ workflow changes should be made in Hermes WebUI instead.
 | BUG-014 | 2026-06-22 | Android compatibility | Fixed WebUI update-notification generated summaries rendering as a clipped/non-scrollable sliver in Android WebView by restoring vertical page scrolling and re-capping the update summary panel's `max-height: min(34vh, 260px)` with the measured viewport height because Android WebView was collapsing that `vh` max-height to `0px` |
 | REL-012 | 2026-06-23 | Release | Wired `.github/workflows/play-aab.yml` to upload the signed `hermes-webui-v<version>.aab` artifact to the Google Play internal testing track using the configured Play service-account secret |
 | REL-013 | 2026-06-23 | Release | Split GitHub APK builds into a separate `github` release build type with `applicationIdSuffix = ".github"` and `versionNameSuffix = "-github"` so sideloaded GitHub builds can install beside Google Play builds |
+| BUG-015 | 2026-06-23 | WebView | Fixed Issue 9: added bounded auto-retry loop on server error — polls `/api/status` with 1 s → 2 s → 4 s → 10 s cap backoff for up to 60 s, auto-reloads when server comes back, shows "Reconnecting…" on the error screen, cancels cleanly on manual Retry / new navigation / settings save |
 
 ---
 

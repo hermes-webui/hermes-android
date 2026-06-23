@@ -4,11 +4,35 @@ import com.google.common.truth.Truth.assertThat
 import com.hermeswebui.android.data.AppSettings
 import com.hermeswebui.android.data.SettingsStore
 import com.hermeswebui.android.ui.MainViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
     private val defaultServerUrl = "https://hermes.example.com"
     private val defaultDashboardUrl = ""
+
+    private val testDispatcher = StandardTestDispatcher()
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
 
     @Test
     fun `visible commit marks loaded content`() {
@@ -162,6 +186,74 @@ class MainViewModelTest {
         val state = viewModel.uiState.value
         assertThat(state.currentUrl).isEqualTo(dashboardUrl)
         assertThat(store.lastLoadedUrl).isEqualTo(defaultServerUrl)
+    }
+
+    // --- Auto-retry tests ---
+
+    @Test
+    fun `auto-retry sets isReconnecting and auto-reload fires when server becomes reachable`() = runTest(testDispatcher) {
+        var probeCount = 0
+        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+            probeCount++
+            probeCount >= 2 // fail first probe, succeed on second
+        }
+
+        val autoReloads = mutableListOf<Unit>()
+        backgroundScope.launch { viewModel.autoReloadEvent.collect { autoReloads += it } }
+
+        viewModel.onPageError("net::ERR_CONNECTION_REFUSED", isOffline = false)
+        runCurrent() // let the retry coroutine start and set isReconnecting
+
+        assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+        assertThat(viewModel.uiState.value.errorMessage).isNotNull()
+
+        // Advance past first 1 s interval — probe fails, isOffline confirmed
+        advanceTimeBy(1_001L)
+        runCurrent()
+        assertThat(autoReloads).isEmpty()
+        assertThat(viewModel.uiState.value.isOffline).isTrue()
+        assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+
+        // Advance past second 2 s interval — probe succeeds, auto-reload event fires
+        advanceTimeBy(2_001L)
+        runCurrent()
+        assertThat(autoReloads).hasSize(1)
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+    }
+
+    @Test
+    fun `cancelAutoRetry stops polling and clears isReconnecting`() = runTest(testDispatcher) {
+        var probeCount = 0
+        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ ->
+            probeCount++
+            false // never succeed
+        }
+
+        viewModel.onPageError("net::ERR_CONNECTION_REFUSED", isOffline = false)
+        runCurrent()
+        assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+
+        viewModel.cancelAutoRetry()
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+
+        // Advance well past first interval — no probes should fire after cancel
+        advanceTimeBy(5_000L)
+        runCurrent()
+        assertThat(probeCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `onPageStarted cancels auto-retry and clears error`() = runTest(testDispatcher) {
+        val viewModel = MainViewModel(FakeSettingsStore(), defaultServerUrl, defaultDashboardUrl) { _ -> false }
+
+        viewModel.onPageError("error", isOffline = false)
+        runCurrent()
+        assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+
+        viewModel.onPageStarted(defaultServerUrl)
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+        assertThat(viewModel.uiState.value.errorMessage).isNull()
+        assertThat(viewModel.uiState.value.isLoading).isTrue()
     }
 
     private class FakeSettingsStore : SettingsStore {

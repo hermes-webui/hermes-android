@@ -7,6 +7,7 @@ data class MainUiState(
     val isLoading: Boolean = true,
     val hasLoadedContent: Boolean = false,
     val isOffline: Boolean = false,
+    val isReconnecting: Boolean = false,
     val errorMessage: String? = null,
     val isSettingsVisible: Boolean = false,
     val pendingShareBanner: String? = null,

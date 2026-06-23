@@ -31,7 +31,8 @@ fun WebShell(
     errorMessage: String?,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
-    onOpenExternal: () -> Unit
+    onOpenExternal: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isLoading,
@@ -84,6 +85,9 @@ fun WebShell(
                 }
                 Button(modifier = Modifier.padding(top = 8.dp), onClick = onOpenExternal) {
                     Text("Open in browser")
+                }
+                Button(modifier = Modifier.padding(top = 8.dp), onClick = onOpenSettings) {
+                    Text("Edit server URL")
                 }
             }
         }

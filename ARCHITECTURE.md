@@ -38,8 +38,9 @@
 - Local signed release builds load upload-key credentials from an untracked repo-root `keystore.properties` file.
 - CI signed release builds load the same values from `ANDROID_KEYSTORE_*` environment variables, with the keystore file decoded from the `ANDROID_KEYSTORE_BASE64` GitHub Actions secret.
 - The signed release workflow uses Node 24-compatible GitHub Actions majors to avoid deprecated Node 20 runner execution.
-- `:app:assembleRelease`, `:app:bundleRelease`, and `:app:stageReleaseArtifacts` fail fast when signing credentials are missing or the keystore file path is invalid, preventing unsigned distribution artifacts from being staged as release-ready output.
-- `:app:stageReleaseArtifacts` copies signed APK/AAB distribution files into the ignored root `build/release/` output folder so generated binaries do not live beside source files.
+- `:app:assembleRelease`, `:app:stageGithubReleaseApk`, and `:app:stageReleaseArtifacts` fail fast when signing credentials are missing or the keystore file path is invalid, preventing unsigned distribution artifacts from being staged as release-ready output.
+- `:app:stageGithubReleaseApk` copies the signed APK into the ignored root `build/release/` output folder as `hermes-webui-v<version>-github.apk` so generated binaries do not live beside source files.
+- The GitHub release workflow builds only that APK. Manual runs create or update release `v<versionName>` from the checked-out commit; tag-triggered releases require the tag to match the Gradle Android `versionName` exactly, such as `v0.1.7`, before upload.
 
 ## Security model
 

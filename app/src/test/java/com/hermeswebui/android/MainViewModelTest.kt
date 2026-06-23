@@ -75,6 +75,46 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `openSettings sets isSettingsVisible`() {
+        val store = FakeSettingsStore()
+        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+
+        viewModel.openSettings()
+
+        assertThat(viewModel.uiState.value.isSettingsVisible).isTrue()
+    }
+
+    @Test
+    fun `openSettings from error state shows settings without clearing error`() {
+        val store = FakeSettingsStore()
+        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+
+        viewModel.onPageStarted(defaultServerUrl)
+        viewModel.onPageError("Connection refused", isOffline = true)
+        viewModel.openSettings()
+
+        val state = viewModel.uiState.value
+        assertThat(state.isSettingsVisible).isTrue()
+        assertThat(state.errorMessage).isEqualTo("Connection refused")
+    }
+
+    @Test
+    fun `saveAppUrls from error state clears error and starts loading new url`() {
+        val store = FakeSettingsStore()
+        val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)
+
+        viewModel.onPageStarted(defaultServerUrl)
+        viewModel.onPageError("Connection refused", isOffline = true)
+        viewModel.saveAppUrls("https://next.example.com", defaultDashboardUrl)
+
+        val state = viewModel.uiState.value
+        assertThat(state.errorMessage).isNull()
+        assertThat(state.isSettingsVisible).isFalse()
+        assertThat(state.isLoading).isTrue()
+        assertThat(state.currentUrl).isEqualTo("https://next.example.com")
+    }
+
+    @Test
     fun `reset session resets loaded content state`() {
         val store = FakeSettingsStore()
         val viewModel = MainViewModel(store, defaultServerUrl, defaultDashboardUrl)

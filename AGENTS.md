@@ -101,9 +101,12 @@ clearly out of scope or already tracked.
 When package identity, release signing, store distribution, or public release
 behavior changes, update `ROADMAP.md` and `README.md` in the same change.
 
-The repo includes `.github/workflows/release.yml` for signed release automation.
-Keep it aligned with `app/build.gradle.kts`, `keystore.properties.example`, and
-the documented GitHub secrets whenever the release flow changes.
+The repo includes `.github/workflows/release.yml` for signed GitHub APK release
+automation. Keep it aligned with `app/build.gradle.kts`,
+`keystore.properties.example`, and the documented GitHub secrets whenever the
+release flow changes. The GitHub workflow should publish only the
+`hermes-webui-v<version>-github.apk` APK, and tag-triggered releases should
+match the Gradle `versionName`.
 
 ## Verification
 

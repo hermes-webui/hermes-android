@@ -405,7 +405,8 @@ class MainActivity : ComponentActivity() {
                         errorMessage = uiState.errorMessage,
                         onRefresh = onReload,
                         onRetry = onReload,
-                        onOpenExternal = onOpenExternal
+                        onOpenExternal = onOpenExternal,
+                        onOpenSettings = { viewModel.openSettings() }
                     )
                     SnackbarHost(hostState = snackbarHostState)
                 }

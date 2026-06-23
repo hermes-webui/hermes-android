@@ -245,6 +245,10 @@ class MainActivity : ComponentActivity() {
     private var notificationBridgeScriptHandler: ScriptHandler? = null
     private var routeRecoveryScriptHandler: ScriptHandler? = null
 
+    private var activeOAuthPopup: WebView? = null
+    private var oauthFlowTimeoutMs: Long = 0
+    private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
+
     private val serverUrlValidator = ServerUrlValidator()
 
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -345,10 +349,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // If OAuth flow has timed out, clean up the popup to prevent resource leaks.
+        cleanupExpiredOAuthPopup()
+    }
+
     override fun onStop() {
         super.onStop()
         // Avoid background polling; restart on resume if the error screen is still active.
         viewModel.cancelAutoRetry()
+        // Clean up any lingering OAuth popup on app stop.
+        cleanupExpiredOAuthPopup()
     }
 
     /** Handles hermes://session/{session_id} deep links.
@@ -486,6 +498,26 @@ class MainActivity : ComponentActivity() {
                             request: WebResourceRequest?
                         ): Boolean {
                             val target = request?.url?.toString() ?: return true
+
+                            // If this is an OAuth/OIDC URL, keep the popup alive to preserve PKCE state.
+                            // OAuth flows require multiple redirects with persistent cookies.
+                            if (isOAuthAuthorizationUrl(target)) {
+                                activeOAuthPopup = popup
+                                oauthFlowTimeoutMs = System.currentTimeMillis() + OAUTH_FLOW_TIMEOUT_MS
+                                // Load the OAuth URL in the popup; let it complete the auth flow.
+                                view?.loadUrl(target)
+                                return true
+                            }
+
+                            // If this is an OAuth callback completion, destroy popup and handle result in main WebView.
+                            if (isOAuthCallbackUrl(target)) {
+                                activeOAuthPopup = null
+                                handleNewWindowUrl(target)
+                                popup.destroy()
+                                return true
+                            }
+
+                            // Non-OAuth redirects: handle as before and destroy popup.
                             handleNewWindowUrl(target)
                             popup.destroy()
                             return true
@@ -497,10 +529,18 @@ class MainActivity : ComponentActivity() {
                             favicon: android.graphics.Bitmap?
                         ) {
                             super.onPageStarted(view, url, favicon)
-                            if (!url.isNullOrBlank()) {
-                                handleNewWindowUrl(url)
-                                popup.destroy()
+                            if (url.isNullOrBlank()) return
+
+                            // Keep popup alive if this is part of OAuth flow (e.g., auth provider login page).
+                            if (isOAuthRelatedUrl(url)) {
+                                activeOAuthPopup = popup
+                                oauthFlowTimeoutMs = System.currentTimeMillis() + OAUTH_FLOW_TIMEOUT_MS
+                                return
                             }
+
+                            // Non-OAuth flow: redirect to main WebView and destroy popup.
+                            handleNewWindowUrl(url)
+                            popup.destroy()
                         }
                     }
                     transport.webView = popup
@@ -1432,5 +1472,82 @@ class MainActivity : ComponentActivity() {
         val network = manager.activeNetwork ?: return false
         val caps = manager.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    /** Detect if a URL is an OAuth/OIDC authorization endpoint.
+     *
+     * These URLs initiate the OAuth authorization flow and must keep the WebView
+     * alive across multiple redirects to preserve PKCE state cookies and other auth session data.
+     *
+     * Common patterns:
+     * - https://auth.example.com/authorize?...
+     * - https://login.provider.com/oauth/authorize
+     * - https://accounts.google.com/o/oauth2/v2/auth
+     * - https://login.microsoftonline.com/.../.../oauth2/v2.0/authorize
+     */
+    private fun isOAuthAuthorizationUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return lower.contains("/authorize") ||
+               lower.contains("/oauth/authorize") ||
+               lower.contains("/oauth2/v2.0/authorize") ||
+               lower.contains("/auth/oauth") ||
+               lower.contains("/oauth2/authorize") ||
+               lower.contains("/openid/authorize")
+    }
+
+    /** Detect if a URL is part of an OAuth/OIDC flow (but not the final callback).
+     *
+     * These URLs should keep the popup alive because they're part of the auth flow:
+     * - Login pages, consent screens, MFA prompts, etc.
+     *
+     * Pattern: URLs from known auth providers during active flow.
+     */
+    private fun isOAuthRelatedUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        // Check if URL matches known auth provider domains (common patterns)
+        val isKnownAuthDomain = lower.contains("auth.") ||
+                                 lower.contains("login.") ||
+                                 lower.contains("accounts.") ||
+                                 lower.contains("account.") ||
+                                 lower.contains("idp.") ||
+                                 lower.contains("sso.")
+
+        // Exclude callback URLs — they indicate flow completion
+        val isNotCallback = !lower.contains("callback") &&
+                            !lower.contains("code=") &&
+                            !lower.contains("state=")
+
+        return isKnownAuthDomain && isNotCallback
+    }
+
+    /** Detect if a URL is an OAuth/OIDC callback (flow completion).
+     *
+     * OAuth flows end with a callback URL containing authorization code or error:
+     * - https://hermes.example.com/callback?code=...&state=...
+     * - https://hermes.example.com/auth/callback?error=...
+     * - https://app.example.com/oauth/callback?code=abc123
+     *
+     * When we reach a callback URL, the popup has served its purpose and should be destroyed.
+     */
+    private fun isOAuthCallbackUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return (lower.contains("callback") && (lower.contains("code=") || lower.contains("error="))) ||
+               (lower.contains("code=") && lower.contains("state="))
+    }
+
+    /** Cleanup OAuth popup if it has timed out.
+     *
+     * OAuth flows should complete quickly (typically < 2 min). If a popup stays
+     * active longer than the timeout, destroy it to prevent resource leaks.
+     */
+    private fun cleanupExpiredOAuthPopup() {
+        if (activeOAuthPopup != null && System.currentTimeMillis() > oauthFlowTimeoutMs) {
+            try {
+                activeOAuthPopup?.destroy()
+            } catch (_: Exception) {
+                // WebView may already be destroyed; ignore errors
+            }
+            activeOAuthPopup = null
+        }
     }
 }

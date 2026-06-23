@@ -42,6 +42,17 @@ Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 - Do not reintroduce a parallel native drawer or custom Android Terminal/menu button for the dashboard link.
 - Hermes WebUI DOM/CSS compatibility shims must stay scoped to the configured WebUI route. Do not inject the Hermes WebUI viewport/config shim into the official dashboard origin; dashboard links should use Chrome Custom Tabs unless a future task explicitly reopens the app-WebView approach.
 
+## AI Agent Capabilities
+
+AI agents working in this repository have access to the GitHub CLI (GH CLI) and can:
+
+- Fetch and analyze GitHub issues, pull requests, and discussions
+- Query repository metadata, branches, and releases
+- Review diffs and commit history
+- Assist with issue triage, impact analysis, and prioritization
+
+When a user references GitHub issues (e.g., by URL or issue number), agents should use GH CLI to retrieve full issue details rather than asking the user to copy-paste them.
+
 ## Scope
 
 This repository is the standalone Android app.

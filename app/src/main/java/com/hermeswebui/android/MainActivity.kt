@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -684,7 +685,10 @@ class MainActivity : ComponentActivity() {
             }
 
             if (uiState.isSettingsVisible) {
-                ModalBottomSheet(onDismissRequest = { viewModel.closeSettings() }) {
+                ModalBottomSheet(
+                    onDismissRequest = { viewModel.closeSettings() },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ) {
                     SettingsBottomSheet(
                         initialServerUrl = uiState.settings.serverUrl,
                         isConfigured = uiState.settings.isConfigured,

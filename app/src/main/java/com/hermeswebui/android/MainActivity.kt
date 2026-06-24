@@ -731,37 +731,38 @@ class MainActivity : ComponentActivity() {
             if (isDark) HermesDarkColorScheme else HermesLightColorScheme
         }
         MaterialTheme(colorScheme = colorScheme) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
+            Box(modifier = Modifier.fillMaxSize()) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
                 ) {
-                    WebShell(
-                        webView = webView,
-                        isLoading = uiState.isLoading,
-                        hasLoadedContent = uiState.hasLoadedContent,
-                        isOffline = uiState.isOffline,
-                        isReconnecting = uiState.isReconnecting,
-                        errorMessage = uiState.errorMessage,
-                        onRefresh = onReload,
-                        onRetry = {
-                            viewModel.cancelAutoRetry()
-                            onReload()
-                        },
-                        onOpenExternal = onOpenExternal,
-                        onOpenSettings = { viewModel.openSettings() },
-                        onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
-                    )
-                    SnackbarHost(hostState = snackbarHostState)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                    ) {
+                        WebShell(
+                            webView = webView,
+                            isLoading = uiState.isLoading,
+                            hasLoadedContent = uiState.hasLoadedContent,
+                            isOffline = uiState.isOffline,
+                            isReconnecting = uiState.isReconnecting,
+                            errorMessage = uiState.errorMessage,
+                            onRefresh = onReload,
+                            onRetry = {
+                                viewModel.cancelAutoRetry()
+                                onReload()
+                            },
+                            onOpenExternal = onOpenExternal,
+                            onOpenSettings = { viewModel.openSettings() },
+                            onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
+                        )
+                        SnackbarHost(hostState = snackbarHostState)
+                    }
                 }
-            }
 
-            if (uiState.isSettingsVisible) {
-                SettingsScreen(
+                if (uiState.isSettingsVisible) {
+                    SettingsScreen(
                     initialServerUrl = uiState.settings.serverUrl,
                     isConfigured = uiState.settings.isConfigured,
                     backgroundReconnectEnabled = uiState.backgroundReconnectEnabled,
@@ -779,8 +780,9 @@ class MainActivity : ComponentActivity() {
                     onEditProfile = { profileId, newName, newUrl -> handleEditServerProfile(profileId, newName, newUrl) },
                     onSwitchProfile = { profileId -> handleSwitchServerProfile(profileId) }
                 )
-            }
-        }
+            } // end if (isSettingsVisible)
+        } // end outer Box
+    } // end MaterialTheme
     }
 
     @SuppressLint("SetJavaScriptEnabled")

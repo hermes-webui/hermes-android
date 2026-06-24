@@ -2,9 +2,11 @@ package com.hermeswebui.android.ui.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -28,16 +31,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermeswebui.android.data.ServerProfile
@@ -78,7 +83,16 @@ fun SettingsScreen(
         mutableStateOf(if (isConfigured) initialServerUrl else "")
     }
 
-    // --- Dialogs ---
+    // Derived theme colors kept local for readability
+    val bgColor = MaterialTheme.colorScheme.background          // #0D0D1A deep navy
+    val surfaceColor = MaterialTheme.colorScheme.surface         // #141425 card navy
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant // #1A1A2E list row navy
+    val primaryColor = MaterialTheme.colorScheme.primary          // #FFD700 gold
+    val onSurface = MaterialTheme.colorScheme.onSurface           // #FFF8DC cream
+    val onSurfaceVar = MaterialTheme.colorScheme.onSurfaceVariant // #E6E0C8 muted cream
+    val outlineVar = MaterialTheme.colorScheme.outlineVariant     // #3A3A55 subtle divider
+
+    // ── Dialogs ──────────────────────────────────────────────────────────────
     if (showAddProfileDialog) {
         AddServerProfileDialog(
             existingProfiles = serverProfiles,
@@ -106,10 +120,9 @@ fun SettingsScreen(
                 TextButton(onClick = { profileToDelete = null }) { Text("Cancel") }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    onDeleteProfile(deleting.id)
-                    profileToDelete = null
-                }) { Text("Delete") }
+                TextButton(onClick = { onDeleteProfile(deleting.id); profileToDelete = null }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
             }
         )
     }
@@ -118,7 +131,7 @@ fun SettingsScreen(
             onDismissRequest = { showResetSessionConfirm = false },
             title = { Text("Reset web session?") },
             text = {
-                Text("This will clear all cookies, local storage, and cached data. You will be signed out of Hermes.")
+                Text("This clears all cookies, local storage, and cached data. You will be signed out of Hermes.")
             },
             dismissButton = {
                 TextButton(onClick = { showResetSessionConfirm = false }) { Text("Cancel") }
@@ -134,100 +147,130 @@ fun SettingsScreen(
         )
     }
 
-    // --- Full-screen settings page ---
-    Surface(
+    // ── Full-screen settings surface ─────────────────────────────────────────
+    Scaffold(
         modifier = modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Settings") },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Close settings"
-                            )
-                        }
+        containerColor = bgColor,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = onSurface
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = primaryColor   // gold back arrow = matches app's interactive accent
+                        )
                     }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = surfaceColor,          // #141425 — same as card/surface
+                    scrolledContainerColor = surfaceColor,
+                    titleContentColor = onSurface,
+                    navigationIconContentColor = primaryColor,
+                    actionIconContentColor = primaryColor
                 )
-            }
-        ) { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(paddingValues)
-            ) {
-                if (!isConfigured) {
-                    // First-run: connect to server
-                    Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(bgColor)
+                .verticalScroll(rememberScrollState())
+                .padding(paddingValues)
+        ) {
+            if (!isConfigured) {
+                // ── First-run: connect ────────────────────────────────────
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Connect to Hermes",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = primaryColor
+                    )
+                    Text(
+                        text = "Enter your Hermes server URL to get started.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = onSurfaceVar
+                    )
+                    OutlinedTextField(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = serverUrl,
+                        onValueChange = { serverUrl = it },
+                        singleLine = true,
+                        label = { Text("Hermes server URL") },
+                        placeholder = { Text("https://hermes.example.com") },
+                        supportingText = { Text("HTTP or HTTPS. Host is automatically allowlisted.") }
+                    )
+                    Button(
+                        onClick = { onSave(serverUrl.trim()) },
+                        enabled = serverUrl.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryColor,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) {
-                        Text(
-                            text = "Connect to Hermes",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "Enter your Hermes server URL to get started.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedTextField(
-                            modifier = Modifier.fillMaxWidth(),
-                            value = serverUrl,
-                            onValueChange = { serverUrl = it },
-                            singleLine = true,
-                            label = { Text("Hermes server URL") },
-                            placeholder = { Text("https://hermes.example.com") },
-                            supportingText = { Text("HTTP or HTTPS. Host is automatically allowlisted.") }
-                        )
-                        Button(
-                            onClick = { onSave(serverUrl.trim()) },
-                            enabled = serverUrl.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Connect")
-                        }
+                        Text("Connect", fontWeight = FontWeight.SemiBold)
                     }
-                } else {
-                    // ── Servers ──────────────────────────────────────────
-                    SettingsSectionHeader("Servers")
+                }
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    val activeProfile = serverProfiles.firstOrNull { profile ->
-                        profile.url.trimEnd('/').equals(initialServerUrl.trimEnd('/'), ignoreCase = true)
-                    } ?: serverProfiles.firstOrNull { it.isActive }
-                    val sortedProfiles = listOfNotNull(activeProfile) +
-                        serverProfiles.filter { it.id != activeProfile?.id }
+                // ── Servers ───────────────────────────────────────────────
+                SectionHeader("Servers")
 
-                    if (sortedProfiles.isEmpty()) {
-                        ListItem(
-                            headlineContent = { Text("Current server", maxLines = 1) },
-                            supportingContent = {
-                                Text(
-                                    initialServerUrl,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            },
-                            trailingContent = { ServerCurrentBadge() },
-                            colors = ListItemDefaults.colors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                val activeProfile = serverProfiles.firstOrNull { profile ->
+                    profile.url.trimEnd('/').equals(initialServerUrl.trimEnd('/'), ignoreCase = true)
+                } ?: serverProfiles.firstOrNull { it.isActive }
+                val sortedProfiles = listOfNotNull(activeProfile) +
+                    serverProfiles.filter { it.id != activeProfile?.id }
+
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(surfaceColor)
+                        .fillMaxWidth()
+                ) {
+                    Column {
+                        if (sortedProfiles.isEmpty()) {
+                            ListItem(
+                                headlineContent = { Text("Current server", maxLines = 1, color = onSurface) },
+                                supportingContent = {
+                                    Text(
+                                        initialServerUrl,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = onSurfaceVar
+                                    )
+                                },
+                                trailingContent = { ServerCurrentBadge() },
+                                colors = ListItemDefaults.colors(containerColor = surfaceVariant)
                             )
-                        )
-                    } else {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            sortedProfiles.forEach { profile ->
+                        } else {
+                            sortedProfiles.forEachIndexed { index, profile ->
                                 val isCurrent = profile.id == activeProfile?.id
                                 ListItem(
                                     headlineContent = {
                                         Text(
                                             profile.name,
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            overflow = TextOverflow.Ellipsis,
+                                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (isCurrent) primaryColor else onSurface
                                         )
                                     },
                                     supportingContent = {
@@ -235,7 +278,8 @@ fun SettingsScreen(
                                             profile.url,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.bodySmall
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = onSurfaceVar
                                         )
                                     },
                                     trailingContent = {
@@ -244,101 +288,144 @@ fun SettingsScreen(
                                             IconButton(onClick = { profileToDelete = profile }) {
                                                 Icon(
                                                     imageVector = Icons.Default.Delete,
-                                                    contentDescription = "Delete \"${profile.name}\""
+                                                    contentDescription = "Delete \"${profile.name}\"",
+                                                    tint = onSurfaceVar
                                                 )
                                             }
                                         }
                                     },
-                                    colors = ListItemDefaults.colors(
-                                        containerColor = if (isCurrent)
-                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                                        else
-                                            MaterialTheme.colorScheme.surfaceVariant
-                                    ),
+                                    colors = ListItemDefaults.colors(containerColor = surfaceVariant),
                                     modifier = Modifier
                                         .combinedClickable(
                                             onClick = { if (!isCurrent) onSwitchProfile(profile.id) },
                                             onLongClick = { profileToEdit = profile }
                                         )
-                                        .alpha(if (isCurrent) 1f else 0.9f)
+                                        .alpha(if (isCurrent) 1f else 0.85f)
                                 )
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                )
+                                if (index < sortedProfiles.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp),
+                                        color = outlineVar.copy(alpha = 0.5f)
+                                    )
+                                }
                             }
                         }
+
+                        // Add server row
+                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
+                        ListItem(
+                            headlineContent = {
+                                Text("Add server", color = primaryColor, fontWeight = FontWeight.Medium)
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = primaryColor)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = surfaceColor),
+                            modifier = Modifier.clickable { showAddProfileDialog = true }
+                        )
                     }
+                }
 
-                    Text(
-                        text = "Tap to switch server. Long-press to edit.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Tap to switch  •  Long-press to edit",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = onSurfaceVar.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                )
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ── Application ───────────────────────────────────────────
+                SectionHeader("Application")
+
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(surfaceColor)
+                        .fillMaxWidth()
+                ) {
                     ListItem(
-                        headlineContent = { Text("Add server") },
-                        leadingContent = {
-                            Icon(Icons.Default.Add, contentDescription = null)
+                        headlineContent = {
+                            Text(
+                                "Background reconnect notification",
+                                color = onSurface,
+                                fontWeight = FontWeight.Medium
+                            )
                         },
-                        modifier = Modifier.clickable { showAddProfileDialog = true }
-                    )
-
-                    HorizontalDivider()
-
-                    // ── Application ───────────────────────────────────────
-                    SettingsSectionHeader("Application")
-
-                    ListItem(
-                        headlineContent = { Text("Background reconnect notification") },
                         supportingContent = {
-                            Text("Show a notification while reconnecting after an app switch")
+                            Text(
+                                "Show a notification while reconnecting after an app switch",
+                                color = onSurfaceVar,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         },
                         trailingContent = {
                             Switch(
                                 checked = backgroundReconnectEnabled,
-                                onCheckedChange = onSetBackgroundReconnect
+                                onCheckedChange = onSetBackgroundReconnect,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                    checkedTrackColor = primaryColor,
+                                    uncheckedThumbColor = onSurfaceVar,
+                                    uncheckedTrackColor = surfaceVariant
+                                )
                             )
                         },
+                        colors = ListItemDefaults.colors(containerColor = surfaceColor),
                         modifier = Modifier.clickable {
                             onSetBackgroundReconnect(!backgroundReconnectEnabled)
                         }
                     )
+                }
 
-                    HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    // ── Session ───────────────────────────────────────────
-                    SettingsSectionHeader("Session")
+                // ── Session ───────────────────────────────────────────────
+                SectionHeader("Session")
 
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(surfaceColor)
+                        .fillMaxWidth()
+                ) {
                     ListItem(
                         headlineContent = {
                             Text(
                                 "Reset web session",
-                                color = MaterialTheme.colorScheme.error
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Medium
                             )
                         },
                         supportingContent = {
-                            Text("Clear cookies, local storage, and cached data. You will be signed out.")
+                            Text(
+                                "Clear cookies, local storage, and cached data. Signs you out.",
+                                color = onSurfaceVar,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         },
+                        colors = ListItemDefaults.colors(containerColor = surfaceColor),
                         modifier = Modifier.clickable { showResetSessionConfirm = true }
                     )
-
-                    Spacer(modifier = Modifier.height(24.dp))
                 }
+
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
     }
 }
 
 @Composable
-private fun SettingsSectionHeader(title: String) {
+private fun SectionHeader(title: String) {
     Text(
-        text = title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp)
+        text = title.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+        letterSpacing = androidx.compose.ui.unit.TextUnit(1.2f, androidx.compose.ui.unit.TextUnitType.Sp),
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp)
     )
 }
 
@@ -393,9 +480,7 @@ internal fun EditProfileDialog(
                 )
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         confirmButton = {
             Button(
                 onClick = { if (name.isNotBlank() && isValidUrl) onConfirm(name, url) },
@@ -462,20 +547,12 @@ internal fun AddServerProfileDialog(
                 )
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         confirmButton = {
             Button(
-                onClick = {
-                    if (canSubmit) {
-                        onConfirm(trimmedName.ifBlank { trimmedUrl }, trimmedUrl)
-                        onDismiss()
-                    }
-                },
+                onClick = { if (canSubmit) { onConfirm(trimmedName.ifBlank { trimmedUrl }, trimmedUrl); onDismiss() } },
                 enabled = canSubmit
             ) { Text("Add") }
         }
     )
 }
-

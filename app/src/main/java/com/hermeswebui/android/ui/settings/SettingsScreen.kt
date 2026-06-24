@@ -72,6 +72,7 @@ fun SettingsScreen(
     sseTransportEnabled: Boolean,
     sseSupportStatus: String?,
     debugLoggingEnabled: Boolean,
+    appVersionLabel: String,
     serverProfiles: List<ServerProfile>,
     onSave: (String) -> Unit,
     onResetSession: () -> Unit,
@@ -599,7 +600,7 @@ fun SettingsScreen(
                             },
                             supportingContent = {
                                 Text(
-                                    "Persistent notification stays visible while capture runs. Use Stop on notification to end capture.",
+                                    "Captures app, WebView/system logs, and device/server metadata while running. Use Stop on the notification to end capture.",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -673,6 +674,17 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
             }
+
+            Text(
+                text = appVersionLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = onSurfaceVar.copy(alpha = 0.75f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

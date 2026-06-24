@@ -42,8 +42,8 @@ Current pre-release version: `v0.1.9`.
 
 Current Android build metadata:
 
-- Version name: `0.1.8`
-- Version code: `9`
+- Version name: `0.1.9`
+- Version code: `10`
 - Application ID: `com.hermeswebui.android`
 - Compile/target SDK: `37`
 

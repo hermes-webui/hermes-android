@@ -62,21 +62,33 @@ class HermesDebugLoggingService : Service() {
         val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val outFile = File(logDir, "hermes-debug-$timestamp.log")
 
+        // Include environment + app state context at the top of each captured file so bug
+        // reports are actionable even when logs are shared out-of-band.
+        runCatching {
+            outFile.writeText(buildLogSessionHeader())
+        }
+
         val process = runCatching {
-            val pid = android.os.Process.myPid().toString()
             ProcessBuilder(
                 "logcat",
-                "--pid=$pid",
                 "-v",
-                "time"
+                "threadtime",
+                "-b",
+                "main",
+                "-b",
+                "system",
+                "-b",
+                "crash",
+                "-T",
+                "1"
             )
-                .redirectOutput(outFile)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(outFile))
                 .redirectErrorStream(true)
                 .start()
         }.getOrElse {
             runCatching {
-                ProcessBuilder("logcat", "-v", "time")
-                    .redirectOutput(outFile)
+                ProcessBuilder("logcat", "-v", "threadtime", "-T", "1")
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(outFile))
                     .redirectErrorStream(true)
                     .start()
             }.getOrNull()
@@ -136,6 +148,39 @@ class HermesDebugLoggingService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(0, getString(R.string.debug_logging_notification_stop_action), stopPendingIntent)
             .build()
+    }
+
+    private fun buildLogSessionHeader(): String {
+        val settings = SettingsRepository(applicationContext)
+        val appSettings = settings.getSettings(
+            defaultUrl = getString(R.string.default_server_url),
+            defaultDashboardUrl = getString(R.string.default_dashboard_url)
+        )
+        val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date())
+        val packageInfo = runCatching {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }.getOrNull()
+        val appVersion = packageInfo?.versionName ?: "unknown"
+        val debugBuild = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        return buildString {
+            appendLine("=== Hermes Android Debug Log Session ===")
+            appendLine("timestamp: $now")
+            appendLine("app_version: $appVersion")
+            appendLine("build_mode: ${if (debugBuild) "debuggable" else "release"}")
+            appendLine("package: ${applicationContext.packageName}")
+            appendLine("android_api: ${Build.VERSION.SDK_INT}")
+            appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("server_url: ${appSettings.serverUrl}")
+            appendLine("dashboard_url: ${appSettings.dashboardUrl}")
+            appendLine("background_reconnect_enabled: ${settings.isBackgroundReconnectEnabled()}")
+            appendLine("reconnect_poll_interval_seconds: ${settings.getReconnectPollIntervalSeconds()}")
+            appendLine("sse_transport_enabled: ${settings.isSseTransportEnabled()}")
+            appendLine("debug_logging_enabled: ${settings.isDebugLoggingEnabled()}")
+            appendLine("last_loaded_url: ${settings.getLastLoadedUrl().orEmpty()}")
+            appendLine("=======================================")
+            appendLine()
+        }
     }
 
     companion object {

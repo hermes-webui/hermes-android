@@ -787,6 +787,7 @@ class MainActivity : ComponentActivity() {
                     sseTransportEnabled = uiState.sseTransportEnabled,
                     sseSupportStatus = uiState.sseSupportStatus,
                     debugLoggingEnabled = uiState.debugLoggingEnabled,
+                    appVersionLabel = "Version ${appVersionName()}",
                     serverProfiles = serverProfiles,
                     onSave = onSaveSettings,
                     onResetSession = onResetSession,
@@ -1373,7 +1374,7 @@ class MainActivity : ComponentActivity() {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "Hermes Android debug log")
-            putExtra(Intent.EXTRA_TEXT, "Attach this log to your GitHub issue or PR.")
+            putExtra(Intent.EXTRA_TEXT, "Attach this log to your GitHub issue.")
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

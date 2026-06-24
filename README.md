@@ -38,12 +38,12 @@ To get added, **message [@Paladin173](https://github.com/Paladin173) your Gmail 
 
 Once added, the app will appear in the Play Store for you to install and receive automatic updates.
 
-Current pre-release version: `v0.1.10`.
+Current pre-release version: `v0.1.11`.
 
 Current Android build metadata:
 
-- Version name: `0.1.10`
-- Version code: `11`
+- Version name: `0.1.11`
+- Version code: `111` (derived from semantic version as `major*10000 + minor*100 + patch`)
 - Application ID: `com.hermeswebui.android`
 - Compile/target SDK: `37`
 
@@ -244,10 +244,13 @@ The GitHub APK is a separate Android app variant: it installs as
 `com.hermeswebui.android` application ID and plain `<version>` version name, so
 both channels can be installed on the same device at the same time.
 
-Before each release, increment both `appVersionName` and `versionCode` in
-`app/build.gradle.kts`. Manual workflow runs create or update `v<versionName>`
-automatically; tag-triggered runs must use the matching tag, for example
-`v0.1.8`.
+Manual runs of `.github/workflows/1-orchestration-release.yml` auto-bump
+`appVersionName` from the latest published GitHub release tag (`vX.Y.Z ->
+vX.Y.(Z+1)`) before building. `versionCode` is derived from that semantic
+version in Gradle, so it stays monotonic without separate manual edits.
+
+Tag-triggered runs still require the pushed tag to match the Gradle
+`versionName` exactly, for example `v0.1.8`.
 
 ---
 

@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-06-23
+> Last updated: 2026-06-24
 
 ---
 
@@ -173,4 +173,6 @@ workflow changes should be made in Hermes WebUI instead.
 | A-010-P1 | 2026-06-23 | Lifecycle | Completed Issue 10 Part A resume polish: quick background/resume disconnects now keep the last rendered WebView content visible briefly while bounded reconnect probing runs, fall back to the native error screen as soon as the grace window expires, and resume reconnect polling cleanly across app background/foreground transitions |
 | A-010-P2 | 2026-06-23 | Lifecycle | Extended Issue 10 Part A with a bounded background reconnect hold: if the app backgrounds while auto-reconnect is already running, Android starts a temporary `dataSync` foreground service and ongoing "Reconnecting to Hermes" notification so the 60 s retry loop is not canceled immediately on `onStop` |
 | A-010-P2 | 2026-06-23 | Troubleshooting | Added opt-in debug logging capture toggle in native settings that runs as a foreground service with persistent notification, one-tap Stop action, and app-private logcat file capture for troubleshooting while minimizing app-switch diagnostics gaps |
+| REL-019 | 2026-06-24 | Release | Manual orchestration releases now auto-bump `appVersionName` from the latest published tag before building, and Gradle derives `versionCode` from semantic version to keep release numbering monotonic without separate manual edits |
+| REL-020 | 2026-06-24 | Release | Bumped Android app version metadata to `0.1.11` with derived `versionCode` `111` for the next GitHub + Play Store release |
 

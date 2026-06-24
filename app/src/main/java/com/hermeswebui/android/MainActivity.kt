@@ -805,6 +805,8 @@ class MainActivity : ComponentActivity() {
                     onSetSseTransportEnabled = { enabled ->
                         setSseTransportEnabledWithCheck(enabled)
                     },
+                    onCheckSseSupport = { checkSseSupport(enableIfAvailable = false) },
+                    onCopySsePrompt = { copySseEnablePromptToClipboard() },
                     onSetDebugLoggingEnabled = { enabled ->
                         if (enabled) {
                             requestNotificationPermissionIfNeeded()
@@ -1156,11 +1158,27 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        checkSseSupport(enableIfAvailable = true)
+    }
+
+    private fun copySseEnablePromptToClipboard() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (clipboard == null) {
+            Toast.makeText(this, "Clipboard unavailable on this device.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText("Hermes SSE enable prompt", HermesApiClient.SSE_ENABLE_HERMES_PROMPT)
+        )
+        Toast.makeText(this, "Copied SSE enable prompt.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun checkSseSupport(enableIfAvailable: Boolean) {
         val serverUrl = viewModel.uiState.value.settings.serverUrl
         if (serverUrl.isBlank()) {
             viewModel.setSseTransportEnabled(false)
-            viewModel.setSseSupportStatus("Configure a server URL before enabling SSE.")
-            Toast.makeText(this, "Configure a server URL before enabling SSE", Toast.LENGTH_SHORT).show()
+            viewModel.setSseSupportStatus("Configure a server URL before checking SSE support.")
+            Toast.makeText(this, "Configure a server URL before checking SSE", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -1168,20 +1186,28 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             when (HermesApiClient.detectSseCapability(serverUrl)) {
                 HermesApiClient.SseCapability.SESSION_SSE_ENABLED -> {
-                    viewModel.setSseTransportEnabled(true)
+                    viewModel.setSseTransportEnabled(enableIfAvailable)
                     viewModel.setSseSupportStatus(
                         "✅  Session SSE is enabled on the server (HERMES_WEBUI_SESSION_SSE_ENABLED=1). " +
-                        "Using SSE transport."
+                        if (enableIfAvailable) "Using SSE transport." else "Ready to use SSE transport."
                     )
-                    Toast.makeText(this@MainActivity, "SSE enabled.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (enableIfAvailable) "SSE enabled." else "SSE is available on this server.",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 HermesApiClient.SseCapability.GATEWAY_STREAM_AVAILABLE -> {
-                    viewModel.setSseTransportEnabled(true)
+                    viewModel.setSseTransportEnabled(enableIfAvailable)
                     viewModel.setSseSupportStatus(
                         "⚡  Gateway stream endpoint detected (/api/sessions/gateway/stream). " +
                         "Session SSE feature flag is off on this server — set " +
                         "HERMES_WEBUI_SESSION_SSE_ENABLED=1 to enable full session SSE. " +
-                        "Using gateway stream in the meantime."
+                        if (enableIfAvailable) {
+                            "Using gateway stream in the meantime."
+                        } else {
+                            "Enable SSE transport to use gateway stream fallback."
+                        }
                     )
                     Toast.makeText(
                         this@MainActivity,

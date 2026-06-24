@@ -60,6 +60,18 @@ jobs:
           test -f "$ANDROID_KEYSTORE_FILE" || { echo "Keystore file was not created"; exit 1; }
           echo "Keystore file size: $(wc -c < "$ANDROID_KEYSTORE_FILE") bytes"
 
+      - name: Auto-bump app version for manual releases
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x ./gradlew
+          latest_tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // ""')"
+          next_version="$(python3 tools/bump_gradle_version.py --gradle-file app/build.gradle.kts --latest-tag "$latest_tag")"
+          test -n "$next_version" || { echo "Failed to compute next app version"; exit 1; }
+          echo "Manual release auto-bumped appVersionName to $next_version (latest published tag: ${latest_tag:-none})"
+
       - name: Read Android release version
         id: release_version
         shell: bash

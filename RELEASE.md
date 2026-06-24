@@ -5,7 +5,9 @@ Use this checklist when publishing a new Hermes-Android build.
 ## Before Release
 
 1. Merge the intended fix or release PR to `main`.
-2. Increment `appVersionName` and `versionCode` in `app/build.gradle.kts`.
+2. Decide whether this is a manual or tag-triggered release:
+   - Manual run: no version edit needed. The workflow auto-bumps `appVersionName` from the latest published tag.
+   - Tag run: update `appVersionName` in `app/build.gradle.kts` first, then push matching tag `v<versionName>`.
 3. Verify the change locally when code changed:
 
 ```powershell

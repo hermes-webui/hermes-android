@@ -53,12 +53,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
 import kotlin.math.roundToInt
 
@@ -80,6 +77,8 @@ fun SettingsScreen(
     onSetBackgroundReconnect: (Boolean) -> Unit,
     onSetReconnectPollIntervalSeconds: (Int) -> Unit,
     onSetSseTransportEnabled: (Boolean) -> Unit,
+    onCheckSseSupport: () -> Unit,
+    onCopySsePrompt: () -> Unit,
     onSetDebugLoggingEnabled: (Boolean) -> Unit,
     onShareDebugLog: () -> Unit,
     onDownloadDebugLog: () -> Unit,
@@ -496,6 +495,23 @@ fun SettingsScreen(
                                 color = onSurfaceVar.copy(alpha = 0.72f),
                                 style = MaterialTheme.typography.labelSmall
                             )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = onCheckSseSupport,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Check SSE support now")
+                                }
+                                OutlinedButton(
+                                    onClick = onCopySsePrompt,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Copy enable prompt")
+                                }
+                            }
                             if (!sseSupportStatus.isNullOrBlank()) {
                                 val isFeatureDisabled = sseSupportStatus.startsWith("🚫")
                                 val statusColor = when {
@@ -510,18 +526,10 @@ fun SettingsScreen(
                                     color = statusColor,
                                     style = MaterialTheme.typography.labelSmall
                                 )
-                                // When the server returned 404 (feature flag not set), show a
-                                // copy-to-clipboard button so the user can paste the enable
-                                // prompt straight into Hermes chat.
                                 if (isFeatureDisabled) {
-                                    val clipboardManager = LocalClipboardManager.current
                                     Spacer(modifier = Modifier.height(4.dp))
                                     OutlinedButton(
-                                        onClick = {
-                                            clipboardManager.setText(
-                                                AnnotatedString(HermesApiClient.SSE_ENABLE_HERMES_PROMPT)
-                                            )
-                                        },
+                                        onClick = onCopySsePrompt,
                                         modifier = Modifier.fillMaxWidth(),
                                         border = androidx.compose.foundation.BorderStroke(
                                             1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)

@@ -3,7 +3,14 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
 
-val appVersionName = "0.1.10"
+val appVersionName = "0.1.11"
+val appVersionCode = run {
+    val semver = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)$")
+        .matchEntire(appVersionName)
+        ?: error("appVersionName must use semantic version format x.y.z")
+    val (major, minor, patch) = semver.destructured
+    major.toInt() * 10_000 + minor.toInt() * 100 + patch.toInt()
+}
 val distributionArtifactName = "hermes-webui-v$appVersionName"
 val githubReleaseArtifactName = "$distributionArtifactName-github"
 
@@ -97,7 +104,7 @@ extensions.configure<ApplicationExtension>("android") {
         applicationId = "com.hermeswebui.android"
         minSdk = 26
         targetSdk = 37
-        versionCode = 11
+        versionCode = appVersionCode
         versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

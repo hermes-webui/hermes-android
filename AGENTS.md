@@ -141,6 +141,10 @@ submit only the `hermes-webui-v<version>.aab` AAB to internal testing,
 tag-triggered releases should match the Gradle `versionName`, and the release
 body should keep the explicit build metadata block (version/tag, commit SHA,
 APK filename, SHA-256, workflow run URL) ahead of generated notes.
+Manual orchestration runs auto-bump `appVersionName` from the latest published
+`vX.Y.Z` tag before building; Gradle derives `versionCode` from semantic
+version (`major*10000 + minor*100 + patch`) so release numbering remains
+monotonic.
 GitHub releases should use full generated GitHub release notes; Play Store
 uploads should include an `en-US` What's New changelog generated from those
 same notes through `whatsNewDirectory`.

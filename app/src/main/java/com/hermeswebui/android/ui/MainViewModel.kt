@@ -157,6 +157,7 @@ class MainViewModel(
             val maxRetryDurationMs = 60_000L
             var msUntilNextProbe = intervalMs
             _uiState.update { it.copy(isReconnecting = true) }
+            promoteDeferredErrorIfReady(deferredErrorSnapshot)
 
             while (elapsedRetryMs < maxRetryDurationMs) {
                 val remainingRetryBudgetMs = maxRetryDurationMs - elapsedRetryMs

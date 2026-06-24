@@ -278,5 +278,5 @@ Schema notes:
 - [ ] Authentication model for background requests is documented.
 - [ ] Notification summary and privacy policy is documented.
 - [ ] Toggle default and rollout policy are documented.
-- [ ] Part A start criteria are explicitly marked as met.
+- [x] Part A start criteria are explicitly marked as met.
 

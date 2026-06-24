@@ -16,7 +16,8 @@ surface and source of conversation behavior.
 ## Current status
 
 - Stage 0 is in progress (discovery + contract decisions).
-- Stage 1/2/3 implementation has not started yet.
+- Stage 1 / Part A is in progress: lifecycle signal plumbing, reconnect UX polish, tests, and docs updates are landing on `issue-10-background-continuity-plan`.
+- Stage 2/3 implementation has not started yet.
 
 ## Outcome targets
 
@@ -146,8 +147,8 @@ Acceptance:
 ## Task checklist for this branch family
 
 - [ ] Finalize API/auth contract notes for background activity feed.
-- [ ] Implement Part A lifecycle/resume polish.
-- [ ] Add tests for resume/retry transitions.
+- [x] Implement Part A lifecycle/resume polish.
+- [x] Add tests for resume/retry transitions.
 - [ ] Add foreground service scaffold + manifest permissions for Part B.
 - [ ] Add settings toggle + migration for Part B.
 - [ ] Implement ongoing notification updates from activity feed.

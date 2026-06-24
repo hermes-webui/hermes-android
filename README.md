@@ -98,7 +98,7 @@ Requirements:
 - Explicitly configured Official Hermes Dashboard links open in a Chrome Custom Tab with minimal browser UI
 - Deep link support: `hermes://session/{id}` navigates to Hermes sessions
 - Cold-start restore keeps the active Hermes session/workspace route when the app process is restarted, with a WebUI-origin-scoped workspace-button recovery fallback that reloads the last known in-app session route if the panel is tapped from a blank root state
-- Short app switches now preserve the current WebView and briefly favor silent reconnect over immediately replacing the page with the native error screen, reducing resume flash when Hermes reconnects quickly after backgrounding
+- Short app switches now preserve the current WebView and briefly favor silent reconnect over immediately replacing the page with the native error screen; if Hermes does not recover before the grace window expires, the normal error UI appears promptly instead of waiting for a later retry probe
 - Server health probing on WebView errors to distinguish server-down from content errors
 - First-run settings flow for the Hermes WebUI URL; the dashboard URL is managed only by WebUI Settings > System
 - Back handling, pull-to-refresh, loading, offline, and error states, including direct server-URL recovery from the native error screen

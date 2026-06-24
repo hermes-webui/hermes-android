@@ -398,6 +398,45 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `resume auto retry immediately shows overdue deferred error before next probe`() = runTest(testDispatcher) {
+        var now = 50_000L
+        var probeCount = 0
+        val viewModel = MainViewModel(
+            FakeSettingsStore(),
+            null,
+            defaultServerUrl,
+            defaultDashboardUrl,
+            nowMs = { now },
+            serverReachabilityChecker = {
+                probeCount++
+                false
+            }
+        )
+
+        viewModel.onPageStarted(defaultServerUrl)
+        viewModel.onPageCommitVisible(defaultServerUrl)
+        viewModel.onPageFinished(defaultServerUrl)
+
+        viewModel.onAppBackgrounded()
+        now += 200L
+        viewModel.onAppForegrounded()
+        viewModel.onPageError("net::ERR_CONNECTION_RESET", isOffline = true)
+        runCurrent()
+        assertThat(viewModel.uiState.value.errorMessage).isNull()
+
+        viewModel.onAppBackgrounded()
+        viewModel.cancelAutoRetry()
+        now += 3_000L
+        viewModel.onAppForegrounded()
+        viewModel.resumeAutoRetryIfNeeded()
+        runCurrent()
+
+        assertThat(probeCount).isEqualTo(0)
+        assertThat(viewModel.uiState.value.errorMessage).isEqualTo("net::ERR_CONNECTION_RESET")
+        assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+    }
+
+    @Test
     fun `first load error does not defer native error UI`() = runTest(testDispatcher) {
         var now = 30_000L
         val viewModel = MainViewModel(

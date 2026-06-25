@@ -197,6 +197,13 @@ Keep unrelated local changes out of commits. If a file is already modified and
 is not part of the current task, leave it unstaged and call it out in the final
 summary.
 
+Branch hygiene after merges:
+
+- After a feature or fix branch is merged into `main`, delete the merged branch locally and on GitHub unless the human explicitly wants to keep it.
+- After merges land, sync local `main` with `origin/main` before starting new work or cutting another branch.
+- Before creating a new working branch, confirm `main` is current with `git fetch origin` plus an ahead/behind check such as `git status --short --branch`.
+- Treat a branch that is fully merged but behind `main` as stale; recreate it from current `main` instead of reviving it with extra history.
+
 Commit subject format:
 
 ```text

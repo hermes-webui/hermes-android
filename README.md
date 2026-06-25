@@ -103,6 +103,7 @@ Requirements:
 - If the background activity toggle is enabled, Android can keep a trusted session-scoped foreground notification alive while the app is backgrounded: reconnect windows stay alive after an app switch, and trusted `/api/session/stream` summaries can refresh the latest agent activity text with a lock-screen redaction option
 - Server health probing on WebView errors to distinguish server-down from content errors
 - First-run settings flow for the Hermes WebUI URL with an inline readiness check that rejects unreachable, setup-mode, or non-Hermes targets before saving them; auth-protected `/api/status` responses can still pass when the root page fingerprints as Hermes so signed-in WebView sessions are not blocked
+- Saved server rows check connection health before switching, show reachable/sign-in/setup/offline/not-Hermes results, and ask for confirmation before clearing the current WebView session
 - Back handling, pull-to-refresh, loading, offline, and error states, including direct server-URL recovery from the native error screen
 
 ### SSE capability mapping
@@ -129,6 +130,7 @@ Operational note:
 - Opt-in ongoing background activity notification for trusted Hermes sessions, with lock-screen redaction control
 - Notification tray approval actions for trusted Hermes sessions, with queue-head validation before Android submits a response
 - Optional troubleshooting debug-log capture with a persistent foreground notification and one-tap Stop action
+- Safe app-owned diagnostic breadcrumbs for startup validation, server health checks, server switching, and main-frame WebView failures are included in exported debug logs without cookies, auth headers, query strings, response bodies, or token-bearing URLs
 - Cookie-backed WebView session persistence
 - Encrypted local settings storage
 - Native app identity, launcher icon, splash, and settings surface

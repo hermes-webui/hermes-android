@@ -375,7 +375,7 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "Tap to switch  •  Long-press to edit",
+                    text = "Tap to check connection  •  Long-press to edit",
                     style = MaterialTheme.typography.labelSmall,
                     color = onSurfaceVar.copy(alpha = 0.7f),
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)

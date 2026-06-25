@@ -31,9 +31,20 @@ object HermesApiClient {
         "hermes webui"
     )
 
+    enum class ServerReadinessStatus {
+        READY,
+        AUTH_REQUIRED,
+        SETUP_REQUIRED,
+        UNREACHABLE,
+        NOT_HERMES,
+        REDIRECTED,
+        UNKNOWN_ERROR
+    }
+
     data class ServerReadinessResult(
         val isReady: Boolean,
-        val message: String
+        val message: String,
+        val status: ServerReadinessStatus = if (isReady) ServerReadinessStatus.READY else ServerReadinessStatus.UNKNOWN_ERROR
     )
 
     private val sseFeatureKeys = setOf(
@@ -146,31 +157,36 @@ object HermesApiClient {
                 exception is UnknownHostException -> {
                     ServerReadinessResult(
                         isReady = false,
-                        message = "Could not find that host. Check the server name and try again."
+                        message = "Could not find that host. Check the server name and try again.",
+                        status = ServerReadinessStatus.UNREACHABLE
                     )
                 }
                 exception is ConnectException -> {
                     ServerReadinessResult(
                         isReady = false,
-                        message = "Could not connect to this server. Check that Hermes is running and reachable from Android."
+                        message = "Could not connect to this server. Check that Hermes is running and reachable from Android.",
+                        status = ServerReadinessStatus.UNREACHABLE
                     )
                 }
                 exception is SocketTimeoutException -> {
                     ServerReadinessResult(
                         isReady = false,
-                        message = "The server took too long to respond. Check that Hermes finished starting up and try again."
+                        message = "The server took too long to respond. Check that Hermes finished starting up and try again.",
+                        status = ServerReadinessStatus.UNREACHABLE
                     )
                 }
                 exception is SSLHandshakeException || exception is SSLProtocolException || exception is SSLException || exception.message.orEmpty().contains("ssl", ignoreCase = true) -> {
                     ServerReadinessResult(
                         isReady = false,
-                        message = "Could not connect securely. Check whether this Hermes server should use http:// instead of https://."
+                        message = "Could not connect securely. Check whether this Hermes server should use http:// instead of https://.",
+                        status = ServerReadinessStatus.UNREACHABLE
                     )
                 }
                 else -> {
                     ServerReadinessResult(
                         isReady = false,
-                        message = "Could not reach this Hermes server. Check the URL, scheme, and whether the server is online."
+                        message = "Could not reach this Hermes server. Check the URL, scheme, and whether the server is online.",
+                        status = ServerReadinessStatus.UNREACHABLE
                     )
                 }
             }
@@ -214,23 +230,28 @@ object HermesApiClient {
             return when (httpStatus) {
                 301, 302, 307, 308 -> ServerReadinessResult(
                     isReady = false,
-                    message = "This URL redirected instead of returning Hermes status directly. Use the final Hermes WebUI URL instead."
+                    message = "This URL redirected instead of returning Hermes status directly. Use the final Hermes WebUI URL instead.",
+                    status = ServerReadinessStatus.REDIRECTED
                 )
                 503 -> ServerReadinessResult(
                     isReady = false,
-                    message = "Hermes responded, but it is not ready yet. Finish the server's initial setup and try again."
+                    message = "Hermes responded, but it is not ready yet. Finish the server's initial setup and try again.",
+                    status = ServerReadinessStatus.SETUP_REQUIRED
                 )
                 404 -> ServerReadinessResult(
                     isReady = false,
-                    message = "This URL responded, but it does not expose Hermes WebUI's /api/status endpoint."
+                    message = "This URL responded, but it does not expose Hermes WebUI's /api/status endpoint.",
+                    status = ServerReadinessStatus.NOT_HERMES
                 )
                 401, 403 -> ServerReadinessResult(
                     isReady = false,
-                    message = "Hermes requires sign-in before Android can verify /api/status. Open the server in the app or browser and sign in, then try again."
+                    message = "Hermes requires sign-in before Android can verify /api/status. Open the server in the app or browser and sign in, then try again.",
+                    status = ServerReadinessStatus.AUTH_REQUIRED
                 )
                 else -> ServerReadinessResult(
                     isReady = false,
-                    message = "Hermes returned HTTP $httpStatus from /api/status. Make sure the server is fully initialized."
+                    message = "Hermes returned HTTP $httpStatus from /api/status. Make sure the server is fully initialized.",
+                    status = ServerReadinessStatus.UNKNOWN_ERROR
                 )
             }
         }
@@ -243,7 +264,8 @@ object HermesApiClient {
                     "Hermes returned an unreadable status response."
                 } else {
                     "This server responded, but it does not look like a ready Hermes WebUI instance. Check the URL and finish setup first."
-                }
+                },
+                status = ServerReadinessStatus.NOT_HERMES
             )
         }
 
@@ -251,7 +273,8 @@ object HermesApiClient {
         if (setupMode is Boolean && setupMode) {
             return ServerReadinessResult(
                 isReady = false,
-                message = "This Hermes server is still in initial setup. Finish setup in the browser before adding it in Android."
+                message = "This Hermes server is still in initial setup. Finish setup in the browser before adding it in Android.",
+                status = ServerReadinessStatus.SETUP_REQUIRED
             )
         }
 
@@ -259,7 +282,8 @@ object HermesApiClient {
         if (initialized is Boolean && !initialized) {
             return ServerReadinessResult(
                 isReady = false,
-                message = "This Hermes server is still in initial setup. Finish setup in the browser before adding it in Android."
+                message = "This Hermes server is still in initial setup. Finish setup in the browser before adding it in Android.",
+                status = ServerReadinessStatus.SETUP_REQUIRED
             )
         }
 
@@ -267,20 +291,23 @@ object HermesApiClient {
         if (status in setOf("setup", "initial_setup", "not_ready", "initializing")) {
             return ServerReadinessResult(
                 isReady = false,
-                message = "This Hermes server is not ready yet. Finish setup and wait for startup to complete before adding it."
+                message = "This Hermes server is not ready yet. Finish setup and wait for startup to complete before adding it.",
+                status = ServerReadinessStatus.SETUP_REQUIRED
             )
         }
 
         if (looksLikeHermesStatusPayload(payload)) {
             return ServerReadinessResult(
                 isReady = true,
-                message = "Hermes server is reachable."
+                message = "Hermes server is reachable.",
+                status = ServerReadinessStatus.READY
             )
         }
 
         return ServerReadinessResult(
             isReady = false,
-            message = "This server responded, but it does not look like a ready Hermes WebUI instance."
+            message = "This server responded, but it does not look like a ready Hermes WebUI instance.",
+            status = ServerReadinessStatus.NOT_HERMES
         )
     }
 
@@ -296,7 +323,8 @@ object HermesApiClient {
         if (normalizedServerHeader.startsWith("HermesWebUI/", ignoreCase = true)) {
             return ServerReadinessResult(
                 isReady = true,
-                message = "Hermes server is reachable."
+                message = "Hermes server is reachable.",
+                status = ServerReadinessStatus.READY
             )
         }
 
@@ -309,7 +337,8 @@ object HermesApiClient {
         if (looksLikeHtml && hasHermesMarker) {
             return ServerReadinessResult(
                 isReady = true,
-                message = "Hermes server is reachable."
+                message = "Hermes server is reachable.",
+                status = ServerReadinessStatus.READY
             )
         }
 

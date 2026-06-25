@@ -16,6 +16,7 @@ class HermesApiClientStatusTest {
         )
 
         assertThat(result.isReady).isTrue()
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.READY)
     }
 
     @Test
@@ -30,6 +31,7 @@ class HermesApiClientStatusTest {
 
         assertThat(result.isReady).isFalse()
         assertThat(result.message).contains("initial setup")
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.SETUP_REQUIRED)
     }
 
     @Test
@@ -42,6 +44,7 @@ class HermesApiClientStatusTest {
 
         assertThat(result.isReady).isFalse()
         assertThat(result.message).contains("does not look like a ready Hermes WebUI")
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.NOT_HERMES)
     }
 
     @Test
@@ -54,6 +57,7 @@ class HermesApiClientStatusTest {
 
         assertThat(result.isReady).isFalse()
         assertThat(result.message).contains("not ready yet")
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.SETUP_REQUIRED)
     }
 
     @Test
@@ -66,6 +70,7 @@ class HermesApiClientStatusTest {
 
         assertThat(result.isReady).isFalse()
         assertThat(result.message).contains("sign-in")
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED)
     }
 
     @Test
@@ -79,6 +84,7 @@ class HermesApiClientStatusTest {
 
         assertThat(result).isNotNull()
         assertThat(result?.isReady).isTrue()
+        assertThat(result?.status).isEqualTo(HermesApiClient.ServerReadinessStatus.READY)
     }
 
     @Test

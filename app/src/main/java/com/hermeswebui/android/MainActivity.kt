@@ -3,6 +3,7 @@ package com.hermeswebui.android
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.app.AlertDialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -29,6 +30,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -85,7 +87,9 @@ import com.hermeswebui.android.background.ReconnectSessionStreamSupport
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.core.security.UrlPolicy
+import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
+import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.domain.ShareIntentParser
@@ -1063,11 +1067,48 @@ class MainActivity : ComponentActivity() {
                     if (request?.isForMainFrame != true) return
                     val offline = isOfflineError(error?.errorCode)
                     val message = error?.description?.toString() ?: "Failed to load page"
+                    DiagnosticsLogger.record(
+                        this@MainActivity,
+                        "webview_main_frame_error",
+                        mapOf(
+                            "origin" to DiagnosticsLogger.originOnly(request.url?.toString()),
+                            "path" to DiagnosticsLogger.pathOnly(request.url?.toString()),
+                            "error_code" to error?.errorCode?.toString(),
+                            "offline" to offline.toString()
+                        )
+                    )
                     viewModel.onPageError(message, offline)
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    errorResponse: WebResourceResponse?
+                ) {
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    if (request?.isForMainFrame != true) return
+                    DiagnosticsLogger.record(
+                        this@MainActivity,
+                        "webview_main_frame_http_error",
+                        mapOf(
+                            "origin" to DiagnosticsLogger.originOnly(request.url?.toString()),
+                            "path" to DiagnosticsLogger.pathOnly(request.url?.toString()),
+                            "http_status" to errorResponse?.statusCode?.toString()
+                        )
+                    )
                 }
 
                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
                     handler?.cancel()
+                    DiagnosticsLogger.record(
+                        this@MainActivity,
+                        "webview_ssl_error",
+                        mapOf(
+                            "origin" to DiagnosticsLogger.originOnly(error?.url),
+                            "path" to DiagnosticsLogger.pathOnly(error?.url),
+                            "primary_error" to error?.primaryError?.toString()
+                        )
+                    )
                     viewModel.onPageError("SSL validation failed for this page.", false)
                 }
             }
@@ -2127,6 +2168,11 @@ class MainActivity : ComponentActivity() {
         }
 
         serverValidationJob?.cancel()
+        DiagnosticsLogger.record(
+            this,
+            "startup_validation_start",
+            mapOf("origin" to DiagnosticsLogger.originOnly(serverUrl))
+        )
         viewModel.setServerValidationState(
             isChecking = true,
             message = "Checking Hermes server readiness...",
@@ -2134,12 +2180,37 @@ class MainActivity : ComponentActivity() {
         )
         serverValidationJob = lifecycleScope.launch {
             val result = HermesApiClient.checkServerReadiness(serverUrl)
+            DiagnosticsLogger.record(
+                this@MainActivity,
+                "startup_validation_result",
+                mapOf(
+                    "origin" to DiagnosticsLogger.originOnly(serverUrl),
+                    "status" to result.status.name,
+                    "ready" to result.isReady.toString()
+                )
+            )
             if (result.isReady || HermesApiClient.isServerReachable(serverUrl)) {
+                DiagnosticsLogger.record(
+                    this@MainActivity,
+                    "startup_validation_decision",
+                    mapOf(
+                        "origin" to DiagnosticsLogger.originOnly(serverUrl),
+                        "decision" to "continue_webview"
+                    )
+                )
                 viewModel.clearServerValidationState()
                 webView.loadUrl(startUrl)
                 return@launch
             }
 
+            DiagnosticsLogger.record(
+                this@MainActivity,
+                "startup_validation_decision",
+                mapOf(
+                    "origin" to DiagnosticsLogger.originOnly(serverUrl),
+                    "decision" to "open_settings"
+                )
+            )
             viewModel.openSettingsWithServerValidation(result.message)
             Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
         }
@@ -2196,22 +2267,145 @@ class MainActivity : ComponentActivity() {
     private fun handleSwitchServerProfile(profileId: String) {
         val newProfile = settingsRepository.getProfiles().firstOrNull { it.id == profileId } ?: return
 
-        // Validate the server URL before switching
         if (!serverUrlValidator.isValid(newProfile.url)) {
+            DiagnosticsLogger.record(
+                this,
+                "server_switch_health_check_blocked",
+                mapOf(
+                    "origin" to DiagnosticsLogger.originOnly(newProfile.url),
+                    "decision" to "invalid_url"
+                )
+            )
             Toast.makeText(this, "Invalid server URL: ${newProfile.url}", Toast.LENGTH_LONG).show()
             return
         }
 
-        validateServerBeforePersist(newProfile.url) {
-            clearWebViewStateForServerSwitch()
+        serverValidationJob?.cancel()
+        DiagnosticsLogger.record(
+            this,
+            "server_switch_health_check_start",
+            mapOf(
+                "origin" to DiagnosticsLogger.originOnly(newProfile.url),
+                "profile_id" to newProfile.id
+            )
+        )
+        viewModel.setServerValidationState(
+            isChecking = true,
+            message = "Checking ${newProfile.name} before switching...",
+            isError = false
+        )
+        serverValidationJob = lifecycleScope.launch {
+            val result = HermesApiClient.checkServerReadiness(newProfile.url)
+            val reachable = result.isReady || HermesApiClient.isServerReachable(newProfile.url)
+            DiagnosticsLogger.record(
+                this@MainActivity,
+                "server_switch_health_check_result",
+                mapOf(
+                    "origin" to DiagnosticsLogger.originOnly(newProfile.url),
+                    "profile_id" to newProfile.id,
+                    "status" to result.status.name,
+                    "ready" to result.isReady.toString(),
+                    "reachable" to reachable.toString()
+                )
+            )
 
-            viewModel.switchServerProfile(profileId)
-            urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
-            installHermesWebUiDocumentStartFixes(webView, newProfile.url)
-            webView.loadUrl(newProfile.url)
-            viewModel.closeSettings()
-            Toast.makeText(this, "Switched to ${newProfile.name}", Toast.LENGTH_SHORT).show()
+            if (result.isReady) {
+                val message = "${newProfile.name} is reachable. Switch to this server now?"
+                viewModel.setServerValidationState(
+                    isChecking = false,
+                    message = message,
+                    isError = false
+                )
+                showServerSwitchConfirmation(newProfile, "Server reachable", message)
+                return@launch
+            }
+
+            if (reachable && result.status == HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED) {
+                val message = "${newProfile.name} is reachable, but requires sign-in before Android can read /api/status. Switch and sign in?"
+                viewModel.setServerValidationState(
+                    isChecking = false,
+                    message = message,
+                    isError = false
+                )
+                showServerSwitchConfirmation(newProfile, "Sign-in required", message)
+                return@launch
+            }
+
+            val blockedMessage = "${newProfile.name}: ${result.message}"
+            viewModel.setServerValidationState(
+                isChecking = false,
+                message = blockedMessage,
+                isError = true
+            )
+            DiagnosticsLogger.record(
+                this@MainActivity,
+                "server_switch_health_check_blocked",
+                mapOf(
+                    "origin" to DiagnosticsLogger.originOnly(newProfile.url),
+                    "profile_id" to newProfile.id,
+                    "status" to result.status.name,
+                    "decision" to "stay_current_server"
+                )
+            )
+            showServerHealthBlockedDialog(newProfile, result)
         }
+    }
+
+    private fun showServerSwitchConfirmation(profile: ServerProfile, title: String, message: String) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("Cancel") { dialog, _ ->
+                DiagnosticsLogger.record(
+                    this,
+                    "server_switch_cancelled",
+                    mapOf("origin" to DiagnosticsLogger.originOnly(profile.url), "profile_id" to profile.id)
+                )
+                dialog.dismiss()
+            }
+            .setPositiveButton("Switch") { _, _ ->
+                performServerProfileSwitch(profile)
+            }
+            .show()
+    }
+
+    private fun showServerHealthBlockedDialog(
+        profile: ServerProfile,
+        result: HermesApiClient.ServerReadinessResult
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle("Server not ready")
+            .setMessage(result.message)
+            .setNegativeButton("Dismiss", null)
+            .setPositiveButton("Open in browser") { _, _ ->
+                DiagnosticsLogger.record(
+                    this,
+                    "server_switch_open_browser",
+                    mapOf(
+                        "origin" to DiagnosticsLogger.originOnly(profile.url),
+                        "profile_id" to profile.id,
+                        "status" to result.status.name
+                    )
+                )
+                openInExternalBrowser(profile.url)
+            }
+            .show()
+    }
+
+    private fun performServerProfileSwitch(profile: ServerProfile) {
+        DiagnosticsLogger.record(
+            this,
+            "server_switch_confirmed",
+            mapOf("origin" to DiagnosticsLogger.originOnly(profile.url), "profile_id" to profile.id)
+        )
+        clearWebViewStateForServerSwitch()
+
+        viewModel.switchServerProfile(profile.id)
+        urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
+        installHermesWebUiDocumentStartFixes(webView, profile.url)
+        webView.loadUrl(profile.url)
+        viewModel.closeSettings()
+        Toast.makeText(this, "Switched to ${profile.name}", Toast.LENGTH_SHORT).show()
     }
 
     private fun clearWebViewStateForServerSwitch() {
@@ -2231,6 +2425,11 @@ class MainActivity : ComponentActivity() {
         onSuccess: () -> Unit
     ) {
         serverValidationJob?.cancel()
+        DiagnosticsLogger.record(
+            this,
+            "server_validation_start",
+            mapOf("origin" to DiagnosticsLogger.originOnly(serverUrl))
+        )
         viewModel.setServerValidationState(
             isChecking = true,
             message = "Checking Hermes server readiness...",
@@ -2238,6 +2437,15 @@ class MainActivity : ComponentActivity() {
         )
         serverValidationJob = lifecycleScope.launch {
             val result = HermesApiClient.checkServerReadiness(serverUrl)
+            DiagnosticsLogger.record(
+                this@MainActivity,
+                "server_validation_result",
+                mapOf(
+                    "origin" to DiagnosticsLogger.originOnly(serverUrl),
+                    "status" to result.status.name,
+                    "ready" to result.isReady.toString()
+                )
+            )
             if (!result.isReady) {
                 viewModel.setServerValidationState(
                     isChecking = false,

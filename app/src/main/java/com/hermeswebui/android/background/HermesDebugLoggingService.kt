@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.hermeswebui.android.MainActivity
 import com.hermeswebui.android.R
+import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.SettingsRepository
 import java.io.File
 import java.text.SimpleDateFormat
@@ -151,6 +152,7 @@ class HermesDebugLoggingService : Service() {
 
     private fun buildLogSessionHeader(): String {
         val settings = SettingsRepository(applicationContext)
+        val recentDiagnostics = DiagnosticsLogger.recentText(applicationContext).trim()
         val appSettings = settings.getSettings(
             defaultUrl = getString(R.string.default_server_url),
             defaultDashboardUrl = getString(R.string.default_dashboard_url)
@@ -179,6 +181,12 @@ class HermesDebugLoggingService : Service() {
             appendLine("debug_logging_enabled: ${settings.isDebugLoggingEnabled()}")
             appendLine("last_loaded_url: ${settings.getLastLoadedUrl().orEmpty()}")
             appendLine("=======================================")
+            if (recentDiagnostics.isNotBlank()) {
+                appendLine()
+                appendLine("=== Hermes Android Diagnostic Breadcrumbs ===")
+                appendLine(recentDiagnostics)
+                appendLine("=============================================")
+            }
             appendLine()
         }
     }

@@ -220,10 +220,11 @@ The workflow in `.github/workflows/1-orchestration-release.yml` can then:
 - create or update a GitHub Release using the Gradle Android `versionName`
 - attach only the GitHub APK to the GitHub Release
 - upload only the Play AAB to the Google Play internal testing track
-- include a GitHub Release body with explicit build details (version/tag, commit SHA, APK filename, SHA-256, workflow run URL) plus generated GitHub notes
-- include a Play Store `en-US` What's New changelog generated from the same GitHub release notes
+- include a human-readable GitHub Release body generated from merged PRs and grouped by `.github/release.yml`
+- keep build diagnostics such as version, tag, commit, artifact name, SHA-256, and workflow run in the Actions job summary
+- include a brief Play Store `en-US` What's New changelog generated from the same GitHub release notes, capped below the Play text limit, and ending with `Report issues through the in-app bug report tool.`
 - fail a tag release when the tag, such as `v0.1.8`, does not match the Android `versionName`
-- keep release notes scoped to app/runtime changes in that release (exclude workflow-only and docs-only updates)
+- keep release notes focused on what users and testers need to know
 
 The publish steps live in reusable/manual repair workflows:
 

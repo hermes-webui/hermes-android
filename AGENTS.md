@@ -62,6 +62,25 @@ When a user references GitHub issues (e.g., by URL or issue number), agents shou
 - If you must use inline `--body`, use a true PowerShell multiline here-string and verify output immediately.
 - Consider markdown rendering broken until verified in a non-JSON view (`gh pr view`, `gh issue view`, or GitHub web UI) after each update.
 
+### PR and release-note quality
+
+- Write PR titles as user-facing release-note entries when the change may ship
+  to testers. Prefer "Fix update summary scrolling in Android WebView" over
+  internal-only wording like "Adjust workflow" or "Patch MainActivity."
+- In PR bodies, include a short "What changed" section and a short "Testing"
+  section when behavior changes. Keep both understandable to someone installing
+  the APK or Play internal test build.
+- When a PR completes an issue, use GitHub closing keywords such as
+  `Fixes #123` or `Closes #123`. Use `Related #123` when it only contributes to
+  the issue.
+- Apply labels that help generated release notes group the change:
+  `feature`, `enhancement`, `user-facing`, `bug`, `bugfix`, `fix`,
+  `testing-notes`, `needs-testing`, `maintenance`, `release`, or `docs`.
+- Use `skip-changelog` only for changes that should not appear in user-facing
+  release notes.
+- Do not make release notes primarily about commit hashes, workflow run IDs,
+  artifact names, or SHA-256 values. Keep those in workflow logs or summaries.
+
 ## Scope
 
 This repository is the standalone Android app.
@@ -138,16 +157,18 @@ all three workflows aligned with `app/build.gradle.kts`,
 release flow changes. The GitHub publish workflow should publish only the
 `hermes-webui-v<version>-github.apk` APK, the Play publish workflow should
 submit only the `hermes-webui-v<version>.aab` AAB to internal testing,
-tag-triggered releases should match the Gradle `versionName`, and the release
-body should keep the explicit build metadata block (version/tag, commit SHA,
-APK filename, SHA-256, workflow run URL) ahead of generated notes.
+tag-triggered releases should match the Gradle `versionName`, and the public
+GitHub release body should contain human-readable What's New notes rather than
+build metadata.
 Manual orchestration runs auto-bump `appVersionName` from the latest published
 `vX.Y.Z` tag before building; Gradle derives `versionCode` from semantic
 version (`major*10000 + minor*100 + patch`) so release numbering remains
 monotonic.
-GitHub releases should use full generated GitHub release notes; Play Store
-uploads should include an `en-US` What's New changelog generated from those
-same notes through `whatsNewDirectory`.
+GitHub releases should use generated GitHub release notes configured by
+`.github/release.yml`. Play Store uploads should include a brief `en-US` What's
+New changelog generated from the same notes through `whatsNewDirectory`, capped
+below the Play text limit, and ending with:
+`Report issues through the in-app bug report tool.`
 Keep `RELEASE.md` aligned with the workflow operator path whenever release
 automation changes.
 

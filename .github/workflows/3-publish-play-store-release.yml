@@ -102,16 +102,63 @@ jobs:
             -f target_commitish="$RELEASE_COMMIT" \
             --jq '.body')"
 
-          plain_notes="$(printf '%s\n' "$generated_notes" \
-            | sed -E 's/^#{1,6}[[:space:]]*//; s/^\*[[:space:]]*/- /; s/\[([^]]+)\]\([^)]+\)/\1/g; s/`//g' \
-            | sed '/^[[:space:]]*$/d')"
+          export GENERATED_NOTES="$generated_notes"
+          python3 <<'PY' > build/play-whatsnew/whatsnew-en-US
+          import os
+          import re
 
-          if [ -z "$plain_notes" ]; then
-            plain_notes="Hermes WebUI Android $RELEASE_TAG"
-          fi
+          max_chars = 480
+          report_line = "Report issues through the in-app bug report tool."
+          notes = os.environ.get("GENERATED_NOTES", "")
+          bullets = []
 
-          printf '%s\n' "$plain_notes" | head -c 500 > build/play-whatsnew/whatsnew-en-US
-          echo >> build/play-whatsnew/whatsnew-en-US
+          for raw_line in notes.splitlines():
+              line = raw_line.strip()
+              if not line:
+                  continue
+              if line.startswith("#"):
+                  continue
+              if "Full Changelog" in line or "compare/" in line:
+                  continue
+              if line.lower().startswith("new contributors"):
+                  continue
+              if line.startswith(("* ", "- ")):
+                  line = "- " + line[2:].strip()
+              else:
+                  continue
+              line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
+              line = re.sub(r"\s+by\s+@[A-Za-z0-9-]+(?:\s+in\s+#\d+)?$", "", line)
+              line = re.sub(r"\s+in\s+#\d+$", "", line)
+              line = re.sub(r"@[A-Za-z0-9-]+", "", line)
+              line = re.sub(r"#(\d+)", r"issue \1", line)
+              line = line.replace("`", "")
+              line = re.sub(r"\s+", " ", line).strip()
+              if line and line not in bullets:
+                  bullets.append(line)
+
+          if not bullets:
+              bullets = ["- Bug fixes and Android wrapper improvements."]
+
+          output_lines = []
+          for bullet in bullets:
+              candidate_lines = output_lines + [bullet, "", report_line]
+              candidate = "\n".join(candidate_lines)
+              if len(candidate) <= max_chars:
+                  output_lines.append(bullet)
+              if len(output_lines) >= 4:
+                  break
+
+          if not output_lines:
+              output_lines = [bullets[0][: max_chars - len(report_line) - 3].rstrip()]
+
+          text = "\n".join(output_lines + ["", report_line])
+          if len(text) > max_chars:
+              available = max_chars - len(report_line) - 2
+              trimmed = "\n".join(output_lines)
+              text = trimmed[:available].rstrip() + "\n\n" + report_line
+
+          print(text)
+          PY
           cat build/play-whatsnew/whatsnew-en-US
 
       - name: Upload AAB to Google Play internal testing

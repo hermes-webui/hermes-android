@@ -1,0 +1,28 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+      - internal-only
+  categories:
+    - title: Features and Improvements
+      labels:
+        - feature
+        - enhancement
+        - user-facing
+    - title: Fixes
+      labels:
+        - bug
+        - bugfix
+        - fix
+    - title: Testing Notes
+      labels:
+        - testing-notes
+        - needs-testing
+    - title: Maintenance
+      labels:
+        - maintenance
+        - release
+        - docs
+    - title: Other Changes
+      labels:
+        - "*"

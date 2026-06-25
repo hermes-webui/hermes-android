@@ -92,26 +92,27 @@ jobs:
             -f target_commitish="$RELEASE_COMMIT" \
             --jq '.body')"
 
+          release_notes="$(printf '%s\n' "$generated_notes" | sed "1s/^## What's Changed/## What's New/")"
+          if ! printf '%s\n' "$release_notes" | grep -q '^## '; then
+            release_notes="## What's New
+
+$release_notes"
+          fi
+
           cat > build/release/release-notes.md <<EOF
-          ## Release Details
-
-          - Version: \
-            `$VERSION_NAME`
-          - Tag: \
-            `$RELEASE_TAG`
-          - Commit: \
-            `$RELEASE_COMMIT`
-          - Artifact: \
-            `$apk_name`
-          - SHA-256: \
-            `$apk_sha256`
-          - Workflow run: \
-            $run_url
-
-          ---
-
-          $generated_notes
+          $release_notes
           EOF
+
+          {
+            echo "## Release diagnostics"
+            echo
+            echo "- Version: \`$VERSION_NAME\`"
+            echo "- Tag: \`$RELEASE_TAG\`"
+            echo "- Commit: \`$RELEASE_COMMIT\`"
+            echo "- Artifact: \`$apk_name\`"
+            echo "- SHA-256: \`$apk_sha256\`"
+            echo "- Workflow run: $run_url"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish GitHub release APK
         shell: bash

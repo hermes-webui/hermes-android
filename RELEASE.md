@@ -33,9 +33,12 @@ That workflow:
 4. Starts `2 - Publish GitHub APK` and `3 - Publish Play Store Release` in parallel.
 
 The GitHub publish workflow attaches only the `-github.apk` to the GitHub
-Release and writes full generated GitHub release notes. The Play publish
-workflow uploads only the `.aab` to Google Play internal testing and writes an
-`en-US` What's New changelog generated from those same notes.
+Release and writes human-readable generated GitHub release notes grouped by
+`.github/release.yml`. Build diagnostics stay in the Actions job summary rather
+than the public release body. The Play publish workflow uploads only the `.aab`
+to Google Play internal testing and writes a brief `en-US` What's New changelog
+generated from those same notes. The Play text is capped below the Play limit
+and ends with `Report issues through the in-app bug report tool.`
 
 ## Retry One Publish Target
 
@@ -65,7 +68,8 @@ target unless the build artifacts are missing or expired.
   the same release ref or target version.
 - Build and publish workflows fail if they find anything other than exactly one
   matching APK or AAB artifact.
-- GitHub Releases use full generated GitHub release notes; Play Store releases
-  use a shorter `en-US` What's New changelog generated from the same notes.
+- GitHub Releases use human-readable generated GitHub release notes; Play Store
+  releases use a shorter `en-US` What's New changelog generated from the same
+  notes.
 - Tag-triggered releases must use a tag that matches the Gradle `versionName`,
   such as `v0.1.8`.

@@ -44,7 +44,14 @@ object HermesApiClient {
     data class ServerReadinessResult(
         val isReady: Boolean,
         val message: String,
-        val status: ServerReadinessStatus = if (isReady) ServerReadinessStatus.READY else ServerReadinessStatus.UNKNOWN_ERROR
+        val status: ServerReadinessStatus = if (isReady) ServerReadinessStatus.READY else ServerReadinessStatus.UNKNOWN_ERROR,
+        /**
+         * Optional human-readable diagnostic block describing the underlying probe
+         * (HTTP status code, content-type, body snippet, exception class, probed URL).
+         * Surfaced on screen in troubleshooting flows and in debug builds so testers
+         * can capture the full picture without needing a logcat.
+         */
+        val diagnostics: String? = null
     )
 
     private val sseFeatureKeys = setOf(
@@ -125,6 +132,9 @@ object HermesApiClient {
     }
 
     suspend fun checkServerReadiness(baseUrl: String): ServerReadinessResult = withContext(Dispatchers.IO) {
+        val probedUrl = runCatching {
+            URI(baseUrl.trimEnd('/')).resolve("/api/status").toString()
+        }.getOrDefault("$baseUrl/api/status")
         try {
             val url = URI(baseUrl.trimEnd('/')).resolve("/api/status").toURL()
             val conn = url.openConnection() as HttpURLConnection
@@ -136,6 +146,8 @@ object HermesApiClient {
 
             val code = conn.responseCode
             val contentType = conn.contentType
+            val locationHeader = conn.getHeaderField("Location")
+            val serverHeader = conn.getHeaderField("Server")
             val stream = if (code >= 400) conn.errorStream else conn.inputStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             conn.disconnect()
@@ -143,17 +155,37 @@ object HermesApiClient {
             if (code in setOf(401, 403, 404)) {
                 val rootFallback = probeHermesRootPage(baseUrl)
                 if (rootFallback != null) {
-                    return@withContext rootFallback
+                    return@withContext rootFallback.copy(
+                        diagnostics = buildDiagnostics(
+                            probedUrl = probedUrl,
+                            httpStatus = code,
+                            contentType = contentType,
+                            serverHeader = serverHeader,
+                            locationHeader = locationHeader,
+                            body = body,
+                            extra = "Root page fingerprint matched Hermes WebUI."
+                        )
+                    )
                 }
             }
 
-            interpretServerStatusResponse(
+            val interpreted = interpretServerStatusResponse(
                 httpStatus = code,
                 contentType = contentType,
                 rawBody = body
             )
+            interpreted.copy(
+                diagnostics = buildDiagnostics(
+                    probedUrl = probedUrl,
+                    httpStatus = code,
+                    contentType = contentType,
+                    serverHeader = serverHeader,
+                    locationHeader = locationHeader,
+                    body = body
+                )
+            )
         } catch (exception: Exception) {
-            when {
+            val baseResult = when {
                 exception is UnknownHostException -> {
                     ServerReadinessResult(
                         isReady = false,
@@ -190,7 +222,36 @@ object HermesApiClient {
                     )
                 }
             }
+            baseResult.copy(
+                diagnostics = buildString {
+                    appendLine("Probed: $probedUrl")
+                    appendLine("Exception: ${exception::class.java.simpleName}")
+                    val msg = exception.message?.take(300)
+                    if (!msg.isNullOrBlank()) appendLine("Message: $msg")
+                }.trim()
+            )
         }
+    }
+
+    private fun buildDiagnostics(
+        probedUrl: String,
+        httpStatus: Int,
+        contentType: String?,
+        serverHeader: String?,
+        locationHeader: String?,
+        body: String,
+        extra: String? = null
+    ): String {
+        val snippet = body.replace(Regex("\\s+"), " ").trim().take(500)
+        return buildString {
+            appendLine("Probed: $probedUrl")
+            appendLine("HTTP: $httpStatus")
+            if (!contentType.isNullOrBlank()) appendLine("Content-Type: $contentType")
+            if (!serverHeader.isNullOrBlank()) appendLine("Server: $serverHeader")
+            if (!locationHeader.isNullOrBlank()) appendLine("Location: $locationHeader")
+            if (snippet.isNotBlank()) appendLine("Body[0..500]: $snippet")
+            if (!extra.isNullOrBlank()) appendLine(extra)
+        }.trim()
     }
 
     private suspend fun probeHermesRootPage(baseUrl: String): ServerReadinessResult? = withContext(Dispatchers.IO) {

@@ -794,7 +794,7 @@ private fun ServerValidationStatus(
             .background(containerColor)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
         if (serverValidation.isChecking) {
             CircularProgressIndicator(
@@ -803,12 +803,24 @@ private fun ServerValidationStatus(
                 color = contentColor
             )
         }
-        Text(
-            text = message ?: "Checking Hermes server readiness...",
-            color = contentColor,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = if (serverValidation.isError) FontWeight.Medium else FontWeight.Normal
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = message ?: "Checking Hermes server readiness...",
+                color = contentColor,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (serverValidation.isError) FontWeight.Medium else FontWeight.Normal
+            )
+            val details = serverValidation.details
+            if (!details.isNullOrBlank()) {
+                Text(
+                    text = details,
+                    color = contentColor.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                )
+            }
+        }
     }
 }
 

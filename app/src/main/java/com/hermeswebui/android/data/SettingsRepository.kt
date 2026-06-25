@@ -184,6 +184,42 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED, enabled) }
     }
 
+    /**
+     * Sign-in-required prompt suppression keyed by normalized server URL.
+     *
+     * When the server-switch flow detects that a Hermes server requires sign-in
+     * (HTTP 401/403 from /api/status) it normally asks the user to confirm
+     * "Switch and sign in?". Users who consciously add an auth-protected server
+     * can opt to silence that confirmation per-server via a "Don't ask again
+     * for this server" checkbox; the silenced URL is stored here.
+     */
+    fun isAuthPromptSilencedForUrl(url: String): Boolean {
+        val normalized = normalizeProfileUrl(url)
+        if (normalized.isBlank()) return false
+        val silenced = sharedPreferences.getStringSet(KEY_AUTH_PROMPT_SILENCED_URLS, emptySet()).orEmpty()
+        return normalized in silenced
+    }
+
+    fun silenceAuthPromptForUrl(url: String) {
+        val normalized = normalizeProfileUrl(url)
+        if (normalized.isBlank()) return
+        val current = sharedPreferences.getStringSet(KEY_AUTH_PROMPT_SILENCED_URLS, emptySet()).orEmpty()
+        if (normalized in current) return
+        sharedPreferences.edit {
+            putStringSet(KEY_AUTH_PROMPT_SILENCED_URLS, current + normalized)
+        }
+    }
+
+    fun clearSilencedAuthPromptForUrl(url: String) {
+        val normalized = normalizeProfileUrl(url)
+        if (normalized.isBlank()) return
+        val current = sharedPreferences.getStringSet(KEY_AUTH_PROMPT_SILENCED_URLS, emptySet()).orEmpty()
+        if (normalized !in current) return
+        sharedPreferences.edit {
+            putStringSet(KEY_AUTH_PROMPT_SILENCED_URLS, current - normalized)
+        }
+    }
+
     override fun saveLastLoadedUrl(url: String) {
         sharedPreferences.edit { putString(KEY_LAST_URL, url) }
     }
@@ -306,6 +342,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
         private const val KEY_SSE_TRANSPORT_ENABLED = "sse_transport_enabled"
         private const val KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED = "background_activity_full_text_enabled"
+        private const val KEY_AUTH_PROMPT_SILENCED_URLS = "auth_prompt_silenced_urls"
         private const val KEY_LAST_MIGRATION_VERSION = "last_migration_version"
         private const val DEFAULT_RECONNECT_POLL_INTERVAL_SECONDS = 1
         private const val MIN_RECONNECT_POLL_INTERVAL_SECONDS = 1

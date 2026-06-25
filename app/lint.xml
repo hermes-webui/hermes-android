@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!--
+      Hermes-Android intentionally supports user-configured HTTP Hermes hosts
+      (local LAN and trusted private deployments) in addition to HTTPS.
+      Keep this warning suppressed unless the product direction removes HTTP
+      support for configured hosts.
+    -->
+    <issue id="InsecureBaseConfiguration">
+        <ignore path="src/main/res/xml/network_security_config.xml" />
+    </issue>
+</lint>

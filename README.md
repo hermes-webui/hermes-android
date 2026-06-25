@@ -38,12 +38,12 @@ To get added, **message [@Paladin173](https://github.com/Paladin173) your Gmail 
 
 Once added, the app will appear in the Play Store for you to install and receive automatic updates.
 
-Current pre-release version: `v0.1.11`.
+Current pre-release version: `v0.1.12`.
 
 Current Android build metadata:
 
-- Version name: `0.1.11`
-- Version code: `111` (derived from semantic version as `major*10000 + minor*100 + patch`)
+- Version name: `0.1.12`
+- Version code: `112` (derived from semantic version as `major*10000 + minor*100 + patch`)
 - Application ID: `com.hermeswebui.android`
 - Compile/target SDK: `37`
 
@@ -99,17 +99,34 @@ Requirements:
 - Deep link support: `hermes://session/{id}` navigates to Hermes sessions
 - Cold-start restore keeps the active Hermes session/workspace route when the app process is restarted, with a WebUI-origin-scoped workspace-button recovery fallback that reloads the last known in-app session route if the panel is tapped from a blank root state
 - Short app switches now preserve the current WebView and briefly favor silent reconnect over immediately replacing the page with the native error screen; if Hermes does not recover before the grace window expires, the normal error UI appears promptly instead of waiting for a later retry probe
-- If a reconnect attempt is already in progress when the app backgrounds, Android now keeps that bounded retry alive briefly with a foreground "Hermes is running in the background" notification instead of canceling immediately on `onStop`
+- If the background activity toggle is enabled, Android can keep a trusted session-scoped foreground notification alive while the app is backgrounded: reconnect windows stay alive after an app switch, and trusted `/api/session/stream` summaries can refresh the latest agent activity text with a lock-screen redaction option
 - Server health probing on WebView errors to distinguish server-down from content errors
-- First-run settings flow for the Hermes WebUI URL; the dashboard URL is managed only by WebUI Settings > System
+- First-run settings flow for the Hermes WebUI URL with an inline readiness check that rejects unreachable, setup-mode, or non-Hermes targets before saving them; the dashboard URL is managed only by WebUI Settings > System
 - Back handling, pull-to-refresh, loading, offline, and error states, including direct server-URL recovery from the native error screen
+
+### SSE capability mapping
+
+When users run **Check SSE support now** in native settings, Android classifies server capability with this precedence:
+
+1. `/api/status` advertises a truthy SSE/session flag -> `SESSION_SSE_ENABLED`
+2. `/api/sessions/gateway/stream?probe=1` returns `enabled=true` and `ok=true` -> `SESSION_SSE_ENABLED`
+3. `/api/sessions/events` returns `2xx` with `Content-Type: text/event-stream` -> `RECONNECT_STREAM_AVAILABLE`
+4. Gateway probe reports `enabled=false` or HTTP `404` (and reconnect stream not usable) -> `FEATURE_DISABLED`
+5. Otherwise -> `NONE` (network/unexpected response)
+
+Operational note:
+
+- Android reconnect transport only needs the lightweight `/api/sessions/events` stream.
+- Full gateway/session SSE remains preferred for richer cross-client event contracts.
 
 ### 🔌 Android integration
 
-- File upload and download support
+- File upload and download support, including direct camera capture when a page requests image capture
 - Share-to-app intake for text and files
 - Microphone capture support for trusted Hermes WebUI pages
 - Android-backed browser notifications for Hermes WebUI completion alerts
+- Opt-in ongoing background activity notification for trusted Hermes sessions, with lock-screen redaction control
+- Notification tray approval actions for trusted Hermes sessions, with queue-head validation before Android submits a response
 - Optional troubleshooting debug-log capture with a persistent foreground notification and one-tap Stop action
 - Cookie-backed WebView session persistence
 - Encrypted local settings storage

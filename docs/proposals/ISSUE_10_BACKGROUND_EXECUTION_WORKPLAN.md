@@ -19,9 +19,12 @@ surface and source of conversation behavior.
 - Stage 1 / Part A is complete: lifecycle signal plumbing, reconnect UX polish, a bounded background reconnect hold, tests, and docs updates have landed on `issue-10-background-continuity-plan`.
 - Stage 2 / Part B is in progress:
   - B1 complete: manifest + foreground-service skeleton + baseline reconnect notification.
-  - B2 complete: opt-in background reconnect toggle, encrypted persistence migration, and native settings page integration.
-  - B3 partially complete: lightweight SSE-backed reconnect now uses `/api/sessions/events`, and the reconnect foreground service consumes authenticated `/api/session/stream` summaries for the active session when it has a trusted route plus WebView cookies; broader background activity coverage and approval flows still remain.
+  - B2 complete: opt-in background activity toggle, encrypted persistence migration, native settings page integration, and lock-screen full-text preview control.
+  - B3 partially complete: lightweight SSE-backed reconnect now uses `/api/sessions/events`, and the foreground activity service consumes authenticated `/api/session/stream` summaries plus approval/failure/completion events for the active session when it has a trusted route plus WebView cookies; broader WebUI-side activity payload coverage still remains.
   - B4 can proceed in parallel (lifecycle start/stop hardening + regression validation).
+- Stage 3 / Part C is complete for the initial tray-action scope:
+  - C1/C2 complete: the foreground activity service now exposes allow/deny notification actions, correlates them to the current `approval_id`, re-checks `/api/approval/pending`, and posts `/api/approval/respond` only when the live queue head still matches.
+  - C3 partially complete: duplicate/stale choice handling now fails closed in Android, but broader server-side payload richness and manual device validation are still pending.
 
 ## Outcome targets
 
@@ -43,7 +46,7 @@ surface and source of conversation behavior.
 - Confirm product defaults:
   - background activity notification toggle default (`off` recommended)
   - foreground service only while turn is active (not always-on)
-- Define notification redaction/truncation policy for lockscreen privacy.
+- Define any remaining notification truncation policy details beyond the shipped lockscreen redaction/full-text toggle.
 
 Exit criteria:
 - API/auth contract is explicit enough for implementation.
@@ -87,6 +90,7 @@ Implementation focus:
 - Settings:
   - add toggle persistence in `SettingsRepository.kt` with migration bump
   - add UI control in `SettingsBottomSheet.kt`
+  - add lock-screen redaction/full-text preview control
 - Navigation:
   - notification tap deep-links to `hermes://session/{id}`
   - route validation remains allowlist-gated
@@ -100,7 +104,7 @@ Acceptance:
 PR slices:
 - B1: manifest + service skeleton + baseline ongoing notification.
 - B2: settings toggle + migration + tests.
-- B3: activity feed integration + formatter + update cadence.
+- B3: activity feed integration + formatter + update cadence, including privacy-safe public notification copy.
 - B4: lifecycle stop/start hardening + regression validation.
 
 ### Stage 3: Part C (optional tray approvals) (3-5 days after Stage 2)
@@ -136,7 +140,8 @@ Acceptance:
   - deep-link tap routing from notification
   - allowlist rejection paths
   - service start/stop behavior across app foreground/background transitions
-  - settings controls: background reconnect toggle persists across app restart
+  - settings controls: background activity toggle persists across app restart
+  - settings controls: lock-screen full-text preview toggle persists across app restart and defaults to redacted
   - settings controls: reconnect polling interval slider persists and applies bounded cadence (1-10 s)
   - settings controls: SSE transport toggle verifies support, prefers `/api/sessions/events` for reconnect, and falls back to polling when the stream is unavailable
 - Device checks:
@@ -148,14 +153,14 @@ Acceptance:
 
 1. Ship Stage 1 first (fast UX win, low risk).
 2. Continue Stage 2 platform-only slices (B1/B2/B4) behind opt-in setting while Stage 0 API/auth work is finalized.
-3. Continue Stage 2 B3 from the current reconnect/session-stream transport toward broader activity coverage and approval-aware summaries once the fuller SSE/API contract is approved and testable.
-4. Defer Stage 3 until Stage 2 telemetry/manual validation is healthy.
+3. Continue Stage 2 B3 from the current reconnect/session-stream transport toward richer WebUI-provided activity payloads once the fuller SSE/API contract is approved and testable.
+4. Continue Part C hardening with manual device validation and any additional approval choices the server chooses to expose in notification-safe payloads.
 
 ## In-the-meantime implementation scope (while richer SSE contract is in progress)
 
 - B4.1 lifecycle hardening: ensure reconnect polling is canceled whenever app is backgrounded without an active foreground-service hold (toggle off, trust failure, or reconnect ended).
 - B4.2 service/state parity: verify service start/stop is fully derived from (`activityVisible`, `isReconnecting`, `backgroundReconnectEnabled`) and does not drift across rapid app switches.
-- B4.3 regression tests: add coverage for toggle-on/off transitions during reconnect and quick foreground/background oscillation. (Initial unit coverage for reconnect keep-alive policy is in place; expand with lifecycle-focused cases.)
+- B4.3 regression tests: add coverage for toggle-on/off transitions during reconnect and quick foreground/background oscillation. (Unit coverage now includes reconnect keep-alive plus service-parity matrix cases in `ReconnectBackgroundPolicyTest`; continue manual device verification for OEM lifecycle variance.)
 - B4.4 docs/status: keep this workplan + roadmap aligned with staged delivery and explicit B3 dependency on SSE contract.
 - B4.5 transport preference UX: expose SSE transport toggle in native settings as beta, verify server support on enable, prefer `/api/sessions/events` for reconnect detection, and fail closed back to polling when unsupported.
 
@@ -166,8 +171,9 @@ Acceptance:
 - [x] Add tests for resume/retry transitions.
 - [x] Add foreground service scaffold + manifest permissions for Part B.
 - [x] Add settings toggle + migration for Part B.
-- [~] Implement ongoing notification updates from activity feed (B3: reconnect/session-stream summaries landed for the active session during bounded reconnect; broader feed coverage still pending).
+- [~] Implement ongoing notification updates from activity feed (B3: trusted session-stream summaries plus approval/failure/completion updates now drive the active background notification; broader feed coverage and server-side payload richness still pending).
+- [x] Implement initial tray approval actions (Android validates the current pending approval head before submitting allow/deny from the notification tray).
 - [ ] Validate tap deep-link routing and trust checks.
-- [~] Lifecycle stop/start hardening + regression validation (B4, in progress).
+- [~] Lifecycle stop/start hardening + regression validation (B4, in progress: policy regression coverage expanded; manual device verification remains).
 - [ ] Document rollout and default behavior decisions.
 

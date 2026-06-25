@@ -30,7 +30,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 6 // Increment this when adding new migrations
+        val currentMigrationVersion = 7 // Increment this when adding new migrations
 
         if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
@@ -76,6 +76,13 @@ class SettingsRepository(context: Context) : SettingsStore {
             // Migration 6: SSE transport defaults to disabled until server support is verified.
             if (!sharedPreferences.contains(KEY_SSE_TRANSPORT_ENABLED)) {
                 sharedPreferences.edit { putBoolean(KEY_SSE_TRANSPORT_ENABLED, false) }
+            }
+        }
+
+        if (lastMigrationVersion < 7) {
+            // Migration 7: lock-screen activity preview defaults to redacted.
+            if (!sharedPreferences.contains(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED)) {
+                sharedPreferences.edit { putBoolean(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED, false) }
             }
         }
 
@@ -167,6 +174,14 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     fun setSseTransportEnabled(enabled: Boolean) {
         sharedPreferences.edit { putBoolean(KEY_SSE_TRANSPORT_ENABLED, enabled) }
+    }
+
+    fun isBackgroundActivityFullTextEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED, false)
+    }
+
+    fun setBackgroundActivityFullTextEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED, enabled) }
     }
 
     override fun saveLastLoadedUrl(url: String) {
@@ -290,6 +305,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_RECONNECT_POLL_INTERVAL_SECONDS = "reconnect_poll_interval_seconds"
         private const val KEY_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
         private const val KEY_SSE_TRANSPORT_ENABLED = "sse_transport_enabled"
+        private const val KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED = "background_activity_full_text_enabled"
         private const val KEY_LAST_MIGRATION_VERSION = "last_migration_version"
         private const val DEFAULT_RECONNECT_POLL_INTERVAL_SECONDS = 1
         private const val MIN_RECONNECT_POLL_INTERVAL_SECONDS = 1

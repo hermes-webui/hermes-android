@@ -11,12 +11,12 @@ securityCrypto = "1.1.0"
 materialComponents = "1.14.0"
 junit = "4.13.2"
 truth = "1.4.5"
-androidxTestExtJunit = "1.2.1"
+androidxTestExtJunit = "1.3.0"
 androidxTestRunner = "1.7.0"
 androidxTestRules = "1.7.0"
 androidxEspresso = "3.7.0"
-coroutinesTest = "1.10.2"
-json = "20250517"
+coroutinesTest = "1.11.0"
+json = "20260522"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

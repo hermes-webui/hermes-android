@@ -96,6 +96,7 @@ import com.hermeswebui.android.ui.web.WebShell
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
+import kotlinx.coroutines.Job
 
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
@@ -511,6 +512,7 @@ class MainActivity : ComponentActivity() {
 
     private var urlPolicy = UrlPolicy(emptySet())
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingCameraCaptureUri: Uri? = null
     private var pendingAudioPermissionRequest: PermissionRequest? = null
     private val pendingNotificationPermissionReplies = mutableListOf<NotificationPermissionReply>()
     private var notificationPermissionRequestInFlight = false
@@ -521,6 +523,7 @@ class MainActivity : ComponentActivity() {
     private var activityVisible = false
     private var reconnectServiceRunning = false
     private var debugLoggingServiceRunning = false
+    private var serverValidationJob: Job? = null
 
     private var activeOAuthPopup: WebView? = null
     private var oauthFlowTimeoutMs: Long = 0
@@ -534,6 +537,15 @@ class MainActivity : ComponentActivity() {
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         filePathCallback?.onReceiveValue(uris.takeIf { it.isNotEmpty() }?.toTypedArray())
         filePathCallback = null
+        pendingCameraCaptureUri = null
+        viewModel.dismissShareBanner()
+    }
+
+    private val cameraCaptureLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val resultUri = pendingCameraCaptureUri?.takeIf { success }
+        filePathCallback?.onReceiveValue(resultUri?.let { arrayOf(it) })
+        filePathCallback = null
+        pendingCameraCaptureUri = null
         viewModel.dismissShareBanner()
     }
 
@@ -606,14 +618,7 @@ class MainActivity : ComponentActivity() {
         if (!settings.isConfigured) {
             viewModel.openSettings()
         } else {
-            val lastLoadedUrl = settingsRepository.getLastLoadedUrl()
-            val notificationUrl = notificationTargetUrl(intent)
-            val startUrl = notificationUrl ?: if (matchesConfiguredDashboardRoute(lastLoadedUrl)) {
-                settings.serverUrl
-            } else {
-                lastLoadedUrl ?: settings.serverUrl
-            }
-            webView.loadUrl(startUrl)
+            preflightConfiguredStartupServer(settings.serverUrl)
         }
     }
 
@@ -784,10 +789,12 @@ class MainActivity : ComponentActivity() {
                     initialServerUrl = uiState.settings.serverUrl,
                     isConfigured = uiState.settings.isConfigured,
                     backgroundReconnectEnabled = uiState.backgroundReconnectEnabled,
+                    backgroundActivityFullTextEnabled = uiState.backgroundActivityFullTextEnabled,
                     reconnectPollIntervalSeconds = uiState.reconnectPollIntervalSeconds,
                     sseTransportEnabled = uiState.sseTransportEnabled,
                     sseSupportStatus = uiState.sseSupportStatus,
                     debugLoggingEnabled = uiState.debugLoggingEnabled,
+                    serverValidation = uiState.serverValidation,
                     appVersionLabel = "Version ${appVersionName()}",
                     serverProfiles = serverProfiles,
                     onSave = onSaveSettings,
@@ -800,13 +807,21 @@ class MainActivity : ComponentActivity() {
                         viewModel.setBackgroundReconnectEnabled(enabled)
                         syncReconnectForegroundService(viewModel.uiState.value.isReconnecting)
                     },
+                    onSetBackgroundActivityFullTextEnabled = { enabled ->
+                        viewModel.setBackgroundActivityFullTextEnabled(enabled)
+                    },
                     onSetReconnectPollIntervalSeconds = { seconds ->
                         viewModel.setReconnectPollIntervalSeconds(seconds)
                     },
                     onSetSseTransportEnabled = { enabled ->
-                        setSseTransportEnabledWithCheck(enabled)
+                        setSseTransportEnabled(enabled)
                     },
-                    onCheckSseSupport = { checkSseSupport(enableIfAvailable = false) },
+                    onCheckSseSupport = {
+                        checkSseSupport(
+                            enableIfAvailable = false,
+                            disableIfUnavailable = false
+                        )
+                    },
                     onCopySsePrompt = { copySseEnablePromptToClipboard() },
                     onSetDebugLoggingEnabled = { enabled ->
                         if (enabled) {
@@ -823,7 +838,8 @@ class MainActivity : ComponentActivity() {
                     onDeleteProfile = { profileId -> handleDeleteServerProfile(profileId) },
                     onRenameProfile = { profileId, newName -> viewModel.renameServerProfile(profileId, newName) },
                     onEditProfile = { profileId, newName, newUrl -> handleEditServerProfile(profileId, newName, newUrl) },
-                    onSwitchProfile = { profileId -> handleSwitchServerProfile(profileId) }
+                    onSwitchProfile = { profileId -> handleSwitchServerProfile(profileId) },
+                    onClearServerValidation = { viewModel.clearServerValidationState() }
                 )
             } // end if (isSettingsVisible)
         } // end outer Box
@@ -948,8 +964,17 @@ class MainActivity : ComponentActivity() {
                     }
                     this@MainActivity.filePathCallback?.onReceiveValue(null)
                     this@MainActivity.filePathCallback = filePathCallback
+                    pendingCameraCaptureUri = null
                     Toast.makeText(this@MainActivity, "Choose file(s) to upload", Toast.LENGTH_SHORT).show()
-                    filePickerLauncher.launch(arrayOf("*/*"))
+                    if (shouldDirectCaptureImage(fileChooserParams)) {
+                        val captureUri = createTempCameraCaptureUri()
+                        if (captureUri != null) {
+                            pendingCameraCaptureUri = captureUri
+                            cameraCaptureLauncher.launch(captureUri)
+                            return true
+                        }
+                    }
+                    filePickerLauncher.launch(normalizedMimeTypes(fileChooserParams))
                     return true
                 }
             }
@@ -1152,14 +1177,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun setSseTransportEnabledWithCheck(enabled: Boolean) {
+    private fun setSseTransportEnabled(enabled: Boolean) {
         if (!enabled) {
             viewModel.setSseTransportEnabled(false)
             viewModel.setSseSupportStatus("SSE transport disabled.")
             return
         }
 
-        checkSseSupport(enableIfAvailable = true)
+        checkSseSupport(
+            enableIfAvailable = true,
+            disableIfUnavailable = true
+        )
     }
 
     private fun copySseEnablePromptToClipboard() {
@@ -1174,10 +1202,15 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Copied SSE enable prompt.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun checkSseSupport(enableIfAvailable: Boolean) {
+    private fun checkSseSupport(
+        enableIfAvailable: Boolean,
+        disableIfUnavailable: Boolean
+    ) {
         val serverUrl = viewModel.uiState.value.settings.serverUrl
         if (serverUrl.isBlank()) {
-            viewModel.setSseTransportEnabled(false)
+            if (disableIfUnavailable) {
+                viewModel.setSseTransportEnabled(false)
+            }
             viewModel.setSseSupportStatus("Configure a server URL before checking SSE support.")
             Toast.makeText(this, "Configure a server URL before checking SSE", Toast.LENGTH_SHORT).show()
             return
@@ -1187,10 +1220,11 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             when (HermesApiClient.detectSseCapability(serverUrl)) {
                 HermesApiClient.SseCapability.SESSION_SSE_ENABLED -> {
-                    viewModel.setSseTransportEnabled(enableIfAvailable)
+                    if (enableIfAvailable) {
+                        viewModel.setSseTransportEnabled(true)
+                    }
                     viewModel.setSseSupportStatus(
-                        "✅  Gateway/session SSE is enabled on the server. " +
-                        if (enableIfAvailable) "Using SSE transport." else "Ready to use SSE transport."
+                        "✅  SSE is supported and enabled on this server."
                     )
                     Toast.makeText(
                         this@MainActivity,
@@ -1199,28 +1233,25 @@ class MainActivity : ComponentActivity() {
                     ).show()
                 }
                 HermesApiClient.SseCapability.RECONNECT_STREAM_AVAILABLE -> {
-                    viewModel.setSseTransportEnabled(enableIfAvailable)
+                    if (enableIfAvailable) {
+                        viewModel.setSseTransportEnabled(true)
+                    }
                     viewModel.setSseSupportStatus(
-                        "⚡  Lightweight reconnect SSE is available (/api/sessions/events). " +
-                        "Full gateway/session SSE is not enabled, but Android can still use SSE for reconnect detection. " +
-                        if (enableIfAvailable) {
-                            "Using SSE transport."
-                        } else {
-                            "Enable SSE transport to use this reconnect stream."
-                        }
+                        "✅  SSE transport is supported via /api/sessions/events (reconnect stream)."
                     )
                     Toast.makeText(
                         this@MainActivity,
-                        "Reconnect SSE is available on this server.",
+                        if (enableIfAvailable) "SSE enabled using reconnect stream." else "Reconnect SSE is available on this server.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
                 HermesApiClient.SseCapability.FEATURE_DISABLED -> {
-                    viewModel.setSseTransportEnabled(false)
+                    if (disableIfUnavailable) {
+                        viewModel.setSseTransportEnabled(false)
+                    }
                     viewModel.setSseSupportStatus(
-                        "🚫  Gateway/session SSE is off on this server, and the lightweight reconnect stream was not detected either. " +
-                        "The WebUI probe reports agent sessions are not enabled, so Android cannot subscribe yet. " +
-                        "Tap the copy button below to get a ready-made prompt you can paste into Hermes."
+                        "🚫  SSE not supported on this server right now. Gateway/session SSE is off and the reconnect stream was not detected." +
+                            if (disableIfUnavailable) " SSE transport was turned off." else ""
                     )
                     Toast.makeText(
                         this@MainActivity,
@@ -1229,14 +1260,20 @@ class MainActivity : ComponentActivity() {
                     ).show()
                 }
                 HermesApiClient.SseCapability.NONE -> {
-                    viewModel.setSseTransportEnabled(false)
+                    if (disableIfUnavailable) {
+                        viewModel.setSseTransportEnabled(false)
+                    }
                     viewModel.setSseSupportStatus(
-                        "❌  Could not reach SSE endpoint (network error or unexpected response). " +
-                        "Make sure the server is reachable and try again."
+                        "❔  Haven't checked SSE support yet: this check could not reach SSE endpoints. Try again when the server/network is stable." +
+                            if (disableIfUnavailable) " SSE transport was turned off." else ""
                     )
                     Toast.makeText(
                         this@MainActivity,
-                        "SSE check failed — server unreachable or unexpected error.",
+                        if (disableIfUnavailable) {
+                            "SSE check failed — turning SSE transport off."
+                        } else {
+                            "SSE check failed — server unreachable or unexpected error."
+                        },
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1251,6 +1288,7 @@ class MainActivity : ComponentActivity() {
         permission: String,
         error: String? = null
     ) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
         val response = JSONObject()
             .put("id", id ?: "")
             .put("ok", ok)
@@ -1297,8 +1335,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
         val channel = NotificationChannel(
             HermesNotificationChannelId,
             "Hermes updates",
@@ -1310,11 +1346,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun syncReconnectForegroundService(isReconnecting: Boolean) {
+        val state = viewModel.uiState.value
+        val sessionId = ReconnectSessionStreamSupport.sessionIdFromUrl(state.currentUrl)
         if (
-            !ReconnectBackgroundPolicy.shouldKeepAlive(
-                backgroundReconnectEnabled = viewModel.uiState.value.backgroundReconnectEnabled,
+            !ReconnectBackgroundPolicy.shouldRunForegroundService(
+                backgroundReconnectEnabled = state.backgroundReconnectEnabled,
                 activityVisible = activityVisible,
-                isReconnecting = isReconnecting
+                isReconnecting = isReconnecting,
+                sseTransportEnabled = state.sseTransportEnabled,
+                hasSessionId = sessionId != null
             )
         ) {
             stopReconnectForegroundService()
@@ -1323,16 +1363,17 @@ class MainActivity : ComponentActivity() {
         if (reconnectServiceRunning) return
 
         try {
-            val state = viewModel.uiState.value
             val sessionTargetUrl = state.currentUrl.takeIf { isTrustedNotificationTarget(it) }
             HermesReconnectService.start(
                 this,
                 pollIntervalSeconds = state.reconnectPollIntervalSeconds,
                 serverUrl = state.settings.serverUrl,
-                sessionId = ReconnectSessionStreamSupport.sessionIdFromUrl(state.currentUrl),
+                sessionId = sessionId,
                 sessionTargetUrl = sessionTargetUrl,
                 cookieHeader = CookieManager.getInstance().getCookie(state.settings.serverUrl),
-                sseTransportEnabled = state.sseTransportEnabled
+                sseTransportEnabled = state.sseTransportEnabled,
+                isReconnecting = isReconnecting,
+                showFullTextOnLockScreen = state.backgroundActivityFullTextEnabled
             )
             reconnectServiceRunning = true
         } catch (_: IllegalStateException) {
@@ -1650,7 +1691,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleAppSettingsNavigation(url: String?): Boolean {
-        val parsed = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val parsed = runCatching { url?.toUri() }.getOrNull() ?: return false
         if (parsed.scheme != "hermes") return false
         if (parsed.host != "app") return false
         val path = parsed.path?.trimEnd('/')
@@ -2051,6 +2092,20 @@ class MainActivity : ComponentActivity() {
         webView.loadUrl(viewModel.uiState.value.settings.serverUrl)
     }
 
+    private fun preflightConfiguredStartupServer(serverUrl: String) {
+        val lastLoadedUrl = settingsRepository.getLastLoadedUrl()
+        val notificationUrl = notificationTargetUrl(intent)
+        val startUrl = notificationUrl ?: if (matchesConfiguredDashboardRoute(lastLoadedUrl)) {
+            serverUrl
+        } else {
+            lastLoadedUrl ?: serverUrl
+        }
+
+        validateServerBeforePersist(serverUrl, openSettingsOnFailure = true) {
+            webView.loadUrl(startUrl)
+        }
+    }
+
     private fun handleAddServerProfile(name: String, url: String) {
         val trimmedName = name.trim()
         val trimmedUrl = url.trim()
@@ -2109,10 +2164,7 @@ class MainActivity : ComponentActivity() {
         }
 
         validateServerBeforePersist(newProfile.url) {
-            CookieManager.getInstance().removeAllCookies(null)
-            CookieManager.getInstance().flush()
-            WebStorage.getInstance().deleteAllData()
-            webView.clearCache(true)
+            clearWebViewStateForServerSwitch()
 
             viewModel.switchServerProfile(profileId)
             urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
@@ -2123,15 +2175,70 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun validateServerBeforePersist(serverUrl: String, onSuccess: () -> Unit) {
-        lifecycleScope.launch {
+    private fun clearWebViewStateForServerSwitch() {
+        CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().flush()
+        WebStorage.getInstance().deleteAllData()
+        webView.stopLoading()
+        webView.loadUrl("about:blank")
+        webView.clearHistory()
+        webView.clearCache(true)
+        webView.clearFormData()
+    }
+
+    private fun validateServerBeforePersist(
+        serverUrl: String,
+        openSettingsOnFailure: Boolean = false,
+        onSuccess: () -> Unit
+    ) {
+        serverValidationJob?.cancel()
+        viewModel.setServerValidationState(
+            isChecking = true,
+            message = "Checking Hermes server readiness...",
+            isError = false
+        )
+        serverValidationJob = lifecycleScope.launch {
             val result = HermesApiClient.checkServerReadiness(serverUrl)
             if (!result.isReady) {
+                viewModel.setServerValidationState(
+                    isChecking = false,
+                    message = result.message,
+                    isError = true
+                )
+                if (openSettingsOnFailure) {
+                    viewModel.openSettingsWithServerValidation(result.message)
+                }
                 Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
                 return@launch
             }
+            viewModel.clearServerValidationState()
             onSuccess()
         }
+    }
+
+    private fun shouldDirectCaptureImage(fileChooserParams: WebChromeClient.FileChooserParams?): Boolean {
+        if (fileChooserParams?.isCaptureEnabled != true) return false
+        val acceptTypes = fileChooserParams.acceptTypes.orEmpty()
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+        if (acceptTypes.isEmpty()) return true
+        return acceptTypes.any { it == "image/*" || it.startsWith("image/") }
+    }
+
+    private fun normalizedMimeTypes(fileChooserParams: WebChromeClient.FileChooserParams?): Array<String> {
+        val acceptTypes = fileChooserParams?.acceptTypes.orEmpty()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        return if (acceptTypes.isEmpty()) arrayOf("*/*") else acceptTypes.toTypedArray()
+    }
+
+    private fun createTempCameraCaptureUri(): Uri? {
+        return runCatching {
+            val captureDir = File(cacheDir, "upload-captures").apply { mkdirs() }
+            val captureFile = File.createTempFile("hermes-upload-", ".jpg", captureDir)
+            FileProvider.getUriForFile(this, "$packageName.fileprovider", captureFile)
+        }.getOrNull()
     }
 
     private fun openInExternalBrowser(url: String) {

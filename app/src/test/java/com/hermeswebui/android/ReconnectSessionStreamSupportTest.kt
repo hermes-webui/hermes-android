@@ -35,6 +35,7 @@ class ReconnectSessionStreamSupportTest {
         assertThat(update).isNotNull()
         assertThat(update?.body).isEqualTo("Wrote the migration and verified the build.")
         assertThat(update?.targetUrl).isEqualTo("https://hermes.example.com/session_456")
+        assertThat(update?.isTerminal).isFalse()
     }
 
     @Test
@@ -51,6 +52,7 @@ class ReconnectSessionStreamSupportTest {
         assertThat(update).isNotNull()
         assertThat(update?.body).isEqualTo("Hermes reported an error: Tests failed in app module")
         assertThat(update?.targetUrl).isEqualTo("$baseUrl/session_123")
+        assertThat(update?.isTerminal).isTrue()
     }
 
     @Test
@@ -67,5 +69,40 @@ class ReconnectSessionStreamSupportTest {
         assertThat(update).isNotNull()
         assertThat(update?.body).isEqualTo("Hermes started working on a user_message request.")
         assertThat(update?.targetUrl).isEqualTo("$baseUrl/session_123")
+        assertThat(update?.isTerminal).isFalse()
+    }
+
+    @Test
+    fun `approval event maps to safe approval copy`() {
+        val update = ReconnectSessionStreamSupport.notificationUpdateForEvent(
+            baseUrl = baseUrl,
+            fallbackTargetUrl = "$baseUrl/session_123",
+            eventName = "approval_required",
+            rawData = """
+                {"route":"/session_123","approval_id":"approval_123","description":"Allow write access to app/src/main?","choices":["once","session","always","deny"]}
+            """.trimIndent()
+        )
+
+        assertThat(update).isNotNull()
+        assertThat(update?.body).isEqualTo("Allow write access to app/src/main?")
+        assertThat(update?.isTerminal).isFalse()
+        assertThat(update?.approvalRequest?.approvalId).isEqualTo("approval_123")
+        assertThat(update?.approvalRequest?.choices).containsExactly("once", "session", "always", "deny")
+    }
+
+    @Test
+    fun `turn failed event stops activity notification`() {
+        val update = ReconnectSessionStreamSupport.notificationUpdateForEvent(
+            baseUrl = baseUrl,
+            fallbackTargetUrl = "$baseUrl/session_123",
+            eventName = "turn_failed",
+            rawData = """
+                {"error":"Connection lost while waiting for the model."}
+            """.trimIndent()
+        )
+
+        assertThat(update).isNotNull()
+        assertThat(update?.body).isEqualTo("Hermes reported an error: Connection lost while waiting for the model.")
+        assertThat(update?.isTerminal).isTrue()
     }
 }

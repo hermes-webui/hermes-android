@@ -6,6 +6,39 @@ import org.junit.Test
 
 class ReconnectBackgroundPolicyTest {
     @Test
+    fun `foreground service can run for trusted session activity without reconnecting`() {
+        assertThat(
+            ReconnectBackgroundPolicy.shouldRunForegroundService(
+                backgroundReconnectEnabled = true,
+                activityVisible = false,
+                isReconnecting = false,
+                sseTransportEnabled = true,
+                hasSessionId = true
+            )
+        ).isTrue()
+
+        assertThat(
+            ReconnectBackgroundPolicy.shouldRunForegroundService(
+                backgroundReconnectEnabled = true,
+                activityVisible = false,
+                isReconnecting = false,
+                sseTransportEnabled = false,
+                hasSessionId = true
+            )
+        ).isFalse()
+
+        assertThat(
+            ReconnectBackgroundPolicy.shouldRunForegroundService(
+                backgroundReconnectEnabled = true,
+                activityVisible = true,
+                isReconnecting = false,
+                sseTransportEnabled = true,
+                hasSessionId = true
+            )
+        ).isFalse()
+    }
+
+    @Test
     fun `keepAlive true only when toggle on and app backgrounded and reconnecting`() {
         assertThat(
             ReconnectBackgroundPolicy.shouldKeepAlive(
@@ -62,6 +95,39 @@ class ReconnectBackgroundPolicyTest {
                 isReconnecting = reconnecting
             )
             assertThat(cancelAutoRetry).isEqualTo(!keepAlive)
+        }
+    }
+
+    @Test
+    fun `foreground service parity stays derived from visibility reconnect toggle and session signals`() {
+        data class Case(
+            val enabled: Boolean,
+            val visible: Boolean,
+            val reconnecting: Boolean,
+            val sseTransport: Boolean,
+            val hasSessionId: Boolean,
+            val expectedRun: Boolean
+        )
+
+        val cases = listOf(
+            Case(enabled = true, visible = false, reconnecting = true, sseTransport = false, hasSessionId = false, expectedRun = true),
+            Case(enabled = true, visible = false, reconnecting = false, sseTransport = true, hasSessionId = true, expectedRun = true),
+            Case(enabled = true, visible = true, reconnecting = true, sseTransport = true, hasSessionId = true, expectedRun = false),
+            Case(enabled = false, visible = false, reconnecting = true, sseTransport = true, hasSessionId = true, expectedRun = false),
+            Case(enabled = true, visible = false, reconnecting = false, sseTransport = true, hasSessionId = false, expectedRun = false),
+            Case(enabled = true, visible = false, reconnecting = false, sseTransport = false, hasSessionId = true, expectedRun = false)
+        )
+
+        cases.forEach { c ->
+            assertThat(
+                ReconnectBackgroundPolicy.shouldRunForegroundService(
+                    backgroundReconnectEnabled = c.enabled,
+                    activityVisible = c.visible,
+                    isReconnecting = c.reconnecting,
+                    sseTransportEnabled = c.sseTransport,
+                    hasSessionId = c.hasSessionId
+                )
+            ).isEqualTo(c.expectedRun)
         }
     }
 }

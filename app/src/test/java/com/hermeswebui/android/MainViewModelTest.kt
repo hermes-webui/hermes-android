@@ -139,6 +139,38 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `openSettingsWithServerValidation shows persistent inline recovery state`() {
+        val store = FakeSettingsStore()
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
+
+        viewModel.openSettingsWithServerValidation("Finish setup before connecting.")
+
+        val state = viewModel.uiState.value
+        assertThat(state.isSettingsVisible).isTrue()
+        assertThat(state.isLoading).isFalse()
+        assertThat(state.serverValidation.message).isEqualTo("Finish setup before connecting.")
+        assertThat(state.serverValidation.isError).isTrue()
+    }
+
+    @Test
+    fun `saveAppUrls clears prior server validation state`() {
+        val store = FakeSettingsStore()
+        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
+
+        viewModel.setServerValidationState(
+            isChecking = false,
+            message = "Could not connect.",
+            isError = true
+        )
+
+        viewModel.saveAppUrls("https://next.example.com", defaultDashboardUrl)
+
+        val state = viewModel.uiState.value
+        assertThat(state.serverValidation.message).isNull()
+        assertThat(state.serverValidation.isChecking).isFalse()
+    }
+
+    @Test
     fun `reset session resets loaded content state`() {
         val store = FakeSettingsStore()
         val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)

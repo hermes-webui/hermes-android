@@ -103,7 +103,6 @@ class HermesDebugLoggingService : Service() {
     }
 
     private fun ensureDebugChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(NotificationManager::class.java) ?: return
         val channel = NotificationChannel(
             DEBUG_LOGGING_CHANNEL_ID,
@@ -174,6 +173,7 @@ class HermesDebugLoggingService : Service() {
             appendLine("server_url: ${appSettings.serverUrl}")
             appendLine("dashboard_url: ${appSettings.dashboardUrl}")
             appendLine("background_reconnect_enabled: ${settings.isBackgroundReconnectEnabled()}")
+            appendLine("background_activity_full_text_enabled: ${settings.isBackgroundActivityFullTextEnabled()}")
             appendLine("reconnect_poll_interval_seconds: ${settings.getReconnectPollIntervalSeconds()}")
             appendLine("sse_transport_enabled: ${settings.isSseTransportEnabled()}")
             appendLine("debug_logging_enabled: ${settings.isDebugLoggingEnabled()}")

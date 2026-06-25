@@ -39,6 +39,7 @@ class MainViewModel(
     private val _uiState = MutableStateFlow(MainUiState(
         settings = settings,
         backgroundReconnectEnabled = settingsRepositoryImpl?.isBackgroundReconnectEnabled() ?: false,
+        backgroundActivityFullTextEnabled = settingsRepositoryImpl?.isBackgroundActivityFullTextEnabled() ?: false,
         reconnectPollIntervalSeconds = settingsRepositoryImpl?.getReconnectPollIntervalSeconds() ?: 1,
         sseTransportEnabled = settingsRepositoryImpl?.isSseTransportEnabled() ?: false,
         debugLoggingEnabled = settingsRepositoryImpl?.isDebugLoggingEnabled() ?: false
@@ -343,13 +344,48 @@ class MainViewModel(
         _uiState.update { it.copy(isSettingsVisible = true) }
     }
 
+    fun openSettingsWithServerValidation(message: String, isError: Boolean = true) {
+        _uiState.update {
+            it.copy(
+                isSettingsVisible = true,
+                isLoading = false,
+                serverValidation = ServerValidationUiState(
+                    isChecking = false,
+                    message = message,
+                    isError = isError
+                )
+            )
+        }
+    }
+
     fun closeSettings() {
         _uiState.update { it.copy(isSettingsVisible = false) }
+    }
+
+    fun setServerValidationState(isChecking: Boolean, message: String?, isError: Boolean) {
+        _uiState.update {
+            it.copy(
+                serverValidation = ServerValidationUiState(
+                    isChecking = isChecking,
+                    message = message,
+                    isError = isError
+                )
+            )
+        }
+    }
+
+    fun clearServerValidationState() {
+        _uiState.update { it.copy(serverValidation = ServerValidationUiState()) }
     }
 
     fun setBackgroundReconnectEnabled(enabled: Boolean) {
         settingsRepositoryImpl?.setBackgroundReconnectEnabled(enabled)
         _uiState.update { it.copy(backgroundReconnectEnabled = enabled) }
+    }
+
+    fun setBackgroundActivityFullTextEnabled(enabled: Boolean) {
+        settingsRepositoryImpl?.setBackgroundActivityFullTextEnabled(enabled)
+        _uiState.update { it.copy(backgroundActivityFullTextEnabled = enabled) }
     }
 
     fun setReconnectPollIntervalSeconds(seconds: Int) {
@@ -382,6 +418,7 @@ class MainViewModel(
         _uiState.update {
             it.copy(
                 backgroundReconnectEnabled = repo.isBackgroundReconnectEnabled(),
+                backgroundActivityFullTextEnabled = repo.isBackgroundActivityFullTextEnabled(),
                 reconnectPollIntervalSeconds = repo.getReconnectPollIntervalSeconds(),
                 sseTransportEnabled = repo.isSseTransportEnabled(),
                 debugLoggingEnabled = repo.isDebugLoggingEnabled()
@@ -401,7 +438,8 @@ class MainViewModel(
                 hasLoadedContent = false,
                 isSettingsVisible = false,
                 errorMessage = null,
-                isOffline = false
+                isOffline = false,
+                serverValidation = ServerValidationUiState()
             )
         }
     }

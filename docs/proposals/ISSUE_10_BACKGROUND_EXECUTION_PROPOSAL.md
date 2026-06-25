@@ -103,6 +103,8 @@ Bundling them as a single ship target increases schedule and regression risk.
 - Action is applied once, against the correct pending prompt, and result is reflected in subsequent status.
 - Misrouted, expired, or untrusted action payloads are rejected.
 
+Implementation note as of 2026-06-24: Hermes-Android now ships an initial Part C path that adds allow/deny actions to the ongoing foreground notification when `approval_required` includes an `approval_id`. Android validates the live queue head through `/api/approval/pending` before submitting `/api/approval/respond`, and duplicate/stale taps fail closed. Follow-up work remains around richer server-provided approval payloads and broader manual validation.
+
 ### Estimate
 
 - 3 to 5 engineering days after Phase B foundation and API contract are stable.
@@ -119,7 +121,7 @@ Bundling them as a single ship target increases schedule and regression risk.
 - Preserve host allowlist and configured-origin trust boundary.
 - Do not introduce secret-bearing JavaScript bridges.
 - Avoid persisting sensitive conversation data beyond what notification UX needs.
-- Keep notification contents minimal and user-controlled (toggle + future redaction options if needed).
+- Keep notification contents minimal and user-controlled (toggle + lock-screen redaction/full-text option).
 
 ## Testing strategy
 

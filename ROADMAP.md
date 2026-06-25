@@ -59,7 +59,7 @@
 - [x] Official dashboard link route
 - [x] Deep links (`hermes://session/{id}`)
 - [x] Server health probing
-- [ ] Camera capture in file chooser
+- [x] Camera capture in file chooser
 - [ ] Direct share-file auto-attach flow
 - [ ] Attachment progress and retry UX
 
@@ -83,7 +83,7 @@ workflow changes should be made in Hermes WebUI instead.
 - [ ] Evaluate a Trusted Web Activity (TWA) variant rendered in real Chrome, gated on Hermes WebUI serving `/.well-known/assetlinks.json` (draft + fingerprint in `twa/`); accept loss of native bridges and HTTPS-only verification before pursuing
 - [x] Final package/application ID decision before first public release
 - [x] Release signing automation docs and snippets
-- [ ] Background continuity while app is backgrounded (Issue 10): staged plan for resume polish, optional ongoing activity notification, and optional tray approvals in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`
+- [~] Background continuity while app is backgrounded (Issue 10): Part A is complete; Part B ongoing activity notification and initial Part C tray approvals are implemented. Remaining work is focused on B4 lifecycle/manual validation and cross-client SSE/API contract hardening tracked in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`.
 
 ---
 
@@ -95,7 +95,7 @@ workflow changes should be made in Hermes WebUI instead.
 | M-002 | As needed | Open | Security | Keep WebView, URL policy, permissions, and encrypted settings behavior hardened | Preserve HTTP/HTTPS configured-host support and host allowlist enforcement |
 | M-003 | As needed | Open | Bugfix | Fix Android-wrapper regressions | Scope to WebView hosting, permissions, share/download, notifications, deep links, settings, and release flow |
 | M-004 | As needed | Open | Release | Keep signed release automation current | Maintain alignment between Gradle metadata, `keystore.properties.example`, and GitHub Actions secrets |
-| M-005 | High | In progress | Platform | Triage and stage Issue 10 background-execution work (A/B/C phases) | Proposal documented in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`; Stage 0 discovery and execution tracking live in `docs/proposals/ISSUE_10_STAGE0_DISCOVERY.md` and `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_WORKPLAN.md`; Part A is complete, Part B1/B2 (foreground service scaffold + opt-in settings toggle/migration) are complete, reconnect now uses `/api/sessions/events` with polling fallback and the foreground reconnect service consumes `/api/session/stream` summaries when available, and remaining B3 hardening plus B4/C remain in progress/pending |
+| M-005 | High | In progress | Platform | Triage and stage Issue 10 background-execution work (A/B/C phases) | Proposal documented in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`; Stage 0 discovery and execution tracking live in `docs/proposals/ISSUE_10_STAGE0_DISCOVERY.md` and `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_WORKPLAN.md`; Part A is complete, Part B ongoing activity updates are implemented (with reconnect using `/api/sessions/events` plus polling fallback), and initial Part C tray approvals are implemented with queue-head validation through `/api/approval/pending` before `/api/approval/respond`; remaining scope is B4 lifecycle/manual validation plus broader cross-client payload/API contract hardening |
 | A-020-P2 | Medium | Open | Settings | Multi-server profile storage (Issue #20 Phase 2) | Add encrypted multi-server profile persistence in `SettingsRepository` with versioned migration; extend `SettingsBottomSheet` UI with profile list, add/edit/delete dialogs, and active server selector |
 | A-020-P3 | Medium | Open | Navigation | Multi-server profile switching (Issue #20 Phase 3) | Implement profile activation flow: reload WebView with new server, clear old session/cookies, validate new server against allowlist, update dashboard config, run comprehensive profile CRUD and switching tests |
 
@@ -175,7 +175,12 @@ workflow changes should be made in Hermes WebUI instead.
 | A-010-P2 | 2026-06-23 | Troubleshooting | Added opt-in debug logging capture toggle in native settings that runs as a foreground service with persistent notification, one-tap Stop action, and app-private logcat file capture for troubleshooting while minimizing app-switch diagnostics gaps |
 | REL-019 | 2026-06-24 | Release | Manual orchestration releases now auto-bump `appVersionName` from the latest published tag before building, and Gradle derives `versionCode` from semantic version to keep release numbering monotonic without separate manual edits |
 | REL-020 | 2026-06-24 | Release | Bumped Android app version metadata to `0.1.11` with derived `versionCode` `111` for the next GitHub + Play Store release |
+| REL-021 | 2026-06-24 | Release | Bumped Android app version metadata to `0.1.12` with derived `versionCode` `112` for the next device test and GitHub + Play Store release |
 | A-010-P3 | 2026-06-24 | Lifecycle | Enabled native SSE-backed reconnect transport for Issue 10: Android now probes lightweight Hermes WebUI `/api/sessions/events` for reconnect detection when the SSE toggle is on, falls back to `/api/status` polling when the stream is unavailable, and updates SSE support messaging to match current WebUI probe semantics |
 | A-010-P4 | 2026-06-24 | Notifications | Extended the reconnect foreground service to consume authenticated Hermes WebUI `/api/session/stream` events for the active session when available, updating the ongoing background notification with summary/progress text and trusted tap targets instead of leaving it static |
+| A-010-P5 | 2026-06-24 | Notifications | Broadened Issue 10 Part B into an opt-in ongoing background activity notification: the foreground service can now stay alive for trusted session routes while the app is backgrounded, reflects approval/failure/completion SSE events in addition to summaries, and exposes a user-controlled lock-screen redaction toggle for notification body text |
+| A-010-P6 | 2026-06-24 | Notifications | Implemented Issue 10 Part C tray approvals: when Hermes emits `approval_required` with an `approval_id`, Android adds allow/deny notification actions, re-checks the queue head through `/api/approval/pending`, submits `/api/approval/respond` only for the matching active request, and rejects stale or duplicate taps fail-closed |
 | BUG-018 | 2026-06-24 | Settings | Added a Hermes server-readiness preflight before first-run save, profile add/edit, and profile switching: Android now probes `/api/status` and rejects unreachable servers, HTTP/HTTPS mismatches, setup-mode responses, and non-Hermes pages instead of persisting a URL that traps the app on launch |
+| BUG-019 | 2026-06-24 | Settings | Added inline settings validation state plus startup recovery for persisted servers: Android now surfaces “checking server” / error copy inside settings, and if the saved Hermes URL later becomes invalid or falls back into setup mode at launch, the app reopens settings immediately instead of driving WebView into a dead-end load |
+| A-006 | 2026-06-24 | Files | Added direct camera capture support for WebView file uploads when the page requests image capture, using a temporary FileProvider-backed photo URI returned to the chooser callback |
 

@@ -3,7 +3,12 @@ package com.hermeswebui.android.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 import java.net.URI
+import java.net.UnknownHostException
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLProtocolException
 import javax.net.ssl.SSLException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,8 +22,14 @@ import org.json.JSONObject
  * WebView reports a load failure.
  */
 object HermesApiClient {
-    private const val TIMEOUT_MS = 4_000
+    private const val TIMEOUT_MS = 6_000
     private const val RECONNECT_SSE_PATH = "/api/sessions/events"
+    private val hermesRootMarkers = listOf(
+        "Hermes WebUI",
+        "HermesWebUI",
+        "hermes-webui",
+        "hermes webui"
+    )
 
     data class ServerReadinessResult(
         val isReady: Boolean,
@@ -33,6 +44,17 @@ object HermesApiClient {
         "sse",
         "sse_enabled",
         "sse_summary"
+    )
+
+    private val hermesStatusFingerprintKeys = setOf(
+        "release_date",
+        "hermes_home",
+        "config_path",
+        "gateway_running",
+        "authenticated",
+        "setup_mode",
+        "initialized",
+        "status"
     )
 
     /**
@@ -107,6 +129,13 @@ object HermesApiClient {
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             conn.disconnect()
 
+            if (code == 404) {
+                val rootFallback = probeHermesRootPage(baseUrl)
+                if (rootFallback != null) {
+                    return@withContext rootFallback
+                }
+            }
+
             interpretServerStatusResponse(
                 httpStatus = code,
                 contentType = contentType,
@@ -114,7 +143,25 @@ object HermesApiClient {
             )
         } catch (exception: Exception) {
             when {
-                exception is SSLException || exception.message.orEmpty().contains("ssl", ignoreCase = true) -> {
+                exception is UnknownHostException -> {
+                    ServerReadinessResult(
+                        isReady = false,
+                        message = "Could not find that host. Check the server name and try again."
+                    )
+                }
+                exception is ConnectException -> {
+                    ServerReadinessResult(
+                        isReady = false,
+                        message = "Could not connect to this server. Check that Hermes is running and reachable from Android."
+                    )
+                }
+                exception is SocketTimeoutException -> {
+                    ServerReadinessResult(
+                        isReady = false,
+                        message = "The server took too long to respond. Check that Hermes finished starting up and try again."
+                    )
+                }
+                exception is SSLHandshakeException || exception is SSLProtocolException || exception is SSLException || exception.message.orEmpty().contains("ssl", ignoreCase = true) -> {
                     ServerReadinessResult(
                         isReady = false,
                         message = "Could not connect securely. Check whether this Hermes server should use http:// instead of https://."
@@ -130,6 +177,34 @@ object HermesApiClient {
         }
     }
 
+    private suspend fun probeHermesRootPage(baseUrl: String): ServerReadinessResult? = withContext(Dispatchers.IO) {
+        try {
+            val rootUrl = URI(baseUrl.trimEnd('/')).resolve("/").toURL()
+            val conn = rootUrl.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = TIMEOUT_MS
+            conn.readTimeout = TIMEOUT_MS
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+
+            val code = conn.responseCode
+            val contentType = conn.contentType
+            val serverHeader = conn.getHeaderField("Server")
+            val stream = if (code >= 400) conn.errorStream else conn.inputStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            conn.disconnect()
+
+            interpretHermesRootResponse(
+                httpStatus = code,
+                contentType = contentType,
+                serverHeader = serverHeader,
+                rawBody = body
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     internal fun interpretServerStatusResponse(
         httpStatus: Int,
         contentType: String?,
@@ -137,6 +212,10 @@ object HermesApiClient {
     ): ServerReadinessResult {
         if (httpStatus !in 200..299) {
             return when (httpStatus) {
+                301, 302, 307, 308 -> ServerReadinessResult(
+                    isReady = false,
+                    message = "This URL redirected instead of returning Hermes status directly. Use the final Hermes WebUI URL instead."
+                )
                 503 -> ServerReadinessResult(
                     isReady = false,
                     message = "Hermes responded, but it is not ready yet. Finish the server's initial setup and try again."
@@ -164,6 +243,14 @@ object HermesApiClient {
             )
         }
 
+        val setupMode = payload.opt("setup_mode")
+        if (setupMode is Boolean && setupMode) {
+            return ServerReadinessResult(
+                isReady = false,
+                message = "This Hermes server is still in initial setup. Finish setup in the browser before adding it in Android."
+            )
+        }
+
         val initialized = payload.opt("initialized")
         if (initialized is Boolean && !initialized) {
             return ServerReadinessResult(
@@ -180,8 +267,7 @@ object HermesApiClient {
             )
         }
 
-        val version = payload.optString("version").trim()
-        if (version.isNotBlank()) {
+        if (looksLikeHermesStatusPayload(payload)) {
             return ServerReadinessResult(
                 isReady = true,
                 message = "Hermes server is reachable."
@@ -192,6 +278,44 @@ object HermesApiClient {
             isReady = false,
             message = "This server responded, but it does not look like a ready Hermes WebUI instance."
         )
+    }
+
+    internal fun interpretHermesRootResponse(
+        httpStatus: Int,
+        contentType: String?,
+        serverHeader: String?,
+        rawBody: String
+    ): ServerReadinessResult? {
+        if (httpStatus !in 200..299) return null
+
+        val normalizedServerHeader = serverHeader.orEmpty().trim()
+        if (normalizedServerHeader.startsWith("HermesWebUI/", ignoreCase = true)) {
+            return ServerReadinessResult(
+                isReady = true,
+                message = "Hermes server is reachable."
+            )
+        }
+
+        val normalizedContentType = contentType.orEmpty()
+        val normalizedBody = rawBody.lowercase()
+        val looksLikeHtml = normalizedContentType.contains("text/html", ignoreCase = true)
+        val hasHermesMarker = hermesRootMarkers.any { marker ->
+            normalizedBody.contains(marker.lowercase())
+        }
+        if (looksLikeHtml && hasHermesMarker) {
+            return ServerReadinessResult(
+                isReady = true,
+                message = "Hermes server is reachable."
+            )
+        }
+
+        return null
+    }
+
+    private fun looksLikeHermesStatusPayload(payload: JSONObject): Boolean {
+        val version = payload.optString("version").trim()
+        if (version.isBlank()) return false
+        return hermesStatusFingerprintKeys.any(payload::has)
     }
 
     /**
@@ -264,6 +388,7 @@ object HermesApiClient {
      * 5. Otherwise → NONE (network error / unreachable)
      */
     suspend fun detectSseCapability(baseUrl: String): SseCapability = withContext(Dispatchers.IO) {
+        var statusReportsSse = false
         try {
             val statusUrl = URI(baseUrl.trimEnd('/')).resolve("/api/status").toURL()
             val conn = statusUrl.openConnection() as HttpURLConnection
@@ -275,25 +400,47 @@ object HermesApiClient {
             if (code in 200..299) {
                 val body = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                if (parseSseFeatureFlag(body)) return@withContext SseCapability.SESSION_SSE_ENABLED
+                statusReportsSse = parseSseFeatureFlag(body)
             } else {
                 conn.disconnect()
             }
         } catch (_: Exception) { /* fall through to gateway probe */ }
 
         val gatewayProbe = probeGatewayStreamEndpoint(baseUrl)
-        if (gatewayProbe?.enabled == true && gatewayProbe.ok == true) {
-            return@withContext SseCapability.SESSION_SSE_ENABLED
-        }
-
         val reconnectProbe = probeReconnectSseEndpoint(baseUrl)
-        if (reconnectProbe?.httpStatus in 200..299 && isEventStreamContentType(reconnectProbe?.contentType)) {
-            return@withContext SseCapability.RECONNECT_STREAM_AVAILABLE
+        decideSseCapability(
+            statusReportsSse = statusReportsSse,
+            gatewayEnabled = gatewayProbe?.enabled,
+            gatewayOk = gatewayProbe?.ok,
+            gatewayHttpStatus = gatewayProbe?.httpStatus,
+            reconnectHttpStatus = reconnectProbe?.httpStatus,
+            reconnectContentType = reconnectProbe?.contentType
+        )
+    }
+
+    internal fun decideSseCapability(
+        statusReportsSse: Boolean,
+        gatewayEnabled: Boolean?,
+        gatewayOk: Boolean?,
+        gatewayHttpStatus: Int?,
+        reconnectHttpStatus: Int?,
+        reconnectContentType: String?
+    ): SseCapability {
+        if (statusReportsSse) return SseCapability.SESSION_SSE_ENABLED
+
+        if (gatewayEnabled == true && gatewayOk == true) {
+            return SseCapability.SESSION_SSE_ENABLED
         }
 
-        when {
-            gatewayProbe == null -> SseCapability.NONE
-            gatewayProbe.enabled == false || gatewayProbe.httpStatus == 404 -> SseCapability.FEATURE_DISABLED
+        val reconnectIsUsable = reconnectHttpStatus in 200..299 &&
+            isEventStreamContentType(reconnectContentType)
+        if (reconnectIsUsable) {
+            return SseCapability.RECONNECT_STREAM_AVAILABLE
+        }
+
+        return when {
+            gatewayHttpStatus == null -> SseCapability.NONE
+            gatewayEnabled == false || gatewayHttpStatus == 404 -> SseCapability.FEATURE_DISABLED
             else -> SseCapability.NONE
         }
     }

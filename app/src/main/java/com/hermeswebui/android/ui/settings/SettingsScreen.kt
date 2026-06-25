@@ -28,6 +28,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hermeswebui.android.data.ServerProfile
+import com.hermeswebui.android.ui.ServerValidationUiState
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -65,16 +67,19 @@ fun SettingsScreen(
     initialServerUrl: String,
     isConfigured: Boolean,
     backgroundReconnectEnabled: Boolean,
+    backgroundActivityFullTextEnabled: Boolean,
     reconnectPollIntervalSeconds: Int,
     sseTransportEnabled: Boolean,
     sseSupportStatus: String?,
     debugLoggingEnabled: Boolean,
+    serverValidation: ServerValidationUiState,
     appVersionLabel: String,
     serverProfiles: List<ServerProfile>,
     onSave: (String) -> Unit,
     onResetSession: () -> Unit,
     onDismiss: () -> Unit,
     onSetBackgroundReconnect: (Boolean) -> Unit,
+    onSetBackgroundActivityFullTextEnabled: (Boolean) -> Unit,
     onSetReconnectPollIntervalSeconds: (Int) -> Unit,
     onSetSseTransportEnabled: (Boolean) -> Unit,
     onCheckSseSupport: () -> Unit,
@@ -89,6 +94,7 @@ fun SettingsScreen(
     onRenameProfile: (String, String) -> Unit,
     onEditProfile: (String, String, String) -> Unit,
     onSwitchProfile: (String) -> Unit,
+    onClearServerValidation: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     BackHandler(onBack = onDismiss)
@@ -96,6 +102,7 @@ fun SettingsScreen(
     var showAddProfileDialog by remember { mutableStateOf(false) }
     var profileToDelete by remember { mutableStateOf<ServerProfile?>(null) }
     var profileToEdit by remember { mutableStateOf<ServerProfile?>(null) }
+    var editCurrentServerWithoutProfile by remember { mutableStateOf(false) }
     var showResetSessionConfirm by remember { mutableStateOf(false) }
     var serverUrl by remember(initialServerUrl, isConfigured) {
         mutableStateOf(if (isConfigured) initialServerUrl else "")
@@ -127,6 +134,18 @@ fun SettingsScreen(
                 profileToEdit = null
             },
             onDismiss = { profileToEdit = null }
+        )
+    }
+
+    if (editCurrentServerWithoutProfile) {
+        EditProfileDialog(
+            currentName = "Current server",
+            currentUrl = initialServerUrl,
+            onConfirm = { _, newUrl ->
+                onSave(newUrl)
+                editCurrentServerWithoutProfile = false
+            },
+            onDismiss = { editCurrentServerWithoutProfile = false }
         )
     }
     profileToDelete?.let { deleting ->
@@ -225,22 +244,29 @@ fun SettingsScreen(
                     OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
                         value = serverUrl,
-                        onValueChange = { serverUrl = it },
+                        onValueChange = {
+                            serverUrl = it
+                            onClearServerValidation()
+                        },
                         singleLine = true,
                         label = { Text("Hermes server URL") },
                         placeholder = { Text("https://hermes.example.com") },
                         supportingText = { Text("HTTP or HTTPS. Host is automatically allowlisted.") }
                     )
+                    ServerValidationStatus(serverValidation = serverValidation)
                     Button(
                         onClick = { onSave(serverUrl.trim()) },
-                        enabled = serverUrl.isNotBlank(),
+                        enabled = serverUrl.isNotBlank() && !serverValidation.isChecking,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = primaryColor,
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
-                        Text("Connect", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (serverValidation.isChecking) "Checking server..." else "Connect",
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             } else {
@@ -276,7 +302,11 @@ fun SettingsScreen(
                                     )
                                 },
                                 trailingContent = { ServerCurrentBadge() },
-                                colors = ListItemDefaults.colors(containerColor = surfaceVariant)
+                                colors = ListItemDefaults.colors(containerColor = surfaceVariant),
+                                modifier = Modifier.combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { editCurrentServerWithoutProfile = true }
+                                )
                             )
                         } else {
                             sortedProfiles.forEachIndexed { index, profile ->
@@ -350,6 +380,12 @@ fun SettingsScreen(
                     color = onSurfaceVar.copy(alpha = 0.7f),
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
+                if (serverValidation.isChecking || !serverValidation.message.isNullOrBlank()) {
+                    ServerValidationStatus(
+                        serverValidation = serverValidation,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -367,14 +403,14 @@ fun SettingsScreen(
                         ListItem(
                             headlineContent = {
                                 Text(
-                                    "Background reconnect notification",
+                                    "Background activity notification",
                                     color = onSurface,
                                     fontWeight = FontWeight.Medium
                                 )
                             },
                             supportingContent = {
                                 Text(
-                                    "Show a notification while reconnecting after an app switch",
+                                    "Show the latest safe Hermes session activity while the app is backgrounded",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -394,6 +430,41 @@ fun SettingsScreen(
                             colors = ListItemDefaults.colors(containerColor = surfaceColor),
                             modifier = Modifier.clickable {
                                 onSetBackgroundReconnect(!backgroundReconnectEnabled)
+                            }
+                        )
+
+                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
+
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    "Show full activity text on lock screen",
+                                    color = onSurface,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    "Off keeps the lock screen redacted with a generic Hermes status message.",
+                                    color = onSurfaceVar,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = backgroundActivityFullTextEnabled,
+                                    onCheckedChange = onSetBackgroundActivityFullTextEnabled,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                        checkedTrackColor = primaryColor,
+                                        uncheckedThumbColor = onSurfaceVar,
+                                        uncheckedTrackColor = surfaceVariant
+                                    )
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = surfaceColor),
+                            modifier = Modifier.clickable {
+                                onSetBackgroundActivityFullTextEnabled(!backgroundActivityFullTextEnabled)
                             }
                         )
 
@@ -438,7 +509,7 @@ fun SettingsScreen(
                                 }
                             }
                             Text(
-                                text = "Used for fallback polling while Hermes is reconnecting.",
+                                text = "Used for reconnect fallback polling when Hermes is recovering after a disconnect.",
                                 color = onSurfaceVar.copy(alpha = 0.75f),
                                 style = MaterialTheme.typography.labelSmall
                             )
@@ -491,7 +562,7 @@ fun SettingsScreen(
                                 }
                             )
                             Text(
-                                text = "Checks server support when enabled. Android prefers the lightweight /api/sessions/events stream and can also use full gateway/session SSE when the server exposes it.",
+                                text = "When you turn SSE transport on, Android checks support automatically. If support is unavailable, the toggle turns back off. Use 'Check SSE support now' for a manual re-check.",
                                 color = onSurfaceVar.copy(alpha = 0.72f),
                                 style = MaterialTheme.typography.labelSmall
                             )
@@ -516,7 +587,7 @@ fun SettingsScreen(
                                 val isFeatureDisabled = sseSupportStatus.startsWith("🚫")
                                 val statusColor = when {
                                     sseSupportStatus.startsWith("✅") -> Color(0xFF4CAF50)
-                                    sseSupportStatus.startsWith("⚡") -> Color(0xFFFFA726)
+                                    sseSupportStatus.startsWith("❔") -> onSurfaceVar.copy(alpha = 0.82f)
                                     isFeatureDisabled -> MaterialTheme.colorScheme.error
                                     sseSupportStatus.startsWith("❌") -> MaterialTheme.colorScheme.error
                                     else -> onSurfaceVar.copy(alpha = 0.72f)
@@ -694,6 +765,50 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+}
+
+@Composable
+private fun ServerValidationStatus(
+    serverValidation: ServerValidationUiState,
+    modifier: Modifier = Modifier
+) {
+    val message = serverValidation.message
+    if (!serverValidation.isChecking && message.isNullOrBlank()) return
+
+    val containerColor = if (serverValidation.isError) {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+    }
+    val contentColor = if (serverValidation.isError) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(containerColor)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (serverValidation.isChecking) {
+            CircularProgressIndicator(
+                modifier = Modifier.height(18.dp),
+                strokeWidth = 2.dp,
+                color = contentColor
+            )
+        }
+        Text(
+            text = message ?: "Checking Hermes server readiness...",
+            color = contentColor,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (serverValidation.isError) FontWeight.Medium else FontWeight.Normal
+        )
     }
 }
 

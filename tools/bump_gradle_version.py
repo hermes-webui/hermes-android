@@ -4,6 +4,7 @@
 - Reads the current appVersionName from Gradle.
 - Computes the next patch version from a source tag (vX.Y.Z or X.Y.Z).
 - Updates only the appVersionName assignment in-place.
+- Optionally updates README release metadata to match.
 - Prints the selected next version to stdout for workflow logging.
 """
 
@@ -16,6 +17,9 @@ import sys
 
 SEMVER_RE = re.compile(r"^(?:v)?(\d+)\.(\d+)\.(\d+)$")
 APP_VERSION_RE = re.compile(r'^(\s*val\s+appVersionName\s*=\s*")(\d+\.\d+\.\d+)("\s*)$', re.MULTILINE)
+README_PRE_RELEASE_RE = re.compile(r"(Current pre-release version:\s*`v)(\d+\.\d+\.\d+)(`\.)")
+README_VERSION_NAME_RE = re.compile(r"(- Version name:\s*`)(\d+\.\d+\.\d+)(`)")
+README_VERSION_CODE_RE = re.compile(r"(- Version code:\s*`)(\d+)(`)")
 
 
 def parse_semver(raw: str) -> tuple[int, int, int]:
@@ -48,9 +52,29 @@ def replace_version(contents: str, next_version: str) -> str:
     return replaced
 
 
+def version_code(version: str) -> int:
+    major, minor, patch = parse_semver(version)
+    return major * 10_000 + minor * 100 + patch
+
+
+def replace_readme_metadata(contents: str, next_version: str) -> str:
+    replacements = [
+        (README_PRE_RELEASE_RE, rf"\g<1>{next_version}\g<3>", "Current pre-release version"),
+        (README_VERSION_NAME_RE, rf"\g<1>{next_version}\g<3>", "Version name"),
+        (README_VERSION_CODE_RE, rf"\g<1>{version_code(next_version)}\g<3>", "Version code"),
+    ]
+    updated = contents
+    for pattern, replacement, label in replacements:
+        updated, count = pattern.subn(replacement, updated, count=1)
+        if count != 1:
+            raise ValueError(f"Failed to update README {label}")
+    return updated
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bump appVersionName in app/build.gradle.kts")
     parser.add_argument("--gradle-file", required=True, help="Path to app/build.gradle.kts")
+    parser.add_argument("--readme-file", help="Optional path to README.md metadata to update")
     parser.add_argument(
         "--latest-tag",
         default="",
@@ -71,6 +95,11 @@ def main() -> int:
 
     updated = replace_version(contents, next_version)
     gradle_path.write_text(updated, encoding="utf-8")
+
+    if args.readme_file:
+        readme_path = pathlib.Path(args.readme_file)
+        readme_contents = readme_path.read_text(encoding="utf-8")
+        readme_path.write_text(replace_readme_metadata(readme_contents, next_version), encoding="utf-8")
 
     print(next_version)
     return 0

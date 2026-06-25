@@ -20,6 +20,25 @@ class BumpGradleVersionTests(unittest.TestCase):
         self.assertIn('val appVersionName = "0.1.11"', updated)
         self.assertIn('val another = "keep"', updated)
 
+    def test_version_code_is_derived_from_semver(self) -> None:
+        self.assertEqual(bump_gradle_version.version_code("1.2.3"), 10203)
+
+    def test_replace_readme_metadata_updates_displayed_release_state(self) -> None:
+        original = "\n".join(
+            [
+                "Current pre-release version: `v0.1.15`.",
+                "",
+                "- Version name: `0.1.15`",
+                "- Version code: `115` (derived from semantic version as `major*10000 + minor*100 + patch`)",
+            ]
+        )
+
+        updated = bump_gradle_version.replace_readme_metadata(original, "0.1.16")
+
+        self.assertIn("Current pre-release version: `v0.1.16`.", updated)
+        self.assertIn("- Version name: `0.1.16`", updated)
+        self.assertIn("- Version code: `116`", updated)
+
     def test_bump_from_latest_tag_writes_next_patch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             gradle_file = Path(tmp_dir) / "build.gradle.kts"

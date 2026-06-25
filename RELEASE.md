@@ -6,7 +6,7 @@ Use this checklist when publishing a new Hermes-Android build.
 
 1. Merge the intended fix or release PR to `main`.
 2. Decide whether this is a manual or tag-triggered release:
-   - Manual run: no version edit needed. The workflow auto-bumps `appVersionName` from the latest published tag.
+   - Manual run: no version edit needed. The workflow auto-bumps `appVersionName` from the latest published tag, updates README release metadata, commits those changes back to `main`, then builds from that version-bump commit.
    - Tag run: update `appVersionName` in `app/build.gradle.kts` first, then push matching tag `v<versionName>`.
 3. Verify the change locally when code changed:
 
@@ -27,10 +27,11 @@ Run the GitHub Actions workflow:
 
 That workflow:
 
+1. For manual runs, commits the next app version to `main`.
 1. Builds and signs `hermes-webui-v<version>-github.apk`.
-2. Builds and signs `hermes-webui-v<version>.aab`.
-3. Uploads both files as workflow artifacts.
-4. Starts `2 - Publish GitHub APK` and `3 - Publish Play Store Release` in parallel.
+1. Builds and signs `hermes-webui-v<version>.aab`.
+1. Uploads both files as workflow artifacts.
+1. Starts `2 - Publish GitHub APK` and `3 - Publish Play Store Release` in parallel.
 
 The GitHub publish workflow attaches only the `-github.apk` to the GitHub
 Release and writes human-readable generated GitHub release notes grouped by

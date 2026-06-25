@@ -161,9 +161,10 @@ tag-triggered releases should match the Gradle `versionName`, and the public
 GitHub release body should contain human-readable What's New notes rather than
 build metadata.
 Manual orchestration runs auto-bump `appVersionName` from the latest published
-`vX.Y.Z` tag before building; Gradle derives `versionCode` from semantic
-version (`major*10000 + minor*100 + patch`) so release numbering remains
-monotonic.
+`vX.Y.Z` tag, update README release metadata, commit those changes back to
+`main`, and then build from that version-bump commit; Gradle derives
+`versionCode` from semantic version (`major*10000 + minor*100 + patch`) so
+release numbering remains monotonic.
 GitHub releases should use generated GitHub release notes configured by
 `.github/release.yml`. Play Store uploads should include a brief `en-US` What's
 New changelog generated from the same notes through `whatsNewDirectory`, capped

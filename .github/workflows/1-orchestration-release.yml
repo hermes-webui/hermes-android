@@ -22,7 +22,7 @@ jobs:
     outputs:
       version_name: ${{ steps.release_version.outputs.version_name }}
       tag_name: ${{ steps.release_version.outputs.tag_name }}
-      commit_sha: ${{ github.sha }}
+      commit_sha: ${{ steps.release_commit.outputs.commit_sha }}
       github_apk_artifact_name: ${{ steps.artifact_names.outputs.github_apk_artifact_name }}
       play_aab_artifact_name: ${{ steps.artifact_names.outputs.play_aab_artifact_name }}
 
@@ -61,6 +61,7 @@ jobs:
           echo "Keystore file size: $(wc -c < "$ANDROID_KEYSTORE_FILE") bytes"
 
       - name: Auto-bump app version for manual releases
+        id: auto_bump
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
@@ -68,9 +69,25 @@ jobs:
         run: |
           chmod +x ./gradlew
           latest_tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // ""')"
-          next_version="$(python3 tools/bump_gradle_version.py --gradle-file app/build.gradle.kts --latest-tag "$latest_tag")"
+          next_version="$(python3 tools/bump_gradle_version.py --gradle-file app/build.gradle.kts --readme-file README.md --latest-tag "$latest_tag")"
           test -n "$next_version" || { echo "Failed to compute next app version"; exit 1; }
+          echo "version_name=$next_version" >> "$GITHUB_OUTPUT"
           echo "Manual release auto-bumped appVersionName to $next_version (latest published tag: ${latest_tag:-none})"
+
+      - name: Commit auto-bumped app version
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          if git diff --quiet -- app/build.gradle.kts README.md; then
+            echo "No version metadata changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts README.md
+          git commit -m "release: bump Android version to ${{ steps.auto_bump.outputs.version_name }}"
+          git push origin HEAD:${GITHUB_REF_NAME}
 
       - name: Read Android release version
         id: release_version
@@ -93,6 +110,14 @@ jobs:
             echo "Update app/build.gradle.kts or push tag $expected_tag."
             exit 1
           fi
+
+      - name: Read release commit
+        id: release_commit
+        shell: bash
+        run: |
+          commit_sha="$(git rev-parse HEAD)"
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+          echo "Release commit: $commit_sha"
 
       - name: Build signed release artifacts
         shell: bash
@@ -140,7 +165,7 @@ jobs:
           Use these values if one publish target fails after artifact upload:
 
           - Build run ID: \`${{ github.run_id }}\`
-          - Commit SHA: \`${{ github.sha }}\`
+          - Commit SHA: \`${{ steps.release_commit.outputs.commit_sha }}\`
           - Version name: \`${{ steps.release_version.outputs.version_name }}\`
           - Tag name: \`${{ steps.release_version.outputs.tag_name }}\`
           - GitHub APK artifact: \`${{ steps.artifact_names.outputs.github_apk_artifact_name }}\`

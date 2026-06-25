@@ -38,12 +38,12 @@ To get added, **message [@Paladin173](https://github.com/Paladin173) your Gmail 
 
 Once added, the app will appear in the Play Store for you to install and receive automatic updates.
 
-Current pre-release version: `v0.1.15`.
+Current pre-release version: `v0.1.16`.
 
 Current Android build metadata:
 
-- Version name: `0.1.15`
-- Version code: `115` (derived from semantic version as `major*10000 + minor*100 + patch`)
+- Version name: `0.1.16`
+- Version code: `116` (derived from semantic version as `major*10000 + minor*100 + patch`)
 - Application ID: `com.hermeswebui.android`
 - Compile/target SDK: `37`
 
@@ -268,8 +268,10 @@ both channels can be installed on the same device at the same time.
 
 Manual runs of `.github/workflows/1-orchestration-release.yml` auto-bump
 `appVersionName` from the latest published GitHub release tag (`vX.Y.Z ->
-vX.Y.(Z+1)`) before building. `versionCode` is derived from that semantic
-version in Gradle, so it stays monotonic without separate manual edits.
+vX.Y.(Z+1)`), update this README's current-version metadata, commit those
+changes back to `main`, and then build from that version-bump commit.
+`versionCode` is derived from that semantic version in Gradle, so it stays
+monotonic without separate manual edits.
 
 Tag-triggered runs still require the pushed tag to match the Gradle
 `versionName` exactly, for example `v0.1.8`.

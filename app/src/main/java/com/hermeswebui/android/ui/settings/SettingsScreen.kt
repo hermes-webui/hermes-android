@@ -468,7 +468,7 @@ fun SettingsScreen(
                                 },
                                 supportingContent = {
                                     Text(
-                                        text = "Beta: detects session SSE flag or gateway stream on the server. Falls back to polling if neither is available.",
+                                        text = "Beta: uses Hermes SSE endpoints for reconnect detection and falls back to polling if the server does not expose them.",
                                         color = onSurfaceVar,
                                         style = MaterialTheme.typography.bodySmall
                                     )
@@ -491,7 +491,7 @@ fun SettingsScreen(
                                 }
                             )
                             Text(
-                                text = "Checks server support when enabled. Set HERMES_WEBUI_SESSION_SSE_ENABLED=1 on the server for full session SSE.",
+                                text = "Checks server support when enabled. Android prefers the lightweight /api/sessions/events stream and can also use full gateway/session SSE when the server exposes it.",
                                 color = onSurfaceVar.copy(alpha = 0.72f),
                                 style = MaterialTheme.typography.labelSmall
                             )

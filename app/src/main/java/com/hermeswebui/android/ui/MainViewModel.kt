@@ -25,6 +25,7 @@ class MainViewModel(
     private val defaultUrl: String,
     private val defaultDashboardUrl: String,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
+    private val sseReconnectChecker: suspend (String) -> Boolean = HermesApiClient::isReconnectSseReachable,
     private val serverReachabilityChecker: suspend (String) -> Boolean = HermesApiClient::isServerReachable
 ) : ViewModel() {
     private data class DeferredPageError(
@@ -143,11 +144,13 @@ class MainViewModel(
         appIsBackgrounded = false
     }
 
-    /** Starts the bounded auto-retry polling loop.
+    /** Starts the bounded auto-retry loop.
      *
-     * Polls [serverReachabilityChecker] at a user-configurable fixed interval
-     * (`reconnectPollIntervalSeconds`) for up to 60 s total. On the first successful
-     * probe it emits [autoReloadEvent] so the UI can trigger a WebView reload.
+     * When SSE transport is enabled, the loop first tries the lightweight native
+     * reconnect SSE stream and falls back to the plain reachability check if the
+     * stream handshake fails. Otherwise it uses fixed-interval polling only.
+     * The loop runs for up to 60 s total. On the first successful reconnect signal
+     * it emits [autoReloadEvent] so the UI can trigger a WebView reload.
      * Sets [MainUiState.isReconnecting] while the loop is active.
      */
     private fun startAutoRetry() {
@@ -155,12 +158,13 @@ class MainViewModel(
         val serverUrl = _uiState.value.settings.serverUrl
         if (serverUrl.isBlank()) return
         val deferredErrorSnapshot = deferredPageError
+        val useSseTransport = _uiState.value.sseTransportEnabled
 
         autoRetryJob = viewModelScope.launch {
             var elapsedRetryMs = 0L
             val maxRetryDurationMs = 60_000L
             val pollIntervalMs = (_uiState.value.reconnectPollIntervalSeconds.coerceAtLeast(1) * 1_000L)
-            var msUntilNextProbe = pollIntervalMs
+            var msUntilNextProbe = if (useSseTransport) 0L else pollIntervalMs
             _uiState.update { it.copy(isReconnecting = true) }
             promoteDeferredErrorIfReady(deferredErrorSnapshot)
 
@@ -186,7 +190,7 @@ class MainViewModel(
 
                 if (msUntilNextProbe > 0L) continue
 
-                if (serverReachabilityChecker(serverUrl)) {
+                if (isReconnectSignalAvailable(serverUrl, useSseTransport)) {
                     deferredPageError = null
                     _uiState.update { it.copy(isReconnecting = false) }
                     _autoReloadEvent.tryEmit(Unit)
@@ -202,6 +206,13 @@ class MainViewModel(
             promoteDeferredErrorIfReady(deferredErrorSnapshot, force = true)
             _uiState.update { it.copy(isReconnecting = false) }
         }
+    }
+
+    private suspend fun isReconnectSignalAvailable(serverUrl: String, useSseTransport: Boolean): Boolean {
+        if (useSseTransport && sseReconnectChecker(serverUrl)) {
+            return true
+        }
+        return serverReachabilityChecker(serverUrl)
     }
 
     /** Cancels any active auto-retry loop and clears the reconnecting indicator. */

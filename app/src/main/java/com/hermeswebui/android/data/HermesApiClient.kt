@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URI
+import javax.net.ssl.SSLException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,6 +18,12 @@ import org.json.JSONObject
  */
 object HermesApiClient {
     private const val TIMEOUT_MS = 4_000
+    private const val RECONNECT_SSE_PATH = "/api/sessions/events"
+
+    data class ServerReadinessResult(
+        val isReady: Boolean,
+        val message: String
+    )
 
     private val sseFeatureKeys = setOf(
         "session_sse",
@@ -32,15 +39,14 @@ object HermesApiClient {
      * Describes the SSE capability level detected on the server.
      */
     enum class SseCapability {
-        /** HERMES_WEBUI_SESSION_SSE_ENABLED=1 and /api/status reports session SSE on. */
+        /** The WebUI gateway/session SSE probe reports the feature enabled and healthy. */
         SESSION_SSE_ENABLED,
-        /** /api/status flag not set, but /api/sessions/gateway/stream is reachable. */
-        GATEWAY_STREAM_AVAILABLE,
+        /** The lightweight reconnect SSE stream is available, even if gateway/session SSE is not. */
+        RECONNECT_STREAM_AVAILABLE,
         /**
-         * /api/sessions/gateway/stream returned HTTP 404 — the feature route does not exist on
-         * this server build, almost certainly because HERMES_WEBUI_SESSION_SSE_ENABLED is not set
-         * in the container environment.  This is the common "not yet opted in" case and should be
-         * presented to the user with a clear enable-the-flag message rather than a generic error.
+         * The probe reported the gateway/session SSE feature disabled on this server.
+         * This is the common "agent sessions not enabled" case and should be
+         * presented with a clear server-settings message rather than a generic error.
          */
         FEATURE_DISABLED,
         /** No SSE capability detected (network error or unexpected server response). */
@@ -49,12 +55,21 @@ object HermesApiClient {
 
     /** The prompt text a user can paste into Hermes chat to ask it to enable session SSE. */
     const val SSE_ENABLE_HERMES_PROMPT =
-        "Please enable the session SSE feature on this Hermes server. " +
-        "Add the environment variable HERMES_WEBUI_SESSION_SSE_ENABLED=1 to the server " +
-        "environment (for example, in your docker-compose.yml under the hermes service " +
-        "environment section) and restart the container:\n\n" +
-        "    HERMES_WEBUI_SESSION_SSE_ENABLED=1\n\n" +
-        "Then run: docker compose restart"
+        "Please enable Hermes WebUI agent sessions / gateway SSE on this server. " +
+        "Turn on the server setting that exposes /api/sessions/gateway/stream " +
+        "(the probe currently reports 'agent sessions not enabled'), then restart Hermes if needed. " +
+        "After that, re-run the Android app's SSE support check."
+
+    private data class GatewayProbeResult(
+        val httpStatus: Int,
+        val enabled: Boolean?,
+        val ok: Boolean?
+    )
+
+    private data class SseStreamProbeResult(
+        val httpStatus: Int,
+        val contentType: String?
+    )
 
     /**
      * Returns true if the Hermes WebUI server responds to its public
@@ -76,27 +91,163 @@ object HermesApiClient {
         }
     }
 
-    /**
-     * Probes the live gateway stream endpoint at [baseUrl]/api/sessions/gateway/stream.
-     * Returns the HTTP status code on success, or null on network/connection error.
-     *
-     * Callers should interpret:
-     *  - 200, 401, 403, etc. → route is registered (SSE endpoint exists)
-     *  - 404                 → route is absent → HERMES_WEBUI_SESSION_SSE_ENABLED not set
-     *  - null               → could not reach server at all
-     */
-    suspend fun probeGatewayStreamEndpoint(baseUrl: String): Int? = withContext(Dispatchers.IO) {
+    suspend fun checkServerReadiness(baseUrl: String): ServerReadinessResult = withContext(Dispatchers.IO) {
         try {
-            val url = URI(baseUrl.trimEnd('/')).resolve("/api/sessions/gateway/stream").toURL()
+            val url = URI(baseUrl.trimEnd('/')).resolve("/api/status").toURL()
             val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "HEAD"
+            conn.requestMethod = "GET"
+            conn.connectTimeout = TIMEOUT_MS
+            conn.readTimeout = TIMEOUT_MS
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+
+            val code = conn.responseCode
+            val contentType = conn.contentType
+            val stream = if (code >= 400) conn.errorStream else conn.inputStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            conn.disconnect()
+
+            interpretServerStatusResponse(
+                httpStatus = code,
+                contentType = contentType,
+                rawBody = body
+            )
+        } catch (exception: Exception) {
+            when {
+                exception is SSLException || exception.message.orEmpty().contains("ssl", ignoreCase = true) -> {
+                    ServerReadinessResult(
+                        isReady = false,
+                        message = "Could not connect securely. Check whether this Hermes server should use http:// instead of https://."
+                    )
+                }
+                else -> {
+                    ServerReadinessResult(
+                        isReady = false,
+                        message = "Could not reach this Hermes server. Check the URL, scheme, and whether the server is online."
+                    )
+                }
+            }
+        }
+    }
+
+    internal fun interpretServerStatusResponse(
+        httpStatus: Int,
+        contentType: String?,
+        rawBody: String
+    ): ServerReadinessResult {
+        if (httpStatus !in 200..299) {
+            return when (httpStatus) {
+                503 -> ServerReadinessResult(
+                    isReady = false,
+                    message = "Hermes responded, but it is not ready yet. Finish the server's initial setup and try again."
+                )
+                404 -> ServerReadinessResult(
+                    isReady = false,
+                    message = "This URL responded, but it does not expose Hermes WebUI's /api/status endpoint."
+                )
+                else -> ServerReadinessResult(
+                    isReady = false,
+                    message = "Hermes returned HTTP $httpStatus from /api/status. Make sure the server is fully initialized."
+                )
+            }
+        }
+
+        val payload = runCatching { JSONObject(rawBody) }.getOrNull()
+        if (payload == null) {
+            return ServerReadinessResult(
+                isReady = false,
+                message = if (contentType?.contains("json", ignoreCase = true) == true) {
+                    "Hermes returned an unreadable status response."
+                } else {
+                    "This server responded, but it does not look like a ready Hermes WebUI instance. Check the URL and finish setup first."
+                }
+            )
+        }
+
+        val initialized = payload.opt("initialized")
+        if (initialized is Boolean && !initialized) {
+            return ServerReadinessResult(
+                isReady = false,
+                message = "This Hermes server is still in initial setup. Finish setup in the browser before adding it in Android."
+            )
+        }
+
+        val status = payload.optString("status").trim().lowercase()
+        if (status in setOf("setup", "initial_setup", "not_ready", "initializing")) {
+            return ServerReadinessResult(
+                isReady = false,
+                message = "This Hermes server is not ready yet. Finish setup and wait for startup to complete before adding it."
+            )
+        }
+
+        val version = payload.optString("version").trim()
+        if (version.isNotBlank()) {
+            return ServerReadinessResult(
+                isReady = true,
+                message = "Hermes server is reachable."
+            )
+        }
+
+        return ServerReadinessResult(
+            isReady = false,
+            message = "This server responded, but it does not look like a ready Hermes WebUI instance."
+        )
+    }
+
+    /**
+     * Probes the lightweight reconnect SSE endpoint at [baseUrl]/api/sessions/events.
+     * Returns response metadata when reachable, or null on network/connection error.
+     */
+    private suspend fun probeReconnectSseEndpoint(baseUrl: String): SseStreamProbeResult? = withContext(Dispatchers.IO) {
+        try {
+            val url = URI(baseUrl.trimEnd('/')).resolve(RECONNECT_SSE_PATH).toURL()
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
             conn.connectTimeout = TIMEOUT_MS
             conn.readTimeout = TIMEOUT_MS
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "text/event-stream")
             val code = conn.responseCode
+            val contentType = conn.contentType
             conn.disconnect()
-            code
+            SseStreamProbeResult(
+                httpStatus = code,
+                contentType = contentType
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Probes the WebUI gateway SSE endpoint at [baseUrl]/api/sessions/gateway/stream?probe=1.
+     * Returns parsed probe data when reachable, or null on network/connection error.
+     *
+     * Callers should interpret:
+     *  - 200 with enabled=true and ok=true → SSE is enabled and healthy
+     *  - 404 with enabled=false            → agent sessions / gateway SSE disabled
+     *  - 503 with enabled=true and ok=false → route exists, but watcher is unhealthy
+     *  - null                              → could not reach server at all
+     */
+    private suspend fun probeGatewayStreamEndpoint(baseUrl: String): GatewayProbeResult? = withContext(Dispatchers.IO) {
+        try {
+            val url = URI(baseUrl.trimEnd('/')).resolve("/api/sessions/gateway/stream?probe=1").toURL()
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = TIMEOUT_MS
+            conn.readTimeout = TIMEOUT_MS
+            conn.instanceFollowRedirects = false
+            conn.setRequestProperty("Accept", "application/json")
+            val code = conn.responseCode
+            val stream = if (code >= 400) conn.errorStream else conn.inputStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            conn.disconnect()
+            val probeJson = runCatching { JSONObject(body) }.getOrNull()
+            GatewayProbeResult(
+                httpStatus = code,
+                enabled = probeJson?.optBoolean("enabled"),
+                ok = probeJson?.optBoolean("ok")
+            )
         } catch (_: Exception) {
             null
         }
@@ -106,10 +257,11 @@ object HermesApiClient {
      * Returns the detected [SseCapability] level for the given server.
      *
      * Priority:
-     * 1. If /api/status reports session_sse_enabled → SESSION_SSE_ENABLED
-     * 2. If /api/sessions/gateway/stream responds (non-404) → GATEWAY_STREAM_AVAILABLE
-     * 3. If /api/sessions/gateway/stream returns 404 → FEATURE_DISABLED (flag not set)
-     * 4. Otherwise → NONE (network error / unreachable)
+     * 1. If /api/status reports a truthy SSE flag → SESSION_SSE_ENABLED
+     * 2. If the gateway probe reports enabled=true and ok=true → SESSION_SSE_ENABLED
+     * 3. If /api/sessions/events responds with text/event-stream → RECONNECT_STREAM_AVAILABLE
+     * 4. If the gateway probe reports enabled=false or HTTP 404 → FEATURE_DISABLED
+     * 5. Otherwise → NONE (network error / unreachable)
      */
     suspend fun detectSseCapability(baseUrl: String): SseCapability = withContext(Dispatchers.IO) {
         try {
@@ -129,18 +281,40 @@ object HermesApiClient {
             }
         } catch (_: Exception) { /* fall through to gateway probe */ }
 
-        when (val gatewayStatus = probeGatewayStreamEndpoint(baseUrl)) {
-            null -> SseCapability.NONE
-            404, 405 -> SseCapability.FEATURE_DISABLED
-            else -> if (gatewayStatus in 200..499) SseCapability.GATEWAY_STREAM_AVAILABLE
-                    else SseCapability.NONE
+        val gatewayProbe = probeGatewayStreamEndpoint(baseUrl)
+        if (gatewayProbe?.enabled == true && gatewayProbe.ok == true) {
+            return@withContext SseCapability.SESSION_SSE_ENABLED
+        }
+
+        val reconnectProbe = probeReconnectSseEndpoint(baseUrl)
+        if (reconnectProbe?.httpStatus in 200..299 && isEventStreamContentType(reconnectProbe?.contentType)) {
+            return@withContext SseCapability.RECONNECT_STREAM_AVAILABLE
+        }
+
+        when {
+            gatewayProbe == null -> SseCapability.NONE
+            gatewayProbe.enabled == false || gatewayProbe.httpStatus == 404 -> SseCapability.FEATURE_DISABLED
+            else -> SseCapability.NONE
         }
     }
 
     /** Convenience wrapper — returns true only if SSE is actually usable (not just "disabled"). */
     suspend fun isSessionSseSupported(baseUrl: String): Boolean {
         val cap = detectSseCapability(baseUrl)
-        return cap == SseCapability.SESSION_SSE_ENABLED || cap == SseCapability.GATEWAY_STREAM_AVAILABLE
+        return cap == SseCapability.SESSION_SSE_ENABLED || cap == SseCapability.RECONNECT_STREAM_AVAILABLE
+    }
+
+    /**
+     * Returns true when the lightweight reconnect SSE stream is reachable.
+     * Android uses this stream for native reconnect detection when SSE transport is enabled.
+     */
+    suspend fun isReconnectSseReachable(baseUrl: String): Boolean {
+        val probe = probeReconnectSseEndpoint(baseUrl)
+        return probe?.httpStatus in 200..299 && isEventStreamContentType(probe?.contentType)
+    }
+
+    private fun isEventStreamContentType(contentType: String?): Boolean {
+        return contentType?.contains("text/event-stream", ignoreCase = true) == true
     }
 
     private fun parseSseFeatureFlag(rawJson: String): Boolean {

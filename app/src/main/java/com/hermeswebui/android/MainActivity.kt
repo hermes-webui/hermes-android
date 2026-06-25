@@ -81,6 +81,7 @@ import androidx.webkit.WebViewFeature
 import com.hermeswebui.android.background.HermesDebugLoggingService
 import com.hermeswebui.android.background.HermesReconnectService
 import com.hermeswebui.android.background.ReconnectBackgroundPolicy
+import com.hermeswebui.android.background.ReconnectSessionStreamSupport
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.core.security.UrlPolicy
@@ -1188,7 +1189,7 @@ class MainActivity : ComponentActivity() {
                 HermesApiClient.SseCapability.SESSION_SSE_ENABLED -> {
                     viewModel.setSseTransportEnabled(enableIfAvailable)
                     viewModel.setSseSupportStatus(
-                        "✅  Session SSE is enabled on the server (HERMES_WEBUI_SESSION_SSE_ENABLED=1). " +
+                        "✅  Gateway/session SSE is enabled on the server. " +
                         if (enableIfAvailable) "Using SSE transport." else "Ready to use SSE transport."
                     )
                     Toast.makeText(
@@ -1197,35 +1198,33 @@ class MainActivity : ComponentActivity() {
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-                HermesApiClient.SseCapability.GATEWAY_STREAM_AVAILABLE -> {
+                HermesApiClient.SseCapability.RECONNECT_STREAM_AVAILABLE -> {
                     viewModel.setSseTransportEnabled(enableIfAvailable)
                     viewModel.setSseSupportStatus(
-                        "⚡  Gateway stream endpoint detected (/api/sessions/gateway/stream). " +
-                        "Session SSE feature flag is off on this server — set " +
-                        "HERMES_WEBUI_SESSION_SSE_ENABLED=1 to enable full session SSE. " +
+                        "⚡  Lightweight reconnect SSE is available (/api/sessions/events). " +
+                        "Full gateway/session SSE is not enabled, but Android can still use SSE for reconnect detection. " +
                         if (enableIfAvailable) {
-                            "Using gateway stream in the meantime."
+                            "Using SSE transport."
                         } else {
-                            "Enable SSE transport to use gateway stream fallback."
+                            "Enable SSE transport to use this reconnect stream."
                         }
                     )
                     Toast.makeText(
                         this@MainActivity,
-                        "Gateway stream available. Session SSE flag not set — see settings for details.",
+                        "Reconnect SSE is available on this server.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
                 HermesApiClient.SseCapability.FEATURE_DISABLED -> {
                     viewModel.setSseTransportEnabled(false)
                     viewModel.setSseSupportStatus(
-                        "🚫  Session SSE is off on this server (HTTP 404 — route not registered). " +
-                        "The feature is opt-in: set HERMES_WEBUI_SESSION_SSE_ENABLED=1 in the " +
-                        "server/container environment and restart. " +
+                        "🚫  Gateway/session SSE is off on this server, and the lightweight reconnect stream was not detected either. " +
+                        "The WebUI probe reports agent sessions are not enabled, so Android cannot subscribe yet. " +
                         "Tap the copy button below to get a ready-made prompt you can paste into Hermes."
                     )
                     Toast.makeText(
                         this@MainActivity,
-                        "Session SSE not enabled on this server — see settings for how to turn it on.",
+                        "Gateway/session SSE not enabled on this server — see settings for how to turn it on.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1324,9 +1323,16 @@ class MainActivity : ComponentActivity() {
         if (reconnectServiceRunning) return
 
         try {
+            val state = viewModel.uiState.value
+            val sessionTargetUrl = state.currentUrl.takeIf { isTrustedNotificationTarget(it) }
             HermesReconnectService.start(
                 this,
-                viewModel.uiState.value.reconnectPollIntervalSeconds
+                pollIntervalSeconds = state.reconnectPollIntervalSeconds,
+                serverUrl = state.settings.serverUrl,
+                sessionId = ReconnectSessionStreamSupport.sessionIdFromUrl(state.currentUrl),
+                sessionTargetUrl = sessionTargetUrl,
+                cookieHeader = CookieManager.getInstance().getCookie(state.settings.serverUrl),
+                sseTransportEnabled = state.sseTransportEnabled
             )
             reconnectServiceRunning = true
         } catch (_: IllegalStateException) {
@@ -2026,10 +2032,12 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Dashboard URL must be blank or a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
-        viewModel.saveAppUrls(serverUrl, dashboardUrl)
-        urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
-        installHermesWebUiDocumentStartFixes(webView, serverUrl)
-        webView.loadUrl(serverUrl)
+        validateServerBeforePersist(serverUrl) {
+            viewModel.saveAppUrls(serverUrl, dashboardUrl)
+            urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
+            installHermesWebUiDocumentStartFixes(webView, serverUrl)
+            webView.loadUrl(serverUrl)
+        }
     }
 
     private fun resetWebSession() {
@@ -2062,14 +2070,16 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val profile = viewModel.addServerProfile(
-            name = trimmedName.ifBlank { trimmedUrl },
-            url = trimmedUrl
-        )
-        if (profile != null) {
-            Toast.makeText(this, "Server profile \"${profile.name}\" added", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "Failed to add profile", Toast.LENGTH_SHORT).show()
+        validateServerBeforePersist(trimmedUrl) {
+            val profile = viewModel.addServerProfile(
+                name = trimmedName.ifBlank { trimmedUrl },
+                url = trimmedUrl
+            )
+            if (profile != null) {
+                Toast.makeText(this, "Server profile \"${profile.name}\" added", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Failed to add profile", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -2078,8 +2088,10 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
-        viewModel.updateServerProfile(profileId, newName, newUrl)
-        Toast.makeText(this, "Profile updated", Toast.LENGTH_SHORT).show()
+        validateServerBeforePersist(newUrl) {
+            viewModel.updateServerProfile(profileId, newName, newUrl)
+            Toast.makeText(this, "Profile updated", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun handleDeleteServerProfile(profileId: String) {
@@ -2096,19 +2108,30 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Clear old server's cookies and cache
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
-        WebStorage.getInstance().deleteAllData()
-        webView.clearCache(true)
+        validateServerBeforePersist(newProfile.url) {
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
+            WebStorage.getInstance().deleteAllData()
+            webView.clearCache(true)
 
-        // Switch the profile and reload
-        viewModel.switchServerProfile(profileId)
-        urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
-        installHermesWebUiDocumentStartFixes(webView, newProfile.url)
-        webView.loadUrl(newProfile.url)
-        viewModel.closeSettings()
-        Toast.makeText(this, "Switched to ${newProfile.name}", Toast.LENGTH_SHORT).show()
+            viewModel.switchServerProfile(profileId)
+            urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
+            installHermesWebUiDocumentStartFixes(webView, newProfile.url)
+            webView.loadUrl(newProfile.url)
+            viewModel.closeSettings()
+            Toast.makeText(this, "Switched to ${newProfile.name}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun validateServerBeforePersist(serverUrl: String, onSuccess: () -> Unit) {
+        lifecycleScope.launch {
+            val result = HermesApiClient.checkServerReadiness(serverUrl)
+            if (!result.isReady) {
+                Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            onSuccess()
+        }
     }
 
     private fun openInExternalBrowser(url: String) {

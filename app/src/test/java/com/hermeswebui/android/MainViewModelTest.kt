@@ -475,6 +475,77 @@ class MainViewModelTest {
         assertThat(state.isReconnecting).isTrue()
     }
 
+    @Test
+    fun `sse transport attempts reconnect immediately before waiting for polling interval`() = runTest(testDispatcher) {
+        var sseChecks = 0
+        var reachabilityChecks = 0
+        val viewModel = MainViewModel(
+            FakeSettingsStore(),
+            null,
+            defaultServerUrl,
+            defaultDashboardUrl,
+            sseReconnectChecker = {
+                sseChecks++
+                true
+            },
+            serverReachabilityChecker = {
+                reachabilityChecks++
+                false
+            }
+        )
+        viewModel.setSseTransportEnabled(true)
+
+        val autoReloads = mutableListOf<Unit>()
+        backgroundScope.launch { viewModel.autoReloadEvent.collect { autoReloads += it } }
+
+        viewModel.onPageError("net::ERR_CONNECTION_RESET", isOffline = false)
+        runCurrent()
+
+        assertThat(sseChecks).isEqualTo(1)
+        assertThat(reachabilityChecks).isEqualTo(0)
+        assertThat(autoReloads).hasSize(1)
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+    }
+
+    @Test
+    fun `sse transport falls back to reachability polling when stream handshake fails`() = runTest(testDispatcher) {
+        var sseChecks = 0
+        var reachabilityChecks = 0
+        val viewModel = MainViewModel(
+            FakeSettingsStore(),
+            null,
+            defaultServerUrl,
+            defaultDashboardUrl,
+            sseReconnectChecker = {
+                sseChecks++
+                false
+            },
+            serverReachabilityChecker = {
+                reachabilityChecks++
+                reachabilityChecks >= 2
+            }
+        )
+        viewModel.setSseTransportEnabled(true)
+
+        val autoReloads = mutableListOf<Unit>()
+        backgroundScope.launch { viewModel.autoReloadEvent.collect { autoReloads += it } }
+
+        viewModel.onPageError("net::ERR_CONNECTION_RESET", isOffline = false)
+        runCurrent()
+
+        assertThat(sseChecks).isEqualTo(1)
+        assertThat(reachabilityChecks).isEqualTo(1)
+        assertThat(autoReloads).isEmpty()
+
+        advanceTimeBy(1_001L)
+        runCurrent()
+
+        assertThat(sseChecks).isEqualTo(2)
+        assertThat(reachabilityChecks).isEqualTo(2)
+        assertThat(autoReloads).hasSize(1)
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+    }
+
     private class FakeSettingsStore : SettingsStore {
         private var settings = AppSettings(
             serverUrl = "https://hermes.example.com",

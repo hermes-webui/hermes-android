@@ -57,6 +57,31 @@ class HermesApiClientStatusTest {
     }
 
     @Test
+    fun `http 401 asks user to sign in instead of reporting initialization failure`() {
+        val result = HermesApiClient.interpretServerStatusResponse(
+            httpStatus = 401,
+            contentType = "application/json",
+            rawBody = "{}"
+        )
+
+        assertThat(result.isReady).isFalse()
+        assertThat(result.message).contains("sign-in")
+    }
+
+    @Test
+    fun `auth protected status can be accepted when root page fingerprints as Hermes`() {
+        val result = HermesApiClient.interpretHermesRootResponse(
+            httpStatus = 200,
+            contentType = "text/html",
+            serverHeader = null,
+            rawBody = "<html><head><title>Hermes WebUI</title></head><body>Sign in</body></html>"
+        )
+
+        assertThat(result).isNotNull()
+        assertThat(result?.isReady).isTrue()
+    }
+
+    @Test
     fun `legacy Hermes status payload is still accepted`() {
         val result = HermesApiClient.interpretServerStatusResponse(
             httpStatus = 200,

@@ -102,7 +102,7 @@ Requirements:
 - Short app switches now preserve the current WebView and briefly favor silent reconnect over immediately replacing the page with the native error screen; if Hermes does not recover before the grace window expires, the normal error UI appears promptly instead of waiting for a later retry probe
 - If the background activity toggle is enabled, Android can keep a trusted session-scoped foreground notification alive while the app is backgrounded: reconnect windows stay alive after an app switch, and trusted `/api/session/stream` summaries can refresh the latest agent activity text with a lock-screen redaction option
 - Server health probing on WebView errors to distinguish server-down from content errors
-- First-run settings flow for the Hermes WebUI URL with an inline readiness check that rejects unreachable, setup-mode, or non-Hermes targets before saving them; the dashboard URL is managed only by WebUI Settings > System
+- First-run settings flow for the Hermes WebUI URL with an inline readiness check that rejects unreachable, setup-mode, or non-Hermes targets before saving them; auth-protected `/api/status` responses can still pass when the root page fingerprints as Hermes so signed-in WebView sessions are not blocked
 - Back handling, pull-to-refresh, loading, offline, and error states, including direct server-URL recovery from the native error screen
 
 ### SSE capability mapping

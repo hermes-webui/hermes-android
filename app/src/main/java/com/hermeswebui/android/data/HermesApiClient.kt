@@ -107,7 +107,7 @@ object HermesApiClient {
             conn.instanceFollowRedirects = false
             val code = conn.responseCode
             conn.disconnect()
-            code in 200..299
+            code in 200..299 || code == 401 || code == 403
         } catch (_: Exception) {
             false
         }
@@ -129,7 +129,7 @@ object HermesApiClient {
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             conn.disconnect()
 
-            if (code == 404) {
+            if (code in setOf(401, 403, 404)) {
                 val rootFallback = probeHermesRootPage(baseUrl)
                 if (rootFallback != null) {
                     return@withContext rootFallback
@@ -223,6 +223,10 @@ object HermesApiClient {
                 404 -> ServerReadinessResult(
                     isReady = false,
                     message = "This URL responded, but it does not expose Hermes WebUI's /api/status endpoint."
+                )
+                401, 403 -> ServerReadinessResult(
+                    isReady = false,
+                    message = "Hermes requires sign-in before Android can verify /api/status. Open the server in the app or browser and sign in, then try again."
                 )
                 else -> ServerReadinessResult(
                     isReady = false,

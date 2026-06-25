@@ -81,6 +81,7 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.hermeswebui.android.background.HermesDebugLoggingService
+import com.hermeswebui.android.background.DebugLogBootstrap
 import com.hermeswebui.android.background.HermesReconnectService
 import com.hermeswebui.android.background.ReconnectBackgroundPolicy
 import com.hermeswebui.android.background.ReconnectSessionStreamSupport
@@ -95,6 +96,7 @@ import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.domain.ShareIntentParser
 import com.hermeswebui.android.ui.MainViewModel
 import com.hermeswebui.android.ui.MainViewModelFactory
+import com.hermeswebui.android.ui.DebugLogFloatingOverlay
 import com.hermeswebui.android.ui.settings.SettingsScreen
 import com.hermeswebui.android.ui.web.WebShell
 import kotlinx.coroutines.launch
@@ -585,6 +587,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Begin logcat capture to an app-private file BEFORE any other onCreate
+        // work, so a crash or permission denial during startup is still captured.
+        // No-op on release builds. The foreground service (later in onCreate)
+        // takes over long-term ownership and presents the Stop notification.
+        DebugLogBootstrap.startIfDebuggable(applicationContext)
+
         val defaultUrl = getString(R.string.default_server_url)
         val defaultDashboardUrl = getString(R.string.default_dashboard_url)
         settingsRepository = SettingsRepository(applicationContext)
@@ -597,6 +605,13 @@ class MainActivity : ComponentActivity() {
         val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         WebView.setWebContentsDebuggingEnabled(isDebuggable)
         ensureNotificationChannel()
+
+        // Auto-enable debug logging on debuggable builds so tester logs capture from app launch.
+        // Users can still manually toggle this off from Settings → Troubleshooting.
+        if (isDebuggable && !settingsRepository.isDebugLoggingEnabled()) {
+            settingsRepository.setDebugLoggingEnabled(true)
+            viewModel.setDebugLoggingEnabled(true)
+        }
         webView = buildWebView()
         installHermesWebUiDocumentStartFixes(webView, viewModel.uiState.value.settings.serverUrl)
 
@@ -847,6 +862,19 @@ class MainActivity : ComponentActivity() {
                     onClearServerValidation = { viewModel.clearServerValidationState() }
                 )
             } // end if (isSettingsVisible)
+
+            // Debug-only: draggable floating overlay that shares the latest
+            // captured debug log with one tap. Auto-enabled debug logging in
+            // onCreate() means a log is being captured from app start, so this
+            // gives testers a frictionless way to ship the file out. Rendered
+            // ABOVE the Settings sheet too, because the most common moment a
+            // tester hits a connection error is exactly when Settings is open
+            // (e.g. failed first-run server preflight) and they need to send
+            // the log right then.
+            val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (isDebuggable) {
+                DebugLogFloatingOverlay(onTap = { shareLatestDebugLog() })
+            }
         } // end outer Box
     } // end MaterialTheme
     }
@@ -2139,12 +2167,16 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Dashboard URL must be blank or a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
-        validateServerBeforePersist(serverUrl) {
+        val persist = {
             viewModel.saveAppUrls(serverUrl, dashboardUrl)
             urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
             installHermesWebUiDocumentStartFixes(webView, serverUrl)
             webView.loadUrl(serverUrl)
         }
+        validateServerBeforePersist(
+            serverUrl,
+            onFailure = { result -> showServerValidationRecoveryDialog(serverUrl, result, "Save server") { persist() } }
+        ) { persist() }
     }
 
     private fun resetWebSession() {
@@ -2211,7 +2243,7 @@ class MainActivity : ComponentActivity() {
                     "decision" to "open_settings"
                 )
             )
-            viewModel.openSettingsWithServerValidation(result.message)
+            viewModel.openSettingsWithServerValidation(result.message, details = result.diagnostics)
             Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
         }
     }
@@ -2235,7 +2267,22 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        validateServerBeforePersist(trimmedUrl) {
+        validateServerBeforePersist(
+            trimmedUrl,
+            onFailure = { result ->
+                showServerValidationRecoveryDialog(trimmedUrl, result, "Add server") {
+                    val profile = viewModel.addServerProfile(
+                        name = trimmedName.ifBlank { trimmedUrl },
+                        url = trimmedUrl
+                    )
+                    if (profile != null) {
+                        Toast.makeText(this, "Server profile \"${profile.name}\" added (readiness check skipped)", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, "Failed to add profile", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        ) {
             val profile = viewModel.addServerProfile(
                 name = trimmedName.ifBlank { trimmedUrl },
                 url = trimmedUrl
@@ -2253,13 +2300,27 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
-        validateServerBeforePersist(newUrl) {
+        validateServerBeforePersist(
+            newUrl,
+            onFailure = { result ->
+                showServerValidationRecoveryDialog(newUrl, result, "Save changes") {
+                    viewModel.updateServerProfile(profileId, newName, newUrl)
+                    Toast.makeText(this, "Profile updated (readiness check skipped)", Toast.LENGTH_LONG).show()
+                }
+            }
+        ) {
             viewModel.updateServerProfile(profileId, newName, newUrl)
             Toast.makeText(this, "Profile updated", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun handleDeleteServerProfile(profileId: String) {
+        // Clean up the per-server silenced-auth-prompt flag, if any, so a
+        // future profile with the same URL starts fresh and the saved set
+        // does not slowly accumulate orphans.
+        settingsRepository.getProfiles().firstOrNull { it.id == profileId }?.let { profile ->
+            settingsRepository.clearSilencedAuthPromptForUrl(profile.url)
+        }
         viewModel.deleteServerProfile(profileId)
         Toast.makeText(this, "Profile deleted", Toast.LENGTH_SHORT).show()
     }
@@ -2321,13 +2382,28 @@ class MainActivity : ComponentActivity() {
             }
 
             if (reachable && result.status == HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED) {
+                // Per-server opt-out: users who have ticked "Don't ask again"
+                // for this URL should switch silently rather than re-prompting.
+                if (settingsRepository.isAuthPromptSilencedForUrl(newProfile.url)) {
+                    DiagnosticsLogger.record(
+                        this@MainActivity,
+                        "server_switch_auth_required_auto_proceed_silenced",
+                        mapOf(
+                            "origin" to DiagnosticsLogger.originOnly(newProfile.url),
+                            "profile_id" to newProfile.id
+                        )
+                    )
+                    viewModel.clearServerValidationState()
+                    performServerProfileSwitch(newProfile)
+                    return@launch
+                }
                 val message = "${newProfile.name} is reachable, but requires sign-in before Android can read /api/status. Switch and sign in?"
                 viewModel.setServerValidationState(
                     isChecking = false,
                     message = message,
                     isError = false
                 )
-                showServerSwitchConfirmation(newProfile, "Sign-in required", message)
+                showAuthRequiredSwitchConfirmation(newProfile, message)
                 return@launch
             }
 
@@ -2369,25 +2445,127 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
+    /**
+     * Confirmation dialog for the AUTH_REQUIRED-but-reachable switch case.
+     * Same Cancel/Switch buttons as [showServerSwitchConfirmation] plus an
+     * inline "Don't ask again for this server" checkbox. When ticked, the URL
+     * is added to the silenced set so future switches to the same server skip
+     * the prompt and go straight to the sign-in page.
+     */
+    private fun showAuthRequiredSwitchConfirmation(profile: ServerProfile, message: String) {
+        val padding = (16 * resources.displayMetrics.density).toInt()
+        val checkBox = android.widget.CheckBox(this).apply {
+            text = "Don't ask again for this server"
+        }
+        val messageView = android.widget.TextView(this).apply {
+            text = message
+            setPadding(0, 0, 0, padding)
+        }
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+            addView(messageView)
+            addView(checkBox)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Sign-in required")
+            .setView(container)
+            .setNegativeButton("Cancel") { dialog, _ ->
+                DiagnosticsLogger.record(
+                    this,
+                    "server_switch_cancelled",
+                    mapOf("origin" to DiagnosticsLogger.originOnly(profile.url), "profile_id" to profile.id)
+                )
+                dialog.dismiss()
+            }
+            .setPositiveButton("Switch") { _, _ ->
+                if (checkBox.isChecked) {
+                    settingsRepository.silenceAuthPromptForUrl(profile.url)
+                    DiagnosticsLogger.record(
+                        this,
+                        "server_switch_auth_prompt_silenced",
+                        mapOf(
+                            "origin" to DiagnosticsLogger.originOnly(profile.url),
+                            "profile_id" to profile.id
+                        )
+                    )
+                }
+                performServerProfileSwitch(profile)
+            }
+            .show()
+    }
+
     private fun showServerHealthBlockedDialog(
         profile: ServerProfile,
         result: HermesApiClient.ServerReadinessResult
     ) {
+        showServerValidationRecoveryDialog(
+            url = profile.url,
+            result = result,
+            positiveLabel = "Switch anyway"
+        ) { performServerProfileSwitch(profile) }
+    }
+
+    /**
+     * Shared error-recovery dialog shown when /api/status preflight fails for a
+     * server URL the user is trying to add, edit, save, or switch to. Shows the
+     * server message plus full diagnostic block (HTTP status, body snippet, etc.)
+     * and exposes three escape hatches:
+     *  - "Open in browser": launch the URL in the system browser so the user can
+     *    complete sign-in / inspect the response directly.
+     *  - [positiveLabel]: bypass the readiness check and continue (e.g. for
+     *    auth-protected servers where /api/status returns 401 even when
+     *    the server is healthy).
+     *  - "Cancel": no-op.
+     */
+    private fun showServerValidationRecoveryDialog(
+        url: String,
+        result: HermesApiClient.ServerReadinessResult,
+        positiveLabel: String,
+        onProceedAnyway: () -> Unit
+    ) {
+        val body = buildString {
+            appendLine(result.message)
+            result.diagnostics?.takeIf { it.isNotBlank() }?.let {
+                appendLine()
+                appendLine("Diagnostics:")
+                append(it)
+            }
+        }.trim()
+        DiagnosticsLogger.record(
+            this,
+            "server_validation_recovery_dialog_shown",
+            mapOf(
+                "origin" to DiagnosticsLogger.originOnly(url),
+                "status" to result.status.name
+            )
+        )
         AlertDialog.Builder(this)
-            .setTitle("Server not ready")
-            .setMessage(result.message)
-            .setNegativeButton("Dismiss", null)
-            .setPositiveButton("Open in browser") { _, _ ->
+            .setTitle("Server check failed")
+            .setMessage(body)
+            .setNeutralButton("Open in browser") { _, _ ->
                 DiagnosticsLogger.record(
                     this,
-                    "server_switch_open_browser",
+                    "server_validation_open_browser",
                     mapOf(
-                        "origin" to DiagnosticsLogger.originOnly(profile.url),
-                        "profile_id" to profile.id,
+                        "origin" to DiagnosticsLogger.originOnly(url),
                         "status" to result.status.name
                     )
                 )
-                openInExternalBrowser(profile.url)
+                openInExternalBrowser(url)
+            }
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton(positiveLabel) { _, _ ->
+                DiagnosticsLogger.record(
+                    this,
+                    "server_validation_proceed_anyway",
+                    mapOf(
+                        "origin" to DiagnosticsLogger.originOnly(url),
+                        "status" to result.status.name
+                    )
+                )
+                onProceedAnyway()
             }
             .show()
     }
@@ -2422,6 +2600,7 @@ class MainActivity : ComponentActivity() {
     private fun validateServerBeforePersist(
         serverUrl: String,
         openSettingsOnFailure: Boolean = false,
+        onFailure: ((HermesApiClient.ServerReadinessResult) -> Unit)? = null,
         onSuccess: () -> Unit
     ) {
         serverValidationJob?.cancel()
@@ -2446,16 +2625,49 @@ class MainActivity : ComponentActivity() {
                     "ready" to result.isReady.toString()
                 )
             )
+
+            // Soft-pass: a 401/403 from /api/status with a reachable server is
+            // a normal sign-in-required Hermes deployment, not a broken server.
+            // Treat it as ready and let the WebView handle the sign-in flow,
+            // matching the server-switch path that just prompts "and sign in".
+            // Without this, auth-protected servers (Tailscale-served Hermes,
+            // OIDC-protected deployments, etc.) get blocked from being saved
+            // even though they work fine in the browser.
+            val authRequiredButReachable = !result.isReady &&
+                result.status == HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED &&
+                HermesApiClient.isServerReachable(serverUrl)
+            if (authRequiredButReachable) {
+                DiagnosticsLogger.record(
+                    this@MainActivity,
+                    "server_validation_soft_pass_auth_required",
+                    mapOf("origin" to DiagnosticsLogger.originOnly(serverUrl))
+                )
+                viewModel.clearServerValidationState()
+                Toast.makeText(
+                    this@MainActivity,
+                    "Server reachable — sign in on the Hermes page to finish.",
+                    Toast.LENGTH_LONG
+                ).show()
+                onSuccess()
+                return@launch
+            }
+
             if (!result.isReady) {
                 viewModel.setServerValidationState(
                     isChecking = false,
                     message = result.message,
-                    isError = true
+                    isError = true,
+                    details = result.diagnostics
                 )
-                if (openSettingsOnFailure) {
-                    viewModel.openSettingsWithServerValidation(result.message)
+                val handled = onFailure != null
+                if (handled) {
+                    onFailure.invoke(result)
+                } else {
+                    if (openSettingsOnFailure) {
+                        viewModel.openSettingsWithServerValidation(result.message, details = result.diagnostics)
+                    }
+                    Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
                 }
-                Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
                 return@launch
             }
             viewModel.clearServerValidationState()

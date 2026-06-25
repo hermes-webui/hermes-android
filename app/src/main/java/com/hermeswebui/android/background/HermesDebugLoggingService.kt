@@ -58,6 +58,10 @@ class HermesDebugLoggingService : Service() {
 
     private fun startLogCaptureIfNeeded() {
         if (logcatProcess != null) return
+        // Bootstrap may already be writing to a log file from MainActivity.onCreate.
+        // In that case we let it keep ownership — both write into the same
+        // debug-logs/ directory so the share-latest lookup still finds it.
+        if (DebugLogBootstrap.isActive()) return
 
         val logDir = File(filesDir, "debug-logs").apply { mkdirs() }
         val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
@@ -101,6 +105,10 @@ class HermesDebugLoggingService : Service() {
     private fun stopLogCapture() {
         runCatching { logcatProcess?.destroy() }
         logcatProcess = null
+        // Also stop the pre-service bootstrap capture, if any, so that toggling
+        // logging off (via the Stop notification action or Settings switch)
+        // really stops disk writes instead of leaving an orphaned logcat alive.
+        DebugLogBootstrap.stop()
     }
 
     private fun ensureDebugChannel() {

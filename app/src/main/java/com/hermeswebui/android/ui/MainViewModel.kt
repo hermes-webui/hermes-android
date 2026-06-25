@@ -344,7 +344,7 @@ class MainViewModel(
         _uiState.update { it.copy(isSettingsVisible = true) }
     }
 
-    fun openSettingsWithServerValidation(message: String, isError: Boolean = true) {
+    fun openSettingsWithServerValidation(message: String, isError: Boolean = true, details: String? = null) {
         _uiState.update {
             it.copy(
                 isSettingsVisible = true,
@@ -352,7 +352,8 @@ class MainViewModel(
                 serverValidation = ServerValidationUiState(
                     isChecking = false,
                     message = message,
-                    isError = isError
+                    isError = isError,
+                    details = details
                 )
             )
         }
@@ -362,13 +363,14 @@ class MainViewModel(
         _uiState.update { it.copy(isSettingsVisible = false) }
     }
 
-    fun setServerValidationState(isChecking: Boolean, message: String?, isError: Boolean) {
+    fun setServerValidationState(isChecking: Boolean, message: String?, isError: Boolean, details: String? = null) {
         _uiState.update {
             it.copy(
                 serverValidation = ServerValidationUiState(
                     isChecking = isChecking,
                     message = message,
-                    isError = isError
+                    isError = isError,
+                    details = details
                 )
             )
         }

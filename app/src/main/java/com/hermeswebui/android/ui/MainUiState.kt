@@ -5,7 +5,9 @@ import com.hermeswebui.android.data.AppSettings
 data class ServerValidationUiState(
     val isChecking: Boolean = false,
     val message: String? = null,
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    /** Optional multi-line diagnostic block (HTTP status, snippet, etc.) shown verbatim under the message. */
+    val details: String? = null
 )
 
 data class MainUiState(

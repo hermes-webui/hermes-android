@@ -26,6 +26,10 @@ data class OAuthPopupFlow(
             fragment.containsKey("error")
     }
 
+    fun redirectsToOrigin(baseUrl: String): Boolean {
+        return UrlOrigins.hasSameOrigin(redirectUri, baseUrl)
+    }
+
     private fun matchesEndpoint(target: URI, url: String): Boolean {
         if (!target.scheme.equals(redirectScheme, ignoreCase = true)) return false
 

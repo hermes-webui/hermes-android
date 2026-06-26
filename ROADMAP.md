@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-06-25
+> Last updated: 2026-06-26
 
 ---
 
@@ -193,4 +193,5 @@ workflow changes should be made in Hermes WebUI instead.
 | BUG-022 | 2026-06-25 | Settings | Stopped the first-run / add-server / edit-server preflight from blocking auth-protected Hermes deployments: a 401/403 from `/api/status` on a reachable host is now treated as a healthy sign-in-required server and is saved immediately with a "sign in on the Hermes page to finish" toast, instead of trapping the user behind the readiness check. Also surfaces the full HTTP diagnostic block (status, content-type, server header, body snippet) under the readiness error and adds a recovery dialog with "Open in browser" + "Add/Save/Switch anyway" escape hatches for the remaining failure modes |
 | BUG-023 | 2026-06-25 | Settings | Added per-server "Don't ask again for this server" opt-out on the server-switch "Sign-in required" confirmation: once ticked, future switches to that URL skip the prompt and load straight into the Hermes sign-in page; the silenced URL is cleared automatically when the server profile is deleted |
 | DBG-001 | 2026-06-25 | Troubleshooting | Debug-build only: auto-start `logcat` capture in `MainActivity.onCreate` before any other startup work via a new `DebugLogBootstrap` so a crash or permission denial during launch is still captured to the same `debug-logs/` directory the foreground service manages; added a draggable floating "Save log" button overlay that one-tap shares the latest captured log via the Android share sheet. No-op on release builds |
+| BUG-024 | 2026-06-26 | Authentication | Hardened Issue 12 OIDC routing: trusted authorization code-flow redirects whose `redirect_uri` returns to the configured Hermes WebUI origin now stay in-app even when the provider opens top-level pages, and verified callbacks load back into the primary WebView before dashboard Custom Tab matching can externalize them |
 

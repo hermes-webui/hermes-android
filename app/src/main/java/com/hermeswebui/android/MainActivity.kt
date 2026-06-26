@@ -533,6 +533,7 @@ class MainActivity : ComponentActivity() {
 
     private var activeOAuthPopup: WebView? = null
     private var activeOAuthFlow: OAuthPopupFlow? = null
+    private var activeMainFrameOAuthFlow: OAuthPopupFlow? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
 
@@ -933,20 +934,20 @@ class MainActivity : ComponentActivity() {
                             val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
                             if (callbackFlow?.isVerifiedCallbackUrl(target) == true) {
                                 clearActiveOAuthPopup()
-                                handleNewWindowUrl(target)
+                                loadOAuthCallbackInMainWebView(target)
                                 popup.destroy()
                                 return true
                             }
 
-                            val flow = OAuthPopupFlow.parseAuthorizationStart(target)
+                            val flow = parseTrustedOAuthStart(target)
                             if (flow != null) {
                                 rememberActiveOAuthPopup(popup, flow)
                                 view?.loadUrl(target)
                                 return true
                             }
 
-                            if (activeOAuthPopup === popup && activeOAuthFlow != null) {
-                                refreshActiveOAuthPopupTimeout()
+                            if (activeOAuthPopup === popup && activeOAuthFlow != null && isHttpOrHttpsUrl(target)) {
+                                refreshActiveOAuthTimeout()
                                 return false
                             }
 
@@ -967,19 +968,19 @@ class MainActivity : ComponentActivity() {
                             val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
                             if (callbackFlow?.isVerifiedCallbackUrl(url) == true) {
                                 clearActiveOAuthPopup()
-                                handleNewWindowUrl(url)
+                                loadOAuthCallbackInMainWebView(url)
                                 popup.destroy()
                                 return
                             }
 
-                            val startedFlow = OAuthPopupFlow.parseAuthorizationStart(url)
+                            val startedFlow = parseTrustedOAuthStart(url)
                             if (startedFlow != null) {
                                 rememberActiveOAuthPopup(popup, startedFlow)
                                 return
                             }
 
-                            if (activeOAuthPopup === popup && activeOAuthFlow != null) {
-                                refreshActiveOAuthPopupTimeout()
+                            if (activeOAuthPopup === popup && activeOAuthFlow != null && isHttpOrHttpsUrl(url)) {
+                                refreshActiveOAuthTimeout()
                                 return
                             }
 
@@ -1040,6 +1041,20 @@ class MainActivity : ComponentActivity() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val target = request?.url?.toString() ?: return true
                     if (handleAppSettingsNavigation(target)) return true
+                    val activeTopLevelFlow = activeMainFrameOAuthFlow
+                    if (activeTopLevelFlow?.isVerifiedCallbackUrl(target) == true) {
+                        clearActiveMainFrameOAuth()
+                        return false
+                    }
+                    val startedTopLevelFlow = parseTrustedOAuthStart(target)
+                    if (startedTopLevelFlow != null) {
+                        rememberActiveMainFrameOAuth(startedTopLevelFlow)
+                        return false
+                    }
+                    if (activeTopLevelFlow != null && isHttpOrHttpsUrl(target)) {
+                        refreshActiveOAuthTimeout()
+                        return false
+                    }
                     if (matchesConfiguredDashboardRoute(target)) {
                         openDashboardInCustomTab(target)
                         return true
@@ -1056,6 +1071,14 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
+                    if (!url.isNullOrBlank()) {
+                        val activeTopLevelFlow = activeMainFrameOAuthFlow
+                        if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
+                            clearActiveMainFrameOAuth()
+                        } else {
+                            parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
+                        }
+                    }
                     viewModel.onPageStarted(url)
                 }
 
@@ -2131,6 +2154,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun loadOAuthCallbackInMainWebView(url: String) {
+        webView.loadUrl(url)
+    }
+
+    private fun parseTrustedOAuthStart(url: String): OAuthPopupFlow? {
+        val settings = viewModel.uiState.value.settings
+        return OAuthPopupFlow.parseAuthorizationStart(url)
+            ?.takeIf { it.redirectsToOrigin(settings.serverUrl) }
+    }
+
+    private fun isHttpOrHttpsUrl(url: String): Boolean {
+        val scheme = runCatching { url.toUri().scheme }.getOrNull()
+        return scheme.equals("http", ignoreCase = true) || scheme.equals("https", ignoreCase = true)
+    }
+
     private fun buildDownloadListener(context: Context): DownloadListener {
         return DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             if (!urlPolicy.isAllowed(url)) {
@@ -2766,32 +2804,48 @@ class MainActivity : ComponentActivity() {
     private fun rememberActiveOAuthPopup(popup: WebView, flow: OAuthPopupFlow) {
         activeOAuthPopup = popup
         activeOAuthFlow = flow
-        refreshActiveOAuthPopupTimeout()
+        refreshActiveOAuthTimeout()
     }
 
-    private fun refreshActiveOAuthPopupTimeout() {
+    private fun rememberActiveMainFrameOAuth(flow: OAuthPopupFlow) {
+        activeMainFrameOAuthFlow = flow
+        refreshActiveOAuthTimeout()
+    }
+
+    private fun clearActiveMainFrameOAuth() {
+        activeMainFrameOAuthFlow = null
+        if (activeOAuthPopup == null) {
+            oauthFlowTimeoutMs = 0L
+        }
+    }
+
+    private fun refreshActiveOAuthTimeout() {
         oauthFlowTimeoutMs = System.currentTimeMillis() + OAUTH_FLOW_TIMEOUT_MS
     }
 
     private fun clearActiveOAuthPopup() {
         activeOAuthPopup = null
         activeOAuthFlow = null
-        oauthFlowTimeoutMs = 0L
+        if (activeMainFrameOAuthFlow == null) {
+            oauthFlowTimeoutMs = 0L
+        }
     }
 
-    /** Cleanup OAuth popup if it has timed out.
+    /** Cleanup OAuth state if it has timed out.
      *
-     * OAuth flows should complete quickly (typically < 2 min). If a popup stays
-     * active longer than the timeout, destroy it to prevent resource leaks.
+     * OAuth flows should complete quickly. If a popup or top-level auth flow stays
+     * active longer than the timeout, clear it to prevent resource leaks.
      */
     private fun cleanupExpiredOAuthPopup() {
-        if (activeOAuthPopup != null && System.currentTimeMillis() > oauthFlowTimeoutMs) {
+        val hasActiveOAuth = activeOAuthPopup != null || activeMainFrameOAuthFlow != null
+        if (hasActiveOAuth && System.currentTimeMillis() > oauthFlowTimeoutMs) {
             try {
                 activeOAuthPopup?.destroy()
             } catch (_: Exception) {
                 // WebView may already be destroyed; ignore errors
             }
             clearActiveOAuthPopup()
+            clearActiveMainFrameOAuth()
         }
     }
 

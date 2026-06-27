@@ -280,6 +280,37 @@ private val HermesWebUiAppSettingsEntryScript = """
       var appSettingsHref = 'hermes://app/settings';
       var markerAttr = 'data-hermes-android-app-settings-entry';
 
+      var normalizedText = function(value) {
+        return String(value || '').trim().toLowerCase();
+      };
+
+      var textMatchesRegularSettings = function(value) {
+        var normalized = normalizedText(value);
+        if (!normalized) return false;
+        if (normalized.indexOf('application settings') !== -1 || normalized.indexOf('app settings') !== -1) {
+          return false;
+        }
+        return normalized === 'settings' ||
+          normalized === 'open settings' ||
+          normalized.indexOf('settings ') === 0 ||
+          normalized.indexOf(' settings') !== -1;
+      };
+
+      var isRegularSettingsControl = function(node) {
+        if (!node || !node.getAttribute) return false;
+        if (node.getAttribute(markerAttr)) return false;
+        var panel = normalizedText(node.getAttribute('data-panel'));
+        var settingsSection = normalizedText(node.getAttribute('data-settings-section'));
+        if (panel === 'settings') return true;
+        if (settingsSection === 'settings') return true;
+        if (textMatchesRegularSettings(node.textContent)) return true;
+        if (textMatchesRegularSettings(node.getAttribute('aria-label'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('title'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('data-tooltip'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('data-i18n-title'))) return true;
+        return false;
+      };
+
       var textContainsHelp = function(value) {
         var normalized = String(value || '').trim().toLowerCase();
         return normalized === 'help' || normalized.indexOf('help ') === 0 || normalized.indexOf(' help') !== -1;
@@ -418,48 +449,83 @@ private val HermesWebUiAppSettingsEntryScript = """
         root.appendChild(fallback);
       };
 
-      var findHelpInScope = function(scope) {
+      var findInteractiveInScope = function(scope, textMatcher) {
         if (!scope || !scope.querySelectorAll) return null;
         var nodes = scope.querySelectorAll('a, button, [role="button"], [role="menuitem"]');
         for (var i = 0; i < nodes.length; i++) {
           var node = nodes[i];
-          if (textContainsHelp(node.textContent)) return node;
+          if (node.getAttribute(markerAttr)) continue;
+          if (textMatcher(node.textContent)) return node;
           var aria = node.getAttribute('aria-label');
-          if (textContainsHelp(aria)) return node;
+          if (textMatcher(aria)) return node;
           var title = node.getAttribute('title');
-          if (textContainsHelp(title)) return node;
+          if (textMatcher(title)) return node;
         }
         return null;
       };
 
-      var findHelpInteractive = function() {
+      var findSettingsInteractivesInScope = function(scope) {
+        if (!scope || !scope.querySelectorAll) return [];
+        var nodes = scope.querySelectorAll('a, button, [role="button"], [role="menuitem"], [data-panel], [data-settings-section]');
+        var hits = [];
+        for (var i = 0; i < nodes.length; i++) {
+          var node = nodes[i];
+          if (isRegularSettingsControl(node)) hits.push(node);
+        }
+        return hits;
+      };
+
+      var findSidebarInteractive = function(textMatcher) {
         var scopedSelectors = ['.sidebar', '.rail', '.leftpanel', 'aside', 'nav'];
         for (var i = 0; i < scopedSelectors.length; i++) {
           var scope = document.querySelector(scopedSelectors[i]);
-          var hit = findHelpInScope(scope);
+          var hit = findInteractiveInScope(scope, textMatcher);
           if (hit) return hit;
         }
-        return findHelpInScope(document);
+        return findInteractiveInScope(document, textMatcher);
       };
 
-      var ensureEntry = function() {
+      var findSettingsInteractives = function() {
+        var scopedSelectors = ['.rail', '.sidebar-nav', '.leftpanel'];
+        var seen = [];
+        var hits = [];
+        var addHits = function(scopeHits) {
+          for (var i = 0; i < scopeHits.length; i++) {
+            if (seen.indexOf(scopeHits[i]) !== -1) continue;
+            seen.push(scopeHits[i]);
+            hits.push(scopeHits[i]);
+          }
+        };
+        for (var i = 0; i < scopedSelectors.length; i++) {
+          document.querySelectorAll(scopedSelectors[i]).forEach(function(scope) {
+            addHits(findSettingsInteractivesInScope(scope));
+          });
+        }
+        return hits;
+      };
+
+      var appEntryAlreadyAfter = function(anchorContainer) {
+        var next = anchorContainer && anchorContainer.nextElementSibling;
+        return !!(next && next.getAttribute && next.getAttribute(markerAttr) === '1');
+      };
+
+      var ensureEntryAfter = function(anchorInteractive) {
         try {
-          if (document.querySelector('[' + markerAttr + '="1"]')) return;
-          var helpInteractive = findHelpInteractive();
-          if (!helpInteractive) return;
+          if (!anchorInteractive) return;
 
-          var helpContainer = helpInteractive.closest('li, [role="menuitem"], .menu-item, .nav-item, .sidebar-item, [data-menu-item]') || helpInteractive;
-          if (!helpContainer || !helpContainer.parentNode) return;
+          var anchorContainer = anchorInteractive.closest('li, [role="menuitem"], .menu-item, .nav-item, .sidebar-item, [data-menu-item]') || anchorInteractive;
+          if (!anchorContainer || !anchorContainer.parentNode) return;
+          if (appEntryAlreadyAfter(anchorContainer)) return;
 
-          var cloned = helpContainer.cloneNode(false);
+          var cloned = anchorContainer.cloneNode(false);
           cloned.setAttribute(markerAttr, '1');
           cloned.removeAttribute('id');
           clearActiveState(cloned);
           stripRoutingAttributes(cloned);
 
-          var helpIsInteractive = helpContainer.matches('a, button, [role="button"], [role="menuitem"]');
-          var interactive = helpIsInteractive ? cloned : helpInteractive.cloneNode(false);
-          if (!helpIsInteractive) {
+          var anchorIsInteractive = anchorContainer.matches('a, button, [role="button"], [role="menuitem"]');
+          var interactive = anchorIsInteractive ? cloned : anchorInteractive.cloneNode(false);
+          if (!anchorIsInteractive) {
             interactive.removeAttribute('id');
             clearActiveState(interactive);
             stripRoutingAttributes(interactive);
@@ -469,11 +535,13 @@ private val HermesWebUiAppSettingsEntryScript = """
           if (!interactive) return;
 
           interactive.textContent = '';
-          var label = document.createElement('span');
-          label.textContent = 'Application Settings';
-          label.setAttribute(markerAttr, 'label');
-          interactive.appendChild(label);
           applyApplicationIcon(interactive);
+          if (!anchorInteractive.matches('[data-panel="settings"], .nav-tab, .rail-btn')) {
+            var label = document.createElement('span');
+            label.textContent = 'Application Settings';
+            label.setAttribute(markerAttr, 'label');
+            interactive.appendChild(label);
+          }
 
           if (interactive.tagName && interactive.tagName.toLowerCase() === 'a') {
             interactive.setAttribute('href', appSettingsHref);
@@ -484,6 +552,10 @@ private val HermesWebUiAppSettingsEntryScript = """
           bindNativeSettingsClick(interactive);
           interactive.setAttribute('aria-label', 'Application Settings');
           interactive.setAttribute('title', 'Application Settings');
+          interactive.setAttribute('data-tooltip', 'Application Settings');
+          interactive.removeAttribute('data-panel');
+          interactive.removeAttribute('data-settings-section');
+          interactive.removeAttribute('data-i18n-title');
           interactive.removeAttribute('aria-current');
           interactive.removeAttribute('aria-selected');
           interactive.classList.remove('active');
@@ -492,8 +564,17 @@ private val HermesWebUiAppSettingsEntryScript = """
           interactive.setAttribute(markerAttr, '1');
           bindNativeSettingsClick(cloned);
 
-          helpContainer.parentNode.insertBefore(cloned, helpContainer.nextSibling);
+          anchorContainer.parentNode.insertBefore(cloned, anchorContainer.nextSibling);
         } catch (_) {}
+      };
+
+      var ensureEntry = function() {
+        var settingsHits = findSettingsInteractives();
+        if (settingsHits.length) {
+          settingsHits.forEach(ensureEntryAfter);
+          return;
+        }
+        ensureEntryAfter(findSidebarInteractive(textContainsHelp));
       };
 
       ensureEntry();
@@ -700,15 +781,23 @@ class MainActivity : ComponentActivity() {
         cleanupExpiredOAuthPopup()
     }
 
-    /** Handles hermes://session/{session_id} deep links.
+    /** Handles Hermes app deep links.
      *
-     * Navigates the WebView to {serverUrl}/{session_id}, matching the Hermes
-     * WebUI session route contract (sessionRoute() in apps/desktop/src/app/routes.ts).
+     * hermes://app/settings opens native Android settings. hermes://session/{id}
+     * navigates the WebView to {serverUrl}/{id}, matching the Hermes WebUI
+     * session route contract (sessionRoute() in apps/desktop/src/app/routes.ts).
      * Returns true if the intent was consumed, false if it should fall through.
      */
     private fun handleDeepLink(intent: Intent): Boolean {
         val data = intent.data ?: return false
-        if (data.scheme != "hermes" || data.host != "session") return false
+        if (data.scheme != "hermes") return false
+
+        if (data.host == "app" && data.path == "/settings") {
+            viewModel.openSettings()
+            return true
+        }
+
+        if (data.host != "session") return false
         val sessionId = data.lastPathSegment?.takeIf { it.isNotBlank() } ?: return false
         val serverUrl = viewModel.uiState.value.settings.serverUrl
         if (serverUrl.isBlank()) {

@@ -96,6 +96,7 @@ import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.domain.ShareIntentParser
 import com.hermeswebui.android.ui.MainViewModel
 import com.hermeswebui.android.ui.MainViewModelFactory
+import com.hermeswebui.android.ui.AppSettingsSafetyButton
 import com.hermeswebui.android.ui.DebugLogFloatingOverlay
 import com.hermeswebui.android.ui.settings.SettingsScreen
 import com.hermeswebui.android.ui.web.WebShell
@@ -280,6 +281,22 @@ private val HermesWebUiAppSettingsEntryScript = """
       var appSettingsHref = 'hermes://app/settings';
       var markerAttr = 'data-hermes-android-app-settings-entry';
 
+      var normalizedText = function(value) {
+        return String(value || '').trim().toLowerCase();
+      };
+
+      var textMatchesRegularSettings = function(value) {
+        var normalized = normalizedText(value);
+        if (!normalized) return false;
+        if (normalized.indexOf('application settings') !== -1 || normalized.indexOf('app settings') !== -1) {
+          return false;
+        }
+        return normalized === 'settings' ||
+          normalized === 'open settings' ||
+          normalized.indexOf('settings ') === 0 ||
+          normalized.indexOf(' settings') !== -1;
+      };
+
       var textContainsHelp = function(value) {
         var normalized = String(value || '').trim().toLowerCase();
         return normalized === 'help' || normalized.indexOf('help ') === 0 || normalized.indexOf(' help') !== -1;
@@ -418,48 +435,53 @@ private val HermesWebUiAppSettingsEntryScript = """
         root.appendChild(fallback);
       };
 
-      var findHelpInScope = function(scope) {
+      var findInteractiveInScope = function(scope, textMatcher) {
         if (!scope || !scope.querySelectorAll) return null;
         var nodes = scope.querySelectorAll('a, button, [role="button"], [role="menuitem"]');
         for (var i = 0; i < nodes.length; i++) {
           var node = nodes[i];
-          if (textContainsHelp(node.textContent)) return node;
+          if (node.getAttribute(markerAttr)) continue;
+          if (textMatcher(node.textContent)) return node;
           var aria = node.getAttribute('aria-label');
-          if (textContainsHelp(aria)) return node;
+          if (textMatcher(aria)) return node;
           var title = node.getAttribute('title');
-          if (textContainsHelp(title)) return node;
+          if (textMatcher(title)) return node;
         }
         return null;
       };
 
-      var findHelpInteractive = function() {
+      var findSidebarInteractive = function(textMatcher) {
         var scopedSelectors = ['.sidebar', '.rail', '.leftpanel', 'aside', 'nav'];
         for (var i = 0; i < scopedSelectors.length; i++) {
           var scope = document.querySelector(scopedSelectors[i]);
-          var hit = findHelpInScope(scope);
+          var hit = findInteractiveInScope(scope, textMatcher);
           if (hit) return hit;
         }
-        return findHelpInScope(document);
+        return findInteractiveInScope(document, textMatcher);
+      };
+
+      var findAnchorInteractive = function() {
+        return findSidebarInteractive(textMatchesRegularSettings) || findSidebarInteractive(textContainsHelp);
       };
 
       var ensureEntry = function() {
         try {
           if (document.querySelector('[' + markerAttr + '="1"]')) return;
-          var helpInteractive = findHelpInteractive();
-          if (!helpInteractive) return;
+          var anchorInteractive = findAnchorInteractive();
+          if (!anchorInteractive) return;
 
-          var helpContainer = helpInteractive.closest('li, [role="menuitem"], .menu-item, .nav-item, .sidebar-item, [data-menu-item]') || helpInteractive;
-          if (!helpContainer || !helpContainer.parentNode) return;
+          var anchorContainer = anchorInteractive.closest('li, [role="menuitem"], .menu-item, .nav-item, .sidebar-item, [data-menu-item]') || anchorInteractive;
+          if (!anchorContainer || !anchorContainer.parentNode) return;
 
-          var cloned = helpContainer.cloneNode(false);
+          var cloned = anchorContainer.cloneNode(false);
           cloned.setAttribute(markerAttr, '1');
           cloned.removeAttribute('id');
           clearActiveState(cloned);
           stripRoutingAttributes(cloned);
 
-          var helpIsInteractive = helpContainer.matches('a, button, [role="button"], [role="menuitem"]');
-          var interactive = helpIsInteractive ? cloned : helpInteractive.cloneNode(false);
-          if (!helpIsInteractive) {
+          var anchorIsInteractive = anchorContainer.matches('a, button, [role="button"], [role="menuitem"]');
+          var interactive = anchorIsInteractive ? cloned : anchorInteractive.cloneNode(false);
+          if (!anchorIsInteractive) {
             interactive.removeAttribute('id');
             clearActiveState(interactive);
             stripRoutingAttributes(interactive);
@@ -492,7 +514,7 @@ private val HermesWebUiAppSettingsEntryScript = """
           interactive.setAttribute(markerAttr, '1');
           bindNativeSettingsClick(cloned);
 
-          helpContainer.parentNode.insertBefore(cloned, helpContainer.nextSibling);
+          anchorContainer.parentNode.insertBefore(cloned, anchorContainer.nextSibling);
         } catch (_) {}
       };
 
@@ -800,6 +822,10 @@ class MainActivity : ComponentActivity() {
                             onOpenExternal = onOpenExternal,
                             onOpenSettings = { viewModel.openSettings() },
                             onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
+                        )
+                        AppSettingsSafetyButton(
+                            visible = !uiState.isSettingsVisible,
+                            onClick = { viewModel.openSettings() }
                         )
                         SnackbarHost(hostState = snackbarHostState)
                     }

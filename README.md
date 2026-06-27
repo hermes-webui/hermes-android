@@ -104,7 +104,7 @@ Requirements:
 - Server health probing on WebView errors to distinguish server-down from content errors
 - First-run settings flow for the Hermes WebUI URL with an inline readiness check that rejects unreachable, setup-mode, or non-Hermes targets before saving them; auth-protected `/api/status` responses can still pass when the root page fingerprints as Hermes so signed-in WebView sessions are not blocked
 - Saved server rows check connection health before switching, show reachable/sign-in/setup/offline/not-Hermes results, and ask for confirmation before clearing the current WebView session
-- Native app settings remain reachable through an Android-owned safety button even when the configured Hermes server is blank, offline, or unable to render its sidebar; when WebUI does render, Android also injects an Application Settings entry immediately after the WebUI Settings item
+- Native app settings are available from the WebUI sidebar as an injected Application Settings entry immediately after the WebUI Settings item, and from the `hermes://app/settings` recovery deep link when the WebView route is stuck
 - Back handling, pull-to-refresh, loading, offline, and error states, including direct server-URL recovery from the native error screen
 
 ### SSE capability mapping

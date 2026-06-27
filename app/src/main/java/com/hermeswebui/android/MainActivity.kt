@@ -96,7 +96,6 @@ import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.domain.ShareIntentParser
 import com.hermeswebui.android.ui.MainViewModel
 import com.hermeswebui.android.ui.MainViewModelFactory
-import com.hermeswebui.android.ui.AppSettingsSafetyButton
 import com.hermeswebui.android.ui.DebugLogFloatingOverlay
 import com.hermeswebui.android.ui.settings.SettingsScreen
 import com.hermeswebui.android.ui.web.WebShell
@@ -722,15 +721,23 @@ class MainActivity : ComponentActivity() {
         cleanupExpiredOAuthPopup()
     }
 
-    /** Handles hermes://session/{session_id} deep links.
+    /** Handles Hermes app deep links.
      *
-     * Navigates the WebView to {serverUrl}/{session_id}, matching the Hermes
-     * WebUI session route contract (sessionRoute() in apps/desktop/src/app/routes.ts).
+     * hermes://app/settings opens native Android settings. hermes://session/{id}
+     * navigates the WebView to {serverUrl}/{id}, matching the Hermes WebUI
+     * session route contract (sessionRoute() in apps/desktop/src/app/routes.ts).
      * Returns true if the intent was consumed, false if it should fall through.
      */
     private fun handleDeepLink(intent: Intent): Boolean {
         val data = intent.data ?: return false
-        if (data.scheme != "hermes" || data.host != "session") return false
+        if (data.scheme != "hermes") return false
+
+        if (data.host == "app" && data.path == "/settings") {
+            viewModel.openSettings()
+            return true
+        }
+
+        if (data.host != "session") return false
         val sessionId = data.lastPathSegment?.takeIf { it.isNotBlank() } ?: return false
         val serverUrl = viewModel.uiState.value.settings.serverUrl
         if (serverUrl.isBlank()) {
@@ -822,10 +829,6 @@ class MainActivity : ComponentActivity() {
                             onOpenExternal = onOpenExternal,
                             onOpenSettings = { viewModel.openSettings() },
                             onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
-                        )
-                        AppSettingsSafetyButton(
-                            visible = !uiState.isSettingsVisible,
-                            onClick = { viewModel.openSettings() }
                         )
                         SnackbarHost(hostState = snackbarHostState)
                     }

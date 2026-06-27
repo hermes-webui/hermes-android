@@ -296,6 +296,21 @@ private val HermesWebUiAppSettingsEntryScript = """
           normalized.indexOf(' settings') !== -1;
       };
 
+      var isRegularSettingsControl = function(node) {
+        if (!node || !node.getAttribute) return false;
+        if (node.getAttribute(markerAttr)) return false;
+        var panel = normalizedText(node.getAttribute('data-panel'));
+        var settingsSection = normalizedText(node.getAttribute('data-settings-section'));
+        if (panel === 'settings') return true;
+        if (settingsSection === 'settings') return true;
+        if (textMatchesRegularSettings(node.textContent)) return true;
+        if (textMatchesRegularSettings(node.getAttribute('aria-label'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('title'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('data-tooltip'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('data-i18n-title'))) return true;
+        return false;
+      };
+
       var textContainsHelp = function(value) {
         var normalized = String(value || '').trim().toLowerCase();
         return normalized === 'help' || normalized.indexOf('help ') === 0 || normalized.indexOf(' help') !== -1;
@@ -449,6 +464,17 @@ private val HermesWebUiAppSettingsEntryScript = """
         return null;
       };
 
+      var findSettingsInteractivesInScope = function(scope) {
+        if (!scope || !scope.querySelectorAll) return [];
+        var nodes = scope.querySelectorAll('a, button, [role="button"], [role="menuitem"], [data-panel], [data-settings-section]');
+        var hits = [];
+        for (var i = 0; i < nodes.length; i++) {
+          var node = nodes[i];
+          if (isRegularSettingsControl(node)) hits.push(node);
+        }
+        return hits;
+      };
+
       var findSidebarInteractive = function(textMatcher) {
         var scopedSelectors = ['.sidebar', '.rail', '.leftpanel', 'aside', 'nav'];
         for (var i = 0; i < scopedSelectors.length; i++) {
@@ -459,18 +485,37 @@ private val HermesWebUiAppSettingsEntryScript = """
         return findInteractiveInScope(document, textMatcher);
       };
 
-      var findAnchorInteractive = function() {
-        return findSidebarInteractive(textMatchesRegularSettings) || findSidebarInteractive(textContainsHelp);
+      var findSettingsInteractives = function() {
+        var scopedSelectors = ['.rail', '.sidebar-nav', '.leftpanel'];
+        var seen = [];
+        var hits = [];
+        var addHits = function(scopeHits) {
+          for (var i = 0; i < scopeHits.length; i++) {
+            if (seen.indexOf(scopeHits[i]) !== -1) continue;
+            seen.push(scopeHits[i]);
+            hits.push(scopeHits[i]);
+          }
+        };
+        for (var i = 0; i < scopedSelectors.length; i++) {
+          document.querySelectorAll(scopedSelectors[i]).forEach(function(scope) {
+            addHits(findSettingsInteractivesInScope(scope));
+          });
+        }
+        return hits;
       };
 
-      var ensureEntry = function() {
+      var appEntryAlreadyAfter = function(anchorContainer) {
+        var next = anchorContainer && anchorContainer.nextElementSibling;
+        return !!(next && next.getAttribute && next.getAttribute(markerAttr) === '1');
+      };
+
+      var ensureEntryAfter = function(anchorInteractive) {
         try {
-          if (document.querySelector('[' + markerAttr + '="1"]')) return;
-          var anchorInteractive = findAnchorInteractive();
           if (!anchorInteractive) return;
 
           var anchorContainer = anchorInteractive.closest('li, [role="menuitem"], .menu-item, .nav-item, .sidebar-item, [data-menu-item]') || anchorInteractive;
           if (!anchorContainer || !anchorContainer.parentNode) return;
+          if (appEntryAlreadyAfter(anchorContainer)) return;
 
           var cloned = anchorContainer.cloneNode(false);
           cloned.setAttribute(markerAttr, '1');
@@ -490,11 +535,13 @@ private val HermesWebUiAppSettingsEntryScript = """
           if (!interactive) return;
 
           interactive.textContent = '';
-          var label = document.createElement('span');
-          label.textContent = 'Application Settings';
-          label.setAttribute(markerAttr, 'label');
-          interactive.appendChild(label);
           applyApplicationIcon(interactive);
+          if (!anchorInteractive.matches('[data-panel="settings"], .nav-tab, .rail-btn')) {
+            var label = document.createElement('span');
+            label.textContent = 'Application Settings';
+            label.setAttribute(markerAttr, 'label');
+            interactive.appendChild(label);
+          }
 
           if (interactive.tagName && interactive.tagName.toLowerCase() === 'a') {
             interactive.setAttribute('href', appSettingsHref);
@@ -505,6 +552,10 @@ private val HermesWebUiAppSettingsEntryScript = """
           bindNativeSettingsClick(interactive);
           interactive.setAttribute('aria-label', 'Application Settings');
           interactive.setAttribute('title', 'Application Settings');
+          interactive.setAttribute('data-tooltip', 'Application Settings');
+          interactive.removeAttribute('data-panel');
+          interactive.removeAttribute('data-settings-section');
+          interactive.removeAttribute('data-i18n-title');
           interactive.removeAttribute('aria-current');
           interactive.removeAttribute('aria-selected');
           interactive.classList.remove('active');
@@ -515,6 +566,15 @@ private val HermesWebUiAppSettingsEntryScript = """
 
           anchorContainer.parentNode.insertBefore(cloned, anchorContainer.nextSibling);
         } catch (_) {}
+      };
+
+      var ensureEntry = function() {
+        var settingsHits = findSettingsInteractives();
+        if (settingsHits.length) {
+          settingsHits.forEach(ensureEntryAfter);
+          return;
+        }
+        ensureEntryAfter(findSidebarInteractive(textContainsHelp));
       };
 
       ensureEntry();

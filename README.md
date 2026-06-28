@@ -128,6 +128,7 @@ Operational note:
 - Share-to-app intake for text and files
 - Microphone capture support for trusted Hermes WebUI pages
 - Android-backed browser notifications for Hermes WebUI completion alerts
+- App update alerts use the same Hermes updates notification channel: Google Play builds check Play-managed updates, and GitHub APK builds check GitHub Releases
 - Opt-in ongoing background activity notification for trusted Hermes sessions, with lock-screen redaction control
 - Notification tray approval actions for trusted Hermes sessions, with queue-head validation before Android submits a response
 - Optional troubleshooting debug-log capture with a persistent foreground notification and one-tap Stop action
@@ -266,6 +267,14 @@ The GitHub APK is a separate Android app variant: it installs as
 `<version>-github` from inside the app. The Play AAB keeps the official
 `com.hermeswebui.android` application ID and plain `<version>` version name, so
 both channels can be installed on the same device at the same time.
+Both release channels share the same native app update alert setting but use
+build-selected providers: the Play build checks Google Play in-app update
+availability, while the GitHub build checks the latest GitHub Release, shows a
+short What's Changed summary, and can download the published GitHub APK asset.
+Automatic checks wait until the app has been open for about one minute and run
+at most once per day, and can be disabled separately from manual checks; manual
+checks in Settings run immediately. Debug builds do not advertise an update
+provider.
 
 Manual runs of `.github/workflows/1-orchestration-release.yml` auto-bump
 `appVersionName` from the latest published GitHub release tag (`vX.Y.Z ->

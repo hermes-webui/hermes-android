@@ -37,6 +37,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -99,6 +100,15 @@ import com.hermeswebui.android.ui.MainViewModelFactory
 import com.hermeswebui.android.ui.DebugLogFloatingOverlay
 import com.hermeswebui.android.ui.settings.SettingsScreen
 import com.hermeswebui.android.ui.web.WebShell
+import com.hermeswebui.android.update.AppUpdateCheckResult
+import com.hermeswebui.android.update.GitHubReleaseUpdateChecker
+import com.google.android.play.core.appupdate.AppUpdateInfo
+import com.google.android.play.core.appupdate.AppUpdateManager
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.install.model.AppUpdateType
+import com.google.android.play.core.install.model.UpdateAvailability
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
@@ -108,9 +118,15 @@ private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
 private const val HermesNotificationIdBase = 10_000
 private const val ActionOpenNotificationUrl = "com.hermeswebui.android.OPEN_NOTIFICATION_URL"
+private const val ActionStartPlayUpdate = "com.hermeswebui.android.START_PLAY_UPDATE"
+private const val ActionDownloadAppUpdate = "com.hermeswebui.android.DOWNLOAD_APP_UPDATE"
 private const val ExtraNotificationUrl = "com.hermeswebui.android.extra.NOTIFICATION_URL"
+private const val ExtraAppUpdateDownloadUrl = "com.hermeswebui.android.extra.APP_UPDATE_DOWNLOAD_URL"
+private const val ExtraAppUpdateFileName = "com.hermeswebui.android.extra.APP_UPDATE_FILE_NAME"
 private const val HermesGithubIssuesListUrl = "https://github.com/hermes-webui/hermes-android/issues"
 private const val HermesGithubNewIssueUrl = "https://github.com/hermes-webui/hermes-android/issues/new/choose"
+private const val AppUpdateNotificationId = 7_001
+private const val AutomaticAppUpdateCheckDelayMs = 60_000L
 
 private data class NotificationPermissionReply(
     val id: String?,
@@ -611,6 +627,8 @@ class MainActivity : ComponentActivity() {
     private var reconnectServiceRunning = false
     private var debugLoggingServiceRunning = false
     private var serverValidationJob: Job? = null
+    private var automaticAppUpdateCheckJob: Job? = null
+    private lateinit var appUpdateManager: AppUpdateManager
 
     private var activeOAuthPopup: WebView? = null
     private var activeOAuthFlow: OAuthPopupFlow? = null
@@ -666,6 +684,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    private val playUpdateLauncher =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode != RESULT_OK) {
+                Toast.makeText(this, "App update was not completed", Toast.LENGTH_SHORT).show()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -678,6 +703,7 @@ class MainActivity : ComponentActivity() {
         val defaultUrl = getString(R.string.default_server_url)
         val defaultDashboardUrl = getString(R.string.default_dashboard_url)
         settingsRepository = SettingsRepository(applicationContext)
+        appUpdateManager = AppUpdateManagerFactory.create(this)
         viewModel = ViewModelProvider(
             this,
             MainViewModelFactory(settingsRepository, settingsRepository, defaultUrl, defaultDashboardUrl)
@@ -697,7 +723,9 @@ class MainActivity : ComponentActivity() {
         webView = buildWebView()
         installHermesWebUiDocumentStartFixes(webView, viewModel.uiState.value.settings.serverUrl)
 
-        handleShareIntent(intent)
+        if (!handleAppUpdateIntent(intent)) {
+            handleShareIntent(intent)
+        }
 
         setContent {
             AppContent(
@@ -721,12 +749,16 @@ class MainActivity : ComponentActivity() {
             viewModel.openSettings()
         } else {
             preflightConfiguredStartupServer(settings.serverUrl)
+            scheduleAutomaticAppUpdateCheck()
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (handleAppUpdateIntent(intent)) {
+            return
+        }
         if (handleNotificationIntent(intent)) {
             return
         }
@@ -749,6 +781,8 @@ class MainActivity : ComponentActivity() {
             viewModel.onAppForegrounded()
             updateWebNotificationPermissionState()
             viewModel.resumeAutoRetryIfNeeded()
+            resumePlayUpdateIfNeeded()
+            scheduleAutomaticAppUpdateCheck()
         }
     }
 
@@ -764,6 +798,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         activityVisible = false
+        cancelAutomaticAppUpdateCheck()
         val state = viewModel.uiState.value
         syncReconnectForegroundService(state.isReconnecting)
         if (
@@ -904,6 +939,13 @@ class MainActivity : ComponentActivity() {
                     sseTransportEnabled = uiState.sseTransportEnabled,
                     sseSupportStatus = uiState.sseSupportStatus,
                     debugLoggingEnabled = uiState.debugLoggingEnabled,
+                    appUpdateAlertsEnabled = uiState.appUpdateAlertsEnabled,
+                    automaticAppUpdateChecksEnabled = uiState.automaticAppUpdateChecksEnabled,
+                    appUpdateChannelLabel = appUpdateChannelLabel(),
+                    appUpdateStatus = uiState.appUpdateStatus,
+                    appUpdateReleaseUrl = uiState.appUpdateReleaseUrl,
+                    appUpdateDownloadUrl = uiState.appUpdateDownloadUrl,
+                    appUpdateReleaseNotes = uiState.appUpdateReleaseNotes,
                     serverValidation = uiState.serverValidation,
                     appVersionLabel = "Version ${appVersionName()}",
                     serverProfiles = serverProfiles,
@@ -939,6 +981,25 @@ class MainActivity : ComponentActivity() {
                         }
                         viewModel.setDebugLoggingEnabled(enabled)
                         syncDebugLoggingForegroundService(enabled)
+                    },
+                    onSetAppUpdateAlertsEnabled = { enabled ->
+                        if (enabled) {
+                            requestNotificationPermissionIfNeeded()
+                        }
+                        viewModel.setAppUpdateAlertsEnabled(enabled)
+                    },
+                    onSetAutomaticAppUpdateChecksEnabled = { enabled ->
+                        viewModel.setAutomaticAppUpdateChecksEnabled(enabled)
+                        if (enabled) {
+                            scheduleAutomaticAppUpdateCheck()
+                        } else {
+                            cancelAutomaticAppUpdateCheck()
+                        }
+                    },
+                    onCheckAppUpdates = { checkForAppUpdates(force = true) },
+                    onDownloadAppUpdate = { downloadAvailableGitHubUpdate() },
+                    onOpenAppUpdateRelease = {
+                        uiState.appUpdateReleaseUrl?.takeIf { it.isNotBlank() }?.let(::openInExternalBrowser)
                     },
                     onShareDebugLog = { shareLatestDebugLog() },
                     onDownloadDebugLog = { downloadLatestDebugLog() },
@@ -1538,6 +1599,298 @@ class MainActivity : ComponentActivity() {
 
     private fun areNativeNotificationsEnabled(): Boolean {
         return NotificationManagerCompat.from(this).areNotificationsEnabled()
+    }
+
+    private fun appUpdateChannelLabel(): String {
+        return when (BuildConfig.UPDATE_CHANNEL) {
+            "github" -> "GitHub Releases"
+            "play" -> "Google Play"
+            else -> "this build channel"
+        }
+    }
+
+    private fun scheduleAutomaticAppUpdateCheck() {
+        if (!::settingsRepository.isInitialized) return
+        val settings = viewModel.uiState.value.settings
+        if (!settings.isConfigured) return
+        if (!settingsRepository.shouldCheckForAppUpdates(System.currentTimeMillis(), force = false)) return
+        if (automaticAppUpdateCheckJob?.isActive == true) return
+
+        automaticAppUpdateCheckJob = lifecycleScope.launch {
+            delay(AutomaticAppUpdateCheckDelayMs)
+            if (!activityVisible) return@launch
+            checkForAppUpdates(force = false)
+            automaticAppUpdateCheckJob = null
+        }
+    }
+
+    private fun cancelAutomaticAppUpdateCheck() {
+        automaticAppUpdateCheckJob?.cancel()
+        automaticAppUpdateCheckJob = null
+    }
+
+    private fun checkForAppUpdates(force: Boolean) {
+        if (!settingsRepository.shouldCheckForAppUpdates(System.currentTimeMillis(), force)) return
+        settingsRepository.markAppUpdateChecked(System.currentTimeMillis())
+        viewModel.setAppUpdateStatus(if (force) "Checking ${appUpdateChannelLabel()}..." else null)
+
+        when (BuildConfig.UPDATE_CHANNEL) {
+            "github" -> checkGitHubAppUpdate(force)
+            "play" -> checkPlayAppUpdate(force)
+            else -> {
+                if (force) {
+                    viewModel.setAppUpdateStatus("This build does not have an update provider.")
+                    Toast.makeText(this, "No update provider for this build", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun checkGitHubAppUpdate(force: Boolean) {
+        lifecycleScope.launch {
+            val result = GitHubReleaseUpdateChecker(
+                apiUrl = BuildConfig.GITHUB_RELEASES_API_URL,
+                fallbackReleaseUrl = BuildConfig.GITHUB_RELEASES_PAGE_URL
+            ).check(appVersionName())
+
+            when (result) {
+                is AppUpdateCheckResult.Available -> {
+                    viewModel.setAvailableAppUpdate(result)
+                    maybeShowAppUpdateNotification(result, force)
+                }
+                AppUpdateCheckResult.Current -> {
+                    if (force) {
+                        viewModel.clearAvailableAppUpdate("You're on the latest GitHub build.")
+                        Toast.makeText(this@MainActivity, "No GitHub update found", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                is AppUpdateCheckResult.Failed -> {
+                    if (force) {
+                        viewModel.clearAvailableAppUpdate(result.message)
+                        Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
+                    }
+                }
+                AppUpdateCheckResult.Unsupported -> {
+                    if (force) {
+                        viewModel.clearAvailableAppUpdate("GitHub updates are not configured for this build.")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun checkPlayAppUpdate(force: Boolean) {
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { updateInfo ->
+                val isAvailable = updateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
+                val canUpdate = updateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
+                if (isAvailable && canUpdate) {
+                    val version = updateInfo.availableVersionCode().toString()
+                    viewModel.setAppUpdateStatus("A Google Play update is available.")
+                    maybeShowPlayUpdateNotification(version, force)
+                } else if (force) {
+                    viewModel.setAppUpdateStatus("You're on the latest Google Play build.")
+                    Toast.makeText(this, "No Google Play update found", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .addOnFailureListener { error ->
+                if (force) {
+                    val message = error.message ?: "Could not check Google Play for updates."
+                    viewModel.setAppUpdateStatus(message)
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                }
+            }
+    }
+
+    private fun maybeShowAppUpdateNotification(
+        update: AppUpdateCheckResult.Available,
+        force: Boolean
+    ) {
+        if (!settingsRepository.shouldNotifyAppUpdate(update.version, force)) return
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            update.releaseUrl.hashCode(),
+            Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        showAppUpdateNotification(
+            title = update.title,
+            body = update.body,
+            version = update.version,
+            pendingIntent = pendingIntent,
+            downloadIntent = update.downloadUrl?.let { downloadUrl ->
+                buildAppUpdateDownloadPendingIntent(
+                    downloadUrl = downloadUrl,
+                    fileName = update.fileName ?: "hermes-webui-v${update.version}-github.apk"
+                )
+            },
+            force = force
+        )
+    }
+
+    private fun maybeShowPlayUpdateNotification(version: String, force: Boolean) {
+        if (!settingsRepository.shouldNotifyAppUpdate("play-$version", force)) return
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            version.hashCode(),
+            Intent(this, MainActivity::class.java).apply {
+                action = ActionStartPlayUpdate
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        showAppUpdateNotification(
+            title = "Hermes WebUI update available",
+            body = "A newer Google Play build is ready to install.",
+            version = "play-$version",
+            pendingIntent = pendingIntent,
+            downloadIntent = null,
+            force = force
+        )
+    }
+
+    private fun buildAppUpdateDownloadPendingIntent(
+        downloadUrl: String,
+        fileName: String
+    ): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = ActionDownloadAppUpdate
+            putExtra(ExtraAppUpdateDownloadUrl, downloadUrl)
+            putExtra(ExtraAppUpdateFileName, fileName)
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            downloadUrl.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun downloadAvailableGitHubUpdate() {
+        val state = viewModel.uiState.value
+        downloadGitHubUpdate(state.appUpdateDownloadUrl, state.appUpdateFileName)
+    }
+
+    private fun downloadGitHubUpdate(downloadUrl: String?, fileName: String?) {
+        val url = downloadUrl?.trim().orEmpty()
+        val parsed = runCatching { Uri.parse(url) }.getOrNull()
+        if (
+            parsed == null ||
+            parsed.scheme != "https" ||
+            !url.endsWith(".apk", ignoreCase = true)
+        ) {
+            Toast.makeText(this, "No GitHub APK download is available", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val safeFileName = fileName
+            ?.trim()
+            ?.takeIf { it.endsWith(".apk", ignoreCase = true) }
+            ?: URLUtil.guessFileName(url, null, "application/vnd.android.package-archive")
+        val request = DownloadManager.Request(parsed).apply {
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setTitle(safeFileName)
+            setDescription("Downloading Hermes WebUI GitHub APK")
+            setAllowedOverMetered(true)
+            setMimeType("application/vnd.android.package-archive")
+            setDestinationInExternalFilesDir(
+                this@MainActivity,
+                Environment.DIRECTORY_DOWNLOADS,
+                safeFileName
+            )
+        }
+        getSystemService(DownloadManager::class.java).enqueue(request)
+        Toast.makeText(this, "GitHub APK download started", Toast.LENGTH_SHORT).show()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun showAppUpdateNotification(
+        title: String,
+        body: String,
+        version: String,
+        pendingIntent: PendingIntent,
+        downloadIntent: PendingIntent?,
+        force: Boolean
+    ) {
+        if (!settingsRepository.isAppUpdateAlertsEnabled()) return
+        if (webNotificationPermissionState() != "granted") {
+            if (force) {
+                requestNotificationPermissionIfNeeded()
+                Toast.makeText(this, body, Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+
+        val notification = NotificationCompat.Builder(this, HermesNotificationChannelId)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setColor(ContextCompat.getColor(this, R.color.brand_sky))
+            .setContentIntent(pendingIntent)
+            .apply {
+                if (downloadIntent != null) {
+                    addAction(0, "Download APK", downloadIntent)
+                }
+            }
+            .build()
+
+        NotificationManagerCompat.from(this).notify(AppUpdateNotificationId, notification)
+        settingsRepository.markAppUpdateNotified(version)
+    }
+
+    private fun handleAppUpdateIntent(intent: Intent?): Boolean {
+        return when (intent?.action) {
+            ActionStartPlayUpdate -> {
+                startPlayUpdateFlow()
+                true
+            }
+            ActionDownloadAppUpdate -> {
+                val downloadUrl = intent.getStringExtra(ExtraAppUpdateDownloadUrl)
+                val fileName = intent.getStringExtra(ExtraAppUpdateFileName)
+                downloadGitHubUpdate(downloadUrl, fileName)
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun startPlayUpdateFlow() {
+        appUpdateManager.appUpdateInfo
+            .addOnSuccessListener { updateInfo ->
+                if (
+                    updateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
+                    updateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
+                ) {
+                    launchPlayUpdate(updateInfo)
+                } else {
+                    Toast.makeText(this, "No Google Play update is available right now", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .addOnFailureListener {
+                Toast.makeText(this, "Could not start Google Play update", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    private fun resumePlayUpdateIfNeeded() {
+        if (BuildConfig.UPDATE_CHANNEL != "play") return
+        appUpdateManager.appUpdateInfo.addOnSuccessListener { updateInfo ->
+            if (updateInfo.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
+                launchPlayUpdate(updateInfo)
+            }
+        }
+    }
+
+    private fun launchPlayUpdate(updateInfo: AppUpdateInfo) {
+        appUpdateManager.startUpdateFlowForResult(
+            updateInfo,
+            playUpdateLauncher,
+            AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
+        )
     }
 
     private fun ensureNotificationChannel() {

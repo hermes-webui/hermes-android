@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-06-26
+> Last updated: 2026-06-28
 
 ---
 
@@ -22,6 +22,7 @@
 | Native navigation | Done - WebUI-owned dashboard link integration and deep links |
 | Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
 | Browser notifications | Done - WebUI Notification API bridge, Android runtime permission, notification channel, and trusted WebUI tap routing |
+| App update alerts | Done - shared settings/notification UX with build-selected Google Play or GitHub Releases update providers |
 | Native distribution polish | Done - app identity and signed GitHub APK plus Play AAB release automation are wired for local builds plus GitHub Actions |
 | Maintenance posture | Stable - accept Android-wrapper fixes, compatibility updates, dependency updates, and release maintenance |
 | Native feature expansion | Deferred - revisit only for Android-specific needs with a clear WebUI/API boundary |
@@ -195,4 +196,5 @@ workflow changes should be made in Hermes WebUI instead.
 | DBG-001 | 2026-06-25 | Troubleshooting | Debug-build only: auto-start `logcat` capture in `MainActivity.onCreate` before any other startup work via a new `DebugLogBootstrap` so a crash or permission denial during launch is still captured to the same `debug-logs/` directory the foreground service manages; added a draggable floating "Save log" button overlay that one-tap shares the latest captured log via the Android share sheet. No-op on release builds |
 | BUG-024 | 2026-06-26 | Authentication | Hardened Issue 12 OIDC routing: trusted authorization code-flow redirects whose `redirect_uri` returns to the configured Hermes WebUI origin now stay in-app even when the provider opens top-level pages, and verified callbacks load back into the primary WebView before dashboard Custom Tab matching can externalize them |
 | BUG-025 | 2026-06-27 | Settings | Moved the injected WebUI "Application Settings" entry to anchor after the regular WebUI Settings item, with Help only as a fallback, and exported `hermes://app/settings` as a native recovery route for stuck WebView states |
+| REL-026 | 2026-06-28 | Release | Added native app update alerts for both release channels: Play builds check Google Play in-app update availability, GitHub APK builds check the latest GitHub Release with What's Changed text plus direct APK download, and both alert through the existing Hermes updates notification channel |
 

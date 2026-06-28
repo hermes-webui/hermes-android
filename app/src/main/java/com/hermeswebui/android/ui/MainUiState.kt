@@ -26,5 +26,13 @@ data class MainUiState(
     val sseTransportEnabled: Boolean = false,
     val sseSupportStatus: String? = null,
     val debugLoggingEnabled: Boolean = false,
+    val appUpdateAlertsEnabled: Boolean = false,
+    val automaticAppUpdateChecksEnabled: Boolean = false,
+    val appUpdateStatus: String? = null,
+    val appUpdateVersion: String? = null,
+    val appUpdateReleaseUrl: String? = null,
+    val appUpdateDownloadUrl: String? = null,
+    val appUpdateFileName: String? = null,
+    val appUpdateReleaseNotes: String? = null,
     val serverValidation: ServerValidationUiState = ServerValidationUiState()
 )

@@ -72,6 +72,13 @@ fun SettingsScreen(
     sseTransportEnabled: Boolean,
     sseSupportStatus: String?,
     debugLoggingEnabled: Boolean,
+    appUpdateAlertsEnabled: Boolean,
+    automaticAppUpdateChecksEnabled: Boolean,
+    appUpdateChannelLabel: String,
+    appUpdateStatus: String?,
+    appUpdateReleaseUrl: String?,
+    appUpdateDownloadUrl: String?,
+    appUpdateReleaseNotes: String?,
     serverValidation: ServerValidationUiState,
     appVersionLabel: String,
     serverProfiles: List<ServerProfile>,
@@ -85,6 +92,11 @@ fun SettingsScreen(
     onCheckSseSupport: () -> Unit,
     onCopySsePrompt: () -> Unit,
     onSetDebugLoggingEnabled: (Boolean) -> Unit,
+    onSetAppUpdateAlertsEnabled: (Boolean) -> Unit,
+    onSetAutomaticAppUpdateChecksEnabled: (Boolean) -> Unit,
+    onCheckAppUpdates: () -> Unit,
+    onDownloadAppUpdate: () -> Unit,
+    onOpenAppUpdateRelease: () -> Unit,
     onShareDebugLog: () -> Unit,
     onDownloadDebugLog: () -> Unit,
     onViewGithubIssues: () -> Unit,
@@ -467,6 +479,134 @@ fun SettingsScreen(
                                 onSetBackgroundActivityFullTextEnabled(!backgroundActivityFullTextEnabled)
                             }
                         )
+
+                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
+
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    "App update alerts",
+                                    color = onSurface,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    "Checks $appUpdateChannelLabel and alerts through Hermes updates.",
+                                    color = onSurfaceVar,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = appUpdateAlertsEnabled,
+                                    onCheckedChange = onSetAppUpdateAlertsEnabled,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                        checkedTrackColor = primaryColor,
+                                        uncheckedThumbColor = onSurfaceVar,
+                                        uncheckedTrackColor = surfaceVariant
+                                    )
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = surfaceColor),
+                            modifier = Modifier.clickable {
+                                onSetAppUpdateAlertsEnabled(!appUpdateAlertsEnabled)
+                            }
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onCheckAppUpdates,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Check for app update now")
+                            }
+                            ListItem(
+                                headlineContent = {
+                                    Text(
+                                        "Automatic daily checks",
+                                        color = onSurface,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(
+                                        "Waits about one minute after opening, then checks at most once per day.",
+                                        color = onSurfaceVar,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = automaticAppUpdateChecksEnabled,
+                                        onCheckedChange = onSetAutomaticAppUpdateChecksEnabled,
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                            checkedTrackColor = primaryColor,
+                                            uncheckedThumbColor = onSurfaceVar,
+                                            uncheckedTrackColor = surfaceVariant
+                                        )
+                                    )
+                                },
+                                colors = ListItemDefaults.colors(containerColor = surfaceColor),
+                                modifier = Modifier.clickable {
+                                    onSetAutomaticAppUpdateChecksEnabled(!automaticAppUpdateChecksEnabled)
+                                }
+                            )
+                            if (!appUpdateStatus.isNullOrBlank()) {
+                                Text(
+                                    text = appUpdateStatus,
+                                    color = onSurfaceVar.copy(alpha = 0.82f),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            if (!appUpdateReleaseNotes.isNullOrBlank()) {
+                                Text(
+                                    text = "What's changed",
+                                    color = onSurface,
+                                    fontWeight = FontWeight.Medium,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Text(
+                                    text = appUpdateReleaseNotes,
+                                    color = onSurfaceVar.copy(alpha = 0.82f),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            if (!appUpdateDownloadUrl.isNullOrBlank() || !appUpdateReleaseUrl.isNullOrBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (!appUpdateDownloadUrl.isNullOrBlank()) {
+                                        Button(
+                                            onClick = onDownloadAppUpdate,
+                                            modifier = Modifier.weight(1f),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = primaryColor,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                            )
+                                        ) {
+                                            Text("Download APK")
+                                        }
+                                    }
+                                    if (!appUpdateReleaseUrl.isNullOrBlank()) {
+                                        OutlinedButton(
+                                            onClick = onOpenAppUpdateRelease,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Release notes")
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
 

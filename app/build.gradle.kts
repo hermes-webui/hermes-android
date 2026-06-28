@@ -112,6 +112,9 @@ extensions.configure<ApplicationExtension>("android") {
 
     buildTypes {
         release {
+            buildConfigField("String", "UPDATE_CHANNEL", "\"play\"")
+            buildConfigField("String", "GITHUB_RELEASES_API_URL", "\"\"")
+            buildConfigField("String", "GITHUB_RELEASES_PAGE_URL", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             ndk {
@@ -130,9 +133,23 @@ extensions.configure<ApplicationExtension>("android") {
             matchingFallbacks += listOf("release")
             applicationIdSuffix = ".github"
             versionNameSuffix = "-github"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"github\"")
+            buildConfigField(
+                "String",
+                "GITHUB_RELEASES_API_URL",
+                "\"https://api.github.com/repos/hermes-webui/hermes-android/releases/latest\""
+            )
+            buildConfigField(
+                "String",
+                "GITHUB_RELEASES_PAGE_URL",
+                "\"https://github.com/hermes-webui/hermes-android/releases/latest\""
+            )
         }
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"none\"")
+            buildConfigField("String", "GITHUB_RELEASES_API_URL", "\"\"")
+            buildConfigField("String", "GITHUB_RELEASES_PAGE_URL", "\"\"")
         }
     }
 
@@ -143,6 +160,7 @@ extensions.configure<ApplicationExtension>("android") {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -181,6 +199,8 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.play.app.update)
+    implementation(libs.play.app.update.ktx)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

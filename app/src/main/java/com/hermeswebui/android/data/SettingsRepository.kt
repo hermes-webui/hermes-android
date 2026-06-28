@@ -30,7 +30,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 7 // Increment this when adding new migrations
+        val currentMigrationVersion = 9 // Increment this when adding new migrations
 
         if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
@@ -83,6 +83,20 @@ class SettingsRepository(context: Context) : SettingsStore {
             // Migration 7: lock-screen activity preview defaults to redacted.
             if (!sharedPreferences.contains(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED)) {
                 sharedPreferences.edit { putBoolean(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED, false) }
+            }
+        }
+
+        if (lastMigrationVersion < 8) {
+            // Migration 8: app update alerts default to enabled for managed release channels.
+            if (!sharedPreferences.contains(KEY_APP_UPDATE_ALERTS_ENABLED)) {
+                sharedPreferences.edit { putBoolean(KEY_APP_UPDATE_ALERTS_ENABLED, true) }
+            }
+        }
+
+        if (lastMigrationVersion < 9) {
+            // Migration 9: automatic app update checks default to enabled, with daily throttling.
+            if (!sharedPreferences.contains(KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED)) {
+                sharedPreferences.edit { putBoolean(KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED, true) }
             }
         }
 
@@ -182,6 +196,43 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     fun setBackgroundActivityFullTextEnabled(enabled: Boolean) {
         sharedPreferences.edit { putBoolean(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED, enabled) }
+    }
+
+    fun isAppUpdateAlertsEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_APP_UPDATE_ALERTS_ENABLED, true)
+    }
+
+    fun setAppUpdateAlertsEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(KEY_APP_UPDATE_ALERTS_ENABLED, enabled) }
+    }
+
+    fun isAutomaticAppUpdateChecksEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED, true)
+    }
+
+    fun setAutomaticAppUpdateChecksEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED, enabled) }
+    }
+
+    fun shouldCheckForAppUpdates(nowMs: Long, force: Boolean = false): Boolean {
+        if (force) return true
+        if (!isAppUpdateAlertsEnabled()) return false
+        if (!isAutomaticAppUpdateChecksEnabled()) return false
+        val lastCheckMs = sharedPreferences.getLong(KEY_APP_UPDATE_LAST_CHECK_MS, 0L)
+        return nowMs - lastCheckMs >= APP_UPDATE_CHECK_INTERVAL_MS
+    }
+
+    fun markAppUpdateChecked(nowMs: Long) {
+        sharedPreferences.edit { putLong(KEY_APP_UPDATE_LAST_CHECK_MS, nowMs) }
+    }
+
+    fun shouldNotifyAppUpdate(version: String, force: Boolean = false): Boolean {
+        if (force) return true
+        return sharedPreferences.getString(KEY_APP_UPDATE_LAST_NOTIFIED_VERSION, null) != version
+    }
+
+    fun markAppUpdateNotified(version: String) {
+        sharedPreferences.edit { putString(KEY_APP_UPDATE_LAST_NOTIFIED_VERSION, version) }
     }
 
     /**
@@ -342,11 +393,16 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
         private const val KEY_SSE_TRANSPORT_ENABLED = "sse_transport_enabled"
         private const val KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED = "background_activity_full_text_enabled"
+        private const val KEY_APP_UPDATE_ALERTS_ENABLED = "app_update_alerts_enabled"
+        private const val KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED = "automatic_app_update_checks_enabled"
+        private const val KEY_APP_UPDATE_LAST_CHECK_MS = "app_update_last_check_ms"
+        private const val KEY_APP_UPDATE_LAST_NOTIFIED_VERSION = "app_update_last_notified_version"
         private const val KEY_AUTH_PROMPT_SILENCED_URLS = "auth_prompt_silenced_urls"
         private const val KEY_LAST_MIGRATION_VERSION = "last_migration_version"
         private const val DEFAULT_RECONNECT_POLL_INTERVAL_SECONDS = 1
         private const val MIN_RECONNECT_POLL_INTERVAL_SECONDS = 1
         private const val MAX_RECONNECT_POLL_INTERVAL_SECONDS = 10
+        private const val APP_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
         // Profile-related keys
         private const val KEY_SERVER_PROFILES = "server_profiles"
         private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"

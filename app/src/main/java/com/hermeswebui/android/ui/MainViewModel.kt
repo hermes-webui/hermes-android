@@ -7,6 +7,7 @@ import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.data.SettingsStore
 import com.hermeswebui.android.data.SharePayload
+import com.hermeswebui.android.update.AppUpdateCheckResult
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -42,7 +43,9 @@ class MainViewModel(
         backgroundActivityFullTextEnabled = settingsRepositoryImpl?.isBackgroundActivityFullTextEnabled() ?: false,
         reconnectPollIntervalSeconds = settingsRepositoryImpl?.getReconnectPollIntervalSeconds() ?: 1,
         sseTransportEnabled = settingsRepositoryImpl?.isSseTransportEnabled() ?: false,
-        debugLoggingEnabled = settingsRepositoryImpl?.isDebugLoggingEnabled() ?: false
+        debugLoggingEnabled = settingsRepositoryImpl?.isDebugLoggingEnabled() ?: false,
+        appUpdateAlertsEnabled = settingsRepositoryImpl?.isAppUpdateAlertsEnabled() ?: false,
+        automaticAppUpdateChecksEnabled = settingsRepositoryImpl?.isAutomaticAppUpdateChecksEnabled() ?: false
     ))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
@@ -401,6 +404,46 @@ class MainViewModel(
         _uiState.update { it.copy(debugLoggingEnabled = enabled) }
     }
 
+    fun setAppUpdateAlertsEnabled(enabled: Boolean) {
+        settingsRepositoryImpl?.setAppUpdateAlertsEnabled(enabled)
+        _uiState.update { it.copy(appUpdateAlertsEnabled = enabled) }
+    }
+
+    fun setAutomaticAppUpdateChecksEnabled(enabled: Boolean) {
+        settingsRepositoryImpl?.setAutomaticAppUpdateChecksEnabled(enabled)
+        _uiState.update { it.copy(automaticAppUpdateChecksEnabled = enabled) }
+    }
+
+    fun setAppUpdateStatus(status: String?) {
+        _uiState.update { it.copy(appUpdateStatus = status) }
+    }
+
+    fun setAvailableAppUpdate(update: AppUpdateCheckResult.Available) {
+        _uiState.update {
+            it.copy(
+                appUpdateStatus = "Version ${update.version} is available.",
+                appUpdateVersion = update.version,
+                appUpdateReleaseUrl = update.releaseUrl,
+                appUpdateDownloadUrl = update.downloadUrl,
+                appUpdateFileName = update.fileName,
+                appUpdateReleaseNotes = update.releaseNotes
+            )
+        }
+    }
+
+    fun clearAvailableAppUpdate(status: String?) {
+        _uiState.update {
+            it.copy(
+                appUpdateStatus = status,
+                appUpdateVersion = null,
+                appUpdateReleaseUrl = null,
+                appUpdateDownloadUrl = null,
+                appUpdateFileName = null,
+                appUpdateReleaseNotes = null
+            )
+        }
+    }
+
     fun setSseTransportEnabled(enabled: Boolean) {
         settingsRepositoryImpl?.setSseTransportEnabled(enabled)
         _uiState.update {
@@ -423,7 +466,9 @@ class MainViewModel(
                 backgroundActivityFullTextEnabled = repo.isBackgroundActivityFullTextEnabled(),
                 reconnectPollIntervalSeconds = repo.getReconnectPollIntervalSeconds(),
                 sseTransportEnabled = repo.isSseTransportEnabled(),
-                debugLoggingEnabled = repo.isDebugLoggingEnabled()
+                debugLoggingEnabled = repo.isDebugLoggingEnabled(),
+                appUpdateAlertsEnabled = repo.isAppUpdateAlertsEnabled(),
+                automaticAppUpdateChecksEnabled = repo.isAutomaticAppUpdateChecksEnabled()
             )
         }
     }

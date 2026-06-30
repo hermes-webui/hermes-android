@@ -291,6 +291,47 @@ private val HermesWebUiMicrophoneFallbackScript = """
      })();
 """.trimIndent()
 
+private val HermesWebUiEnterKeyNewlineScript = """
+    (function() {
+      if (window.__hermesAndroidEnterNewlineInstalled) return;
+      window.__hermesAndroidEnterNewlineInstalled = true;
+
+      // Issue #34: Hermes WebUI submits the composer on a plain Enter press, so
+      // multi-line messages can't be composed on Android. This document-start
+      // listener registers before the web app's own handlers, so a capture-phase
+      // stopImmediatePropagation suppresses its submit. preventDefault then blocks
+      // the default action and we insert the newline ourselves. Messages are still
+      // sent with the on-screen send button (and Shift+Enter still inserts a newline
+      // via the browser default, since it is left untouched here).
+
+      var isComposer = function(el) {
+        if (!el) return false;
+        return (el.tagName || '').toUpperCase() === 'TEXTAREA' || el.isContentEditable;
+      };
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.keyCode !== 13) return;
+        if (e.shiftKey || e.isComposing) return;
+        var el = e.target;
+        if (!isComposer(el)) return;
+
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        if ((el.tagName || '').toUpperCase() === 'TEXTAREA') {
+          var start = el.selectionStart;
+          var end = el.selectionEnd;
+          el.value = el.value.slice(0, start) + '\n' + el.value.slice(end);
+          el.selectionStart = el.selectionEnd = start + 1;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          try { document.execCommand('insertLineBreak'); }
+          catch (_) { try { document.execCommand('insertText', false, '\n'); } catch (_) {} }
+        }
+      }, true);
+    })();
+""".trimIndent()
+
 private val HermesWebUiAppSettingsEntryScript = """
     (function() {
       var appSettingsHref = 'hermes://app/settings';
@@ -623,6 +664,7 @@ class MainActivity : ComponentActivity() {
     private var notificationBridgeScriptHandler: ScriptHandler? = null
     private var routeRecoveryScriptHandler: ScriptHandler? = null
     private var appSettingsEntryScriptHandler: ScriptHandler? = null
+    private var enterKeyNewlineScriptHandler: ScriptHandler? = null
     private var activityVisible = false
     private var reconnectServiceRunning = false
     private var debugLoggingServiceRunning = false
@@ -2219,6 +2261,7 @@ class MainActivity : ComponentActivity() {
         notificationBridgeScriptHandler?.remove()
         routeRecoveryScriptHandler?.remove()
         appSettingsEntryScriptHandler?.remove()
+        enterKeyNewlineScriptHandler?.remove()
         microphoneFallbackScriptHandler = runCatching {
             WebViewCompat.addDocumentStartJavaScript(
                 view,
@@ -2244,6 +2287,13 @@ class MainActivity : ComponentActivity() {
             WebViewCompat.addDocumentStartJavaScript(
                 view,
                 HermesWebUiAppSettingsEntryScript,
+                setOf(originRule)
+            )
+        }.getOrNull()
+        enterKeyNewlineScriptHandler = runCatching {
+            WebViewCompat.addDocumentStartJavaScript(
+                view,
+                HermesWebUiEnterKeyNewlineScript,
                 setOf(originRule)
             )
         }.getOrNull()

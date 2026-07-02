@@ -37,7 +37,10 @@ class HermesDebugLoggingService : Service() {
 
         ensureDebugChannel()
         val notification = buildNotification()
-        startLogCaptureIfNeeded()
+        // Go foreground BEFORE the heavier log-capture setup. startLogCaptureIfNeeded() decrypts
+        // settings (Keystore) in buildLogSessionHeader, writes a file, and spawns the logcat
+        // process; doing that before startForeground() risked blowing the ~5s deadline on a
+        // slow/loaded device and crashing with ForegroundServiceDidNotStartInTimeException.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 DEBUG_LOGGING_NOTIFICATION_ID,
@@ -47,6 +50,7 @@ class HermesDebugLoggingService : Service() {
         } else {
             startForeground(DEBUG_LOGGING_NOTIFICATION_ID, notification)
         }
+        startLogCaptureIfNeeded()
         return START_NOT_STICKY
     }
 
@@ -187,7 +191,14 @@ class HermesDebugLoggingService : Service() {
             appendLine("reconnect_poll_interval_seconds: ${settings.getReconnectPollIntervalSeconds()}")
             appendLine("sse_transport_enabled: ${settings.isSseTransportEnabled()}")
             appendLine("debug_logging_enabled: ${settings.isDebugLoggingEnabled()}")
-            appendLine("last_loaded_url: ${settings.getLastLoadedUrl().orEmpty()}")
+            // Reduce to origin+path (drop the query string) so an auth code/token in the last URL is
+            // not disclosed in a shared debug log, matching the breadcrumb sanitization discipline.
+            val lastLoadedUrl = settings.getLastLoadedUrl().orEmpty()
+            appendLine(
+                "last_loaded_url: " +
+                    DiagnosticsLogger.originOnly(lastLoadedUrl) +
+                    DiagnosticsLogger.pathOnly(lastLoadedUrl)
+            )
             appendLine("=======================================")
             if (recentDiagnostics.isNotBlank()) {
                 appendLine()

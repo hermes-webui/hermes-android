@@ -636,6 +636,13 @@ class MainActivity : ComponentActivity() {
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
 
+    // Popups created by onCreateWindow that have not yet been destroyed. A window.open('') that
+    // never navigates never reaches the popup's shouldOverrideUrlLoading/onPageStarted, so it would
+    // otherwise leak its WebView/renderer resources. Tracked so an orphan sweep and destroyPopup()
+    // can clean them up without double-destroying.
+    private val trackedPopups = mutableSetOf<WebView>()
+    private val ORPHAN_POPUP_SWEEP_MS = 15 * 1000L
+
     private val serverUrlValidator = ServerUrlValidator()
 
     private var lastBackPressTime: Long = 0
@@ -1070,6 +1077,12 @@ class MainActivity : ComponentActivity() {
                         disableWebViewDarkening(settings)
                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
                     }
+                    trackedPopups.add(popup)
+                    popup.postDelayed({
+                        // Never-navigated window.open('') orphan: destroy it unless it became the
+                        // active OAuth popup (that path is cleaned up by the OAuth timeout instead).
+                        if (activeOAuthPopup !== popup) destroyPopup(popup)
+                    }, ORPHAN_POPUP_SWEEP_MS)
                     popup.webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(
                             view: WebView?,
@@ -1077,7 +1090,7 @@ class MainActivity : ComponentActivity() {
                         ): Boolean {
                             val target = request?.url?.toString() ?: return true
                             if (handleAppSettingsNavigation(target)) {
-                                popup.destroy()
+                                destroyPopup(popup)
                                 return true
                             }
 
@@ -1085,7 +1098,7 @@ class MainActivity : ComponentActivity() {
                             if (callbackFlow?.isVerifiedCallbackUrl(target) == true) {
                                 clearActiveOAuthPopup()
                                 loadOAuthCallbackInMainWebView(target)
-                                popup.destroy()
+                                destroyPopup(popup)
                                 return true
                             }
 
@@ -1103,7 +1116,7 @@ class MainActivity : ComponentActivity() {
 
                             clearActiveOAuthPopup()
                             handleNewWindowUrl(target)
-                            popup.destroy()
+                            destroyPopup(popup)
                             return true
                         }
 
@@ -1119,7 +1132,7 @@ class MainActivity : ComponentActivity() {
                             if (callbackFlow?.isVerifiedCallbackUrl(url) == true) {
                                 clearActiveOAuthPopup()
                                 loadOAuthCallbackInMainWebView(url)
-                                popup.destroy()
+                                destroyPopup(popup)
                                 return
                             }
 
@@ -1136,7 +1149,7 @@ class MainActivity : ComponentActivity() {
 
                             clearActiveOAuthPopup()
                             handleNewWindowUrl(url)
-                            popup.destroy()
+                            destroyPopup(popup)
                         }
                     }
                     transport.webView = popup
@@ -3305,6 +3318,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun destroyPopup(popup: WebView) {
+        // Idempotent: only destroy a popup still tracked as live, so the delayed orphan sweep and
+        // the navigation/cleanup paths cannot double-destroy the same WebView.
+        if (trackedPopups.remove(popup)) {
+            runCatching { popup.destroy() }
+        }
+    }
+
     /** Cleanup OAuth state if it has timed out.
      *
      * OAuth flows should complete quickly. If a popup or top-level auth flow stays
@@ -3313,11 +3334,7 @@ class MainActivity : ComponentActivity() {
     private fun cleanupExpiredOAuthPopup() {
         val hasActiveOAuth = activeOAuthPopup != null || activeMainFrameOAuthFlow != null
         if (hasActiveOAuth && System.currentTimeMillis() > oauthFlowTimeoutMs) {
-            try {
-                activeOAuthPopup?.destroy()
-            } catch (_: Exception) {
-                // WebView may already be destroyed; ignore errors
-            }
+            activeOAuthPopup?.let { destroyPopup(it) }
             clearActiveOAuthPopup()
             clearActiveMainFrameOAuth()
         }

@@ -334,16 +334,23 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     fun getProfiles(): List<ServerProfile> {
         val json = sharedPreferences.getString(KEY_SERVER_PROFILES, "[]") ?: "[]"
+        // KEY_ACTIVE_PROFILE_ID is the single source of truth for which profile is active.
+        // setActiveProfile() only updates that key (not the per-row isActive boolean in the JSON),
+        // so deriving isActive from the persisted boolean let a stale profile look active after a
+        // switch. Compute isActive from the key here instead. (Both creation paths already set the
+        // key alongside the profile, so nothing that is active can be missing from it.)
+        val activeId = sharedPreferences.getString(KEY_ACTIVE_PROFILE_ID, null)
         return try {
             val jsonArray = JSONArray(json)
             (0 until jsonArray.length()).map { index ->
                 val obj = jsonArray.getJSONObject(index)
+                val id = obj.getString("id")
                 ServerProfile(
-                    id = obj.getString("id"),
+                    id = id,
                     name = obj.getString("name"),
                     url = obj.getString("url"),
                     createdAt = obj.getLong("createdAt"),
-                    isActive = obj.getBoolean("isActive")
+                    isActive = id == activeId
                 )
             }
         } catch (e: Exception) {

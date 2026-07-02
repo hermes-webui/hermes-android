@@ -463,8 +463,11 @@ object HermesApiClient {
             val probeJson = runCatching { JSONObject(body) }.getOrNull()
             GatewayProbeResult(
                 httpStatus = code,
-                enabled = probeJson?.optBoolean("enabled"),
-                ok = probeJson?.optBoolean("ok")
+                // Distinguish an absent flag (null) from an explicit false: optBoolean() defaults a
+                // missing key to false, which made a healthy gateway that omits "enabled" (e.g.
+                // {"ok":true}) look FEATURE_DISABLED and steer the user wrong.
+                enabled = probeJson?.let { if (it.has("enabled")) it.getBoolean("enabled") else null },
+                ok = probeJson?.let { if (it.has("ok")) it.getBoolean("ok") else null }
             )
         } catch (_: Exception) {
             null

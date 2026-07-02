@@ -165,19 +165,15 @@ class MainViewModel(
         val useSseTransport = _uiState.value.sseTransportEnabled
 
         autoRetryJob = viewModelScope.launch {
+            var elapsedRetryMs = 0L
             val maxRetryDurationMs = 60_000L
-            // Bound the retry budget on WALL-CLOCK, not just accumulated delay(): the per-iteration
-            // probe in isReconnectSignalAvailable() can block up to the socket timeout (~6s) and was
-            // never counted, so a hard-down server stretched the documented ~60s budget into minutes
-            // of spinner + network/battery churn.
-            val startedAt = nowMs()
             val pollIntervalMs = (_uiState.value.reconnectPollIntervalSeconds.coerceAtLeast(1) * 1_000L)
             var msUntilNextProbe = if (useSseTransport) 0L else pollIntervalMs
             _uiState.update { it.copy(isReconnecting = true) }
             promoteDeferredErrorIfReady(deferredErrorSnapshot)
 
-            while (nowMs() - startedAt < maxRetryDurationMs) {
-                val remainingRetryBudgetMs = maxRetryDurationMs - (nowMs() - startedAt)
+            while (elapsedRetryMs < maxRetryDurationMs) {
+                val remainingRetryBudgetMs = maxRetryDurationMs - elapsedRetryMs
                 val untilDeferredVisibleMs = deferredErrorSnapshot?.let {
                     val remainingMs = it.visibleAtMs - nowMs()
                     if (remainingMs > 0L && _uiState.value.errorMessage == null) {
@@ -190,6 +186,7 @@ class MainViewModel(
 
                 if (waitMs > 0L) {
                     delay(waitMs.milliseconds)
+                    elapsedRetryMs += waitMs
                     msUntilNextProbe -= waitMs
                 }
 
@@ -197,7 +194,16 @@ class MainViewModel(
 
                 if (msUntilNextProbe > 0L) continue
 
-                if (isReconnectSignalAvailable(serverUrl, useSseTransport)) {
+                // Count the probe's own latency toward the budget: a probe against a hard-down
+                // server can block up to the socket timeout (~6s) per iteration, and counting only
+                // delay() stretched the documented ~60s budget into minutes of spinner/battery
+                // churn. Measured via nowMs so tests on a virtual clock still drive the budget
+                // through delay() (their mocked probe adds ~0).
+                val probeStartedAt = nowMs()
+                val reconnectAvailable = isReconnectSignalAvailable(serverUrl, useSseTransport)
+                elapsedRetryMs += (nowMs() - probeStartedAt).coerceAtLeast(0L)
+
+                if (reconnectAvailable) {
                     deferredPageError = null
                     _uiState.update { it.copy(isReconnecting = false) }
                     _autoReloadEvent.tryEmit(Unit)

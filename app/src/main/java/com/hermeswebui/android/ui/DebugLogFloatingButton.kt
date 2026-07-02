@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +64,14 @@ fun DebugLogFloatingOverlay(
 
         var offsetX by remember { mutableStateOf(defaultX) }
         var offsetY by remember { mutableStateOf(defaultY) }
+
+        // Re-clamp when the available bounds change (rotation/resize). Without this, a position
+        // saved in a larger layout can leave the button (and its hint label) partly or fully
+        // off-screen and untappable until the composition is recreated.
+        LaunchedEffect(maxXPx, maxYPx) {
+            offsetX = offsetX.coerceIn(edgePaddingPx, maxXPx)
+            offsetY = offsetY.coerceIn(edgePaddingPx, maxYPx)
+        }
 
         Box(
             modifier = Modifier

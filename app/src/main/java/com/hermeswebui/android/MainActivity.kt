@@ -101,6 +101,7 @@ import com.hermeswebui.android.ui.DebugLogFloatingOverlay
 import com.hermeswebui.android.ui.settings.SettingsScreen
 import com.hermeswebui.android.ui.web.WebShell
 import com.hermeswebui.android.update.AppUpdateCheckResult
+import com.hermeswebui.android.update.AppUpdateDownloadPolicy
 import com.hermeswebui.android.update.GitHubReleaseUpdateChecker
 import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateManager
@@ -1951,23 +1952,15 @@ class MainActivity : ComponentActivity() {
 
     private fun downloadGitHubUpdate(downloadUrl: String?, fileName: String?) {
         val url = downloadUrl?.trim().orEmpty()
-        val parsed = runCatching { Uri.parse(url) }.getOrNull()
         // MainActivity is exported, so the DOWNLOAD_APP_UPDATE intent (and its download URL) can be
-        // sent by any installed app. GitHub Release APK assets are only ever served from github.com
-        // (browser_download_url) and its *.githubusercontent.com asset CDN, so confine the download
-        // host to that set. Without this, https + ".apk" alone let a third-party app drive this
-        // component into enqueueing an attacker-hosted APK.
-        val host = UrlOrigins.hostFrom(url)
-        if (
-            parsed == null ||
-            parsed.scheme != "https" ||
-            host == null ||
-            !isTrustedApkDownloadHost(host) ||
-            !url.endsWith(".apk", ignoreCase = true)
-        ) {
+        // sent by any installed app. AppUpdateDownloadPolicy confines the download to https `.apk`
+        // assets on GitHub's release hosts so a third-party app cannot drive this component into
+        // enqueueing an attacker-hosted APK.
+        if (!AppUpdateDownloadPolicy.isTrustedApkDownloadUrl(url)) {
             Toast.makeText(this, "No GitHub APK download is available", Toast.LENGTH_LONG).show()
             return
         }
+        val parsed = Uri.parse(url)
 
         val safeFileName = fileName
             ?.trim()
@@ -1987,16 +1980,6 @@ class MainActivity : ComponentActivity() {
         }
         getSystemService(DownloadManager::class.java).enqueue(request)
         Toast.makeText(this, "GitHub APK download started", Toast.LENGTH_SHORT).show()
-    }
-
-    /**
-     * GitHub Release APK assets are served only from github.com (the release `browser_download_url`)
-     * and its `*.githubusercontent.com` asset CDN. Confining the update download host to that set
-     * keeps the exported DOWNLOAD_APP_UPDATE path from being coerced into fetching an
-     * attacker-hosted APK.
-     */
-    private fun isTrustedApkDownloadHost(host: String): Boolean {
-        return host == "github.com" || host.endsWith(".githubusercontent.com")
     }
 
     @SuppressLint("MissingPermission")

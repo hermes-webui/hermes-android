@@ -100,11 +100,26 @@ object HermesApiClient {
         "(the probe currently reports 'agent sessions not enabled'), then restart Hermes if needed. " +
         "After that, re-run the Android app's SSE support check."
 
-    private data class GatewayProbeResult(
+    internal data class GatewayProbeResult(
         val httpStatus: Int,
         val enabled: Boolean?,
         val ok: Boolean?
     )
+
+    /**
+     * Pure classification of a gateway `?probe=1` response body, kept separate from the network
+     * call so it is unit-testable. Distinguishes an absent flag (null) from an explicit false:
+     * `optBoolean()` would default a missing key to false and mislabel a healthy gateway that
+     * omits "enabled" (e.g. {"ok":true}) as disabled.
+     */
+    internal fun interpretGatewayProbe(httpStatus: Int, rawBody: String): GatewayProbeResult {
+        val probeJson = runCatching { JSONObject(rawBody) }.getOrNull()
+        return GatewayProbeResult(
+            httpStatus = httpStatus,
+            enabled = probeJson?.let { if (it.has("enabled")) it.getBoolean("enabled") else null },
+            ok = probeJson?.let { if (it.has("ok")) it.getBoolean("ok") else null }
+        )
+    }
 
     private data class SseStreamProbeResult(
         val httpStatus: Int,
@@ -460,15 +475,7 @@ object HermesApiClient {
             val stream = if (code >= 400) conn.errorStream else conn.inputStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             conn.disconnect()
-            val probeJson = runCatching { JSONObject(body) }.getOrNull()
-            GatewayProbeResult(
-                httpStatus = code,
-                // Distinguish an absent flag (null) from an explicit false: optBoolean() defaults a
-                // missing key to false, which made a healthy gateway that omits "enabled" (e.g.
-                // {"ok":true}) look FEATURE_DISABLED and steer the user wrong.
-                enabled = probeJson?.let { if (it.has("enabled")) it.getBoolean("enabled") else null },
-                ok = probeJson?.let { if (it.has("ok")) it.getBoolean("ok") else null }
-            )
+            interpretGatewayProbe(code, body)
         } catch (_: Exception) {
             null
         }

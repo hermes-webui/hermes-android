@@ -33,6 +33,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebStorage
+import android.webkit.WebViewDatabase
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -2857,6 +2858,9 @@ class MainActivity : ComponentActivity() {
         webView.clearHistory()
         webView.clearCache(true)
         webView.clearFormData()
+        // Also drop stored HTTP Basic/Digest credentials — otherwise a "reset web session"
+        // (sign out & wipe) still leaves saved auth behind on a shared device.
+        runCatching { WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword() }
         webView.loadUrl(viewModel.uiState.value.settings.serverUrl)
     }
 

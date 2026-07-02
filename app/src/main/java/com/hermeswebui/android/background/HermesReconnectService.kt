@@ -28,6 +28,14 @@ import java.net.URLEncoder
 class HermesReconnectService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var sessionStreamJob: Job? = null
+
+    // Reference to the in-flight SSE connection so cancellation can actively close the socket.
+    // Cancelling sessionStreamJob alone does not interrupt the blocking readLine() in consumeSse
+    // nor run the finally-disconnect, so the connection + IO thread would leak until the 45s read
+    // timeout (or server close) on every reconnect/relaunch. @Volatile: written on the IO stream
+    // thread, read from the main thread in cancelSessionStream().
+    @Volatile
+    private var activeStreamConnection: HttpURLConnection? = null
     private var activeServerUrl: String? = null
     private var activeSessionId: String? = null
     private var activeSessionTargetUrl: String? = null
@@ -91,7 +99,7 @@ class HermesReconnectService : Service() {
             return START_NOT_STICKY
         }
 
-        sessionStreamJob?.cancel()
+        cancelSessionStream()
         sessionStreamJob = serviceScope.launch {
             streamSessionUpdates(
                 baseUrl = serverUrl,
@@ -108,10 +116,22 @@ class HermesReconnectService : Service() {
     }
 
     override fun onDestroy() {
-        sessionStreamJob?.cancel()
+        cancelSessionStream()
         serviceScope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
+    }
+
+    /**
+     * Cancel the SSE stream job AND actively disconnect its socket. The disconnect unblocks the
+     * coroutine's blocking readLine() so it throws, runs its finally, and stops the IO thread
+     * instead of leaking it until the read timeout.
+     */
+    private fun cancelSessionStream() {
+        sessionStreamJob?.cancel()
+        sessionStreamJob = null
+        runCatching { activeStreamConnection?.disconnect() }
+        activeStreamConnection = null
     }
 
     private fun buildNotification(
@@ -383,6 +403,7 @@ class HermesReconnectService : Service() {
         }.getOrNull() ?: return
 
         val connection = (runCatching { url.openConnection() as HttpURLConnection }.getOrNull()) ?: return
+        activeStreamConnection = connection
         try {
             connection.requestMethod = "GET"
             connection.connectTimeout = 4_000
@@ -421,6 +442,9 @@ class HermesReconnectService : Service() {
             }
             return
         } finally {
+            // Only clear the shared reference if it still points at this connection: a concurrent
+            // relaunch may have already installed a newer one that must stay cancelable.
+            if (activeStreamConnection === connection) activeStreamConnection = null
             connection.disconnect()
         }
     }

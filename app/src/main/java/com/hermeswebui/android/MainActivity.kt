@@ -1202,8 +1202,22 @@ class MainActivity : ComponentActivity() {
                         return false
                     }
                     if (activeTopLevelFlow != null && isHttpOrHttpsUrl(target)) {
-                        refreshActiveOAuthTimeout()
-                        return false
+                        // Keep loading provider/redirect hosts in-app only while the flow window
+                        // (set once at flow start) is still open. Enforce the timeout INLINE and do
+                        // NOT refresh it per navigation: refreshing on every http(s) load let a
+                        // stale/hijacked flow hold the host allowlist open indefinitely. Once the
+                        // window closes, clear the flow and fall through so non-allowlisted hosts are
+                        // externalized again.
+                        // Residual (P2): the flow is still gated only by the redirect_uri->server-origin
+                        // check because a non-allowlisted authorize host is intentionally allowed in-app
+                        // for external/self-hosted OIDC providers (see OAuthPopupFlowTest). Requiring the
+                        // authorize host to be allowlisted would break legitimate provider logins; fully
+                        // closing the in-app phishing surface needs a product decision (configurable
+                        // trusted-IdP allowlist or an in-flow URL indicator).
+                        if (System.currentTimeMillis() <= oauthFlowTimeoutMs) {
+                            return false
+                        }
+                        clearActiveMainFrameOAuth()
                     }
                     if (matchesConfiguredDashboardRoute(target)) {
                         openDashboardInCustomTab(target)
@@ -1775,9 +1789,17 @@ class MainActivity : ComponentActivity() {
     private fun downloadGitHubUpdate(downloadUrl: String?, fileName: String?) {
         val url = downloadUrl?.trim().orEmpty()
         val parsed = runCatching { Uri.parse(url) }.getOrNull()
+        // MainActivity is exported, so the DOWNLOAD_APP_UPDATE intent (and its download URL) can be
+        // sent by any installed app. GitHub Release APK assets are only ever served from github.com
+        // (browser_download_url) and its *.githubusercontent.com asset CDN, so confine the download
+        // host to that set. Without this, https + ".apk" alone let a third-party app drive this
+        // component into enqueueing an attacker-hosted APK.
+        val host = UrlOrigins.hostFrom(url)
         if (
             parsed == null ||
             parsed.scheme != "https" ||
+            host == null ||
+            !isTrustedApkDownloadHost(host) ||
             !url.endsWith(".apk", ignoreCase = true)
         ) {
             Toast.makeText(this, "No GitHub APK download is available", Toast.LENGTH_LONG).show()
@@ -1802,6 +1824,16 @@ class MainActivity : ComponentActivity() {
         }
         getSystemService(DownloadManager::class.java).enqueue(request)
         Toast.makeText(this, "GitHub APK download started", Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * GitHub Release APK assets are served only from github.com (the release `browser_download_url`)
+     * and its `*.githubusercontent.com` asset CDN. Confining the update download host to that set
+     * keeps the exported DOWNLOAD_APP_UPDATE path from being coerced into fetching an
+     * attacker-hosted APK.
+     */
+    private fun isTrustedApkDownloadHost(host: String): Boolean {
+        return host == "github.com" || host.endsWith(".githubusercontent.com")
     }
 
     @SuppressLint("MissingPermission")

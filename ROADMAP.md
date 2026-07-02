@@ -86,6 +86,24 @@ workflow changes should be made in Hermes WebUI instead.
 - [x] Release signing automation docs and snippets
 - [~] Background continuity while app is backgrounded (Issue 10): Part A is complete; Part B ongoing activity notification and initial Part C tray approvals are implemented. Remaining work is focused on B4 lifecycle/manual validation and cross-client SSE/API contract hardening tracked in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`.
 
+### Native improvement proposals (2026-07-02, post code-review)
+
+Wishlist from a line-by-line committee review. Full rationale + implementation
+sketches in `docs/proposals/ANDROID_NATIVE_IMPROVEMENTS.md`.
+
+- [ ] Scope cleartext to the configured host via `network_security_config` (A1, security)
+- [ ] Optional TLS/certificate pinning for the configured host (A2, security)
+- [ ] Optional `FLAG_SECURE` + hide content in the app switcher (A3, privacy)
+- [ ] Biometric app-lock before `WebShell` with idle timeout (A4, security — concrete plan for the existing deferred idea)
+- [ ] Close the residual in-app OAuth phishing surface: trusted-IdP allowlist or in-flow host chip (A5, security — from the review)
+- [ ] Native "sign out & wipe" action for shared devices (A6)
+- [ ] Instrumentation tests (deep links, exported download host, allowlist) wired into CI (B1)
+- [ ] Unit tests covering the committee fixes: update-APK host allowlist, gateway `enabled` absent/false, profile `isActive` derivation (B2)
+- [ ] detekt/ktlint + Android Lint gate in CI (B3)
+- [ ] App shortcuts for Settings + server switch (C1)
+- [ ] Direct Share targets to recent sessions (C2)
+- [ ] Predictive-back + per-app language polish (C3)
+
 ---
 
 ## Maintenance work

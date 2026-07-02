@@ -165,15 +165,19 @@ class MainViewModel(
         val useSseTransport = _uiState.value.sseTransportEnabled
 
         autoRetryJob = viewModelScope.launch {
-            var elapsedRetryMs = 0L
             val maxRetryDurationMs = 60_000L
+            // Bound the retry budget on WALL-CLOCK, not just accumulated delay(): the per-iteration
+            // probe in isReconnectSignalAvailable() can block up to the socket timeout (~6s) and was
+            // never counted, so a hard-down server stretched the documented ~60s budget into minutes
+            // of spinner + network/battery churn.
+            val startedAt = nowMs()
             val pollIntervalMs = (_uiState.value.reconnectPollIntervalSeconds.coerceAtLeast(1) * 1_000L)
             var msUntilNextProbe = if (useSseTransport) 0L else pollIntervalMs
             _uiState.update { it.copy(isReconnecting = true) }
             promoteDeferredErrorIfReady(deferredErrorSnapshot)
 
-            while (elapsedRetryMs < maxRetryDurationMs) {
-                val remainingRetryBudgetMs = maxRetryDurationMs - elapsedRetryMs
+            while (nowMs() - startedAt < maxRetryDurationMs) {
+                val remainingRetryBudgetMs = maxRetryDurationMs - (nowMs() - startedAt)
                 val untilDeferredVisibleMs = deferredErrorSnapshot?.let {
                     val remainingMs = it.visibleAtMs - nowMs()
                     if (remainingMs > 0L && _uiState.value.errorMessage == null) {
@@ -186,7 +190,6 @@ class MainViewModel(
 
                 if (waitMs > 0L) {
                     delay(waitMs.milliseconds)
-                    elapsedRetryMs += waitMs
                     msUntilNextProbe -= waitMs
                 }
 

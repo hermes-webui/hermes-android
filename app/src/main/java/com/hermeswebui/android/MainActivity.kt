@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.Message
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.PermissionRequest
@@ -729,6 +730,7 @@ class MainActivity : ComponentActivity() {
             settingsRepository.setDebugLoggingEnabled(true)
             viewModel.setDebugLoggingEnabled(true)
         }
+        applyScreenshotSecurity(settingsRepository.isBlockScreenshotsEnabled())
         webView = buildWebView()
         installHermesWebUiDocumentStartFixes(webView, viewModel.uiState.value.settings.serverUrl)
 
@@ -948,6 +950,7 @@ class MainActivity : ComponentActivity() {
                     sseTransportEnabled = uiState.sseTransportEnabled,
                     sseSupportStatus = uiState.sseSupportStatus,
                     debugLoggingEnabled = uiState.debugLoggingEnabled,
+                    blockScreenshotsEnabled = uiState.blockScreenshotsEnabled,
                     appUpdateAlertsEnabled = uiState.appUpdateAlertsEnabled,
                     automaticAppUpdateChecksEnabled = uiState.automaticAppUpdateChecksEnabled,
                     appUpdateChannelLabel = appUpdateChannelLabel(),
@@ -990,6 +993,10 @@ class MainActivity : ComponentActivity() {
                         }
                         viewModel.setDebugLoggingEnabled(enabled)
                         syncDebugLoggingForegroundService(enabled)
+                    },
+                    onSetBlockScreenshotsEnabled = { enabled ->
+                        viewModel.setBlockScreenshotsEnabled(enabled)
+                        applyScreenshotSecurity(enabled)
                     },
                     onSetAppUpdateAlertsEnabled = { enabled ->
                         if (enabled) {
@@ -2686,6 +2693,19 @@ class MainActivity : ComponentActivity() {
             serverUrl,
             onFailure = { result -> showServerValidationRecoveryDialog(serverUrl, result, "Save server") { persist() } }
         ) { persist() }
+    }
+
+    /**
+     * When enabled, mark the window FLAG_SECURE so the OS blocks screenshots/screen recording and
+     * shows a blank thumbnail in the app switcher — the last frame of an agent session (secrets,
+     * approvals, tool output) is not exposed. Opt-in via native settings.
+     */
+    private fun applyScreenshotSecurity(enabled: Boolean) {
+        if (enabled) {
+            window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     private fun resetWebSession() {

@@ -72,6 +72,7 @@ fun SettingsScreen(
     sseTransportEnabled: Boolean,
     sseSupportStatus: String?,
     debugLoggingEnabled: Boolean,
+    blockScreenshotsEnabled: Boolean,
     appUpdateAlertsEnabled: Boolean,
     automaticAppUpdateChecksEnabled: Boolean,
     appUpdateChannelLabel: String,
@@ -92,6 +93,7 @@ fun SettingsScreen(
     onCheckSseSupport: () -> Unit,
     onCopySsePrompt: () -> Unit,
     onSetDebugLoggingEnabled: (Boolean) -> Unit,
+    onSetBlockScreenshotsEnabled: (Boolean) -> Unit,
     onSetAppUpdateAlertsEnabled: (Boolean) -> Unit,
     onSetAutomaticAppUpdateChecksEnabled: (Boolean) -> Unit,
     onCheckAppUpdates: () -> Unit,
@@ -785,13 +787,55 @@ fun SettingsScreen(
                         },
                         supportingContent = {
                             Text(
-                                "Clear cookies, local storage, and cached data. Signs you out.",
+                                "Clear cookies, local storage, cached data, and saved credentials. Signs you out.",
                                 color = onSurfaceVar,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         },
                         colors = ListItemDefaults.colors(containerColor = surfaceColor),
                         modifier = Modifier.clickable { showResetSessionConfirm = true }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ── Privacy ───────────────────────────────────────────────
+                SectionHeader("Privacy")
+
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(surfaceColor)
+                        .fillMaxWidth()
+                ) {
+                    ListItem(
+                        headlineContent = {
+                            Text("Block screenshots", fontWeight = FontWeight.Medium)
+                        },
+                        supportingContent = {
+                            Text(
+                                "Prevent screenshots and screen recording, and hide app content in the recent-apps switcher.",
+                                color = onSurfaceVar,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = blockScreenshotsEnabled,
+                                onCheckedChange = onSetBlockScreenshotsEnabled,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                    uncheckedThumbColor = onSurfaceVar,
+                                    uncheckedTrackColor = surfaceVariant
+                                )
+                            )
+                        },
+                        colors = ListItemDefaults.colors(containerColor = surfaceColor),
+                        modifier = Modifier.clickable {
+                            onSetBlockScreenshotsEnabled(!blockScreenshotsEnabled)
+                        }
                     )
                 }
 

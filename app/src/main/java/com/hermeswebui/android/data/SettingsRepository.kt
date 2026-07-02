@@ -190,6 +190,14 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_SSE_TRANSPORT_ENABLED, enabled) }
     }
 
+    fun isBlockScreenshotsEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_BLOCK_SCREENSHOTS_ENABLED, false)
+    }
+
+    fun setBlockScreenshotsEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(KEY_BLOCK_SCREENSHOTS_ENABLED, enabled) }
+    }
+
     fun isBackgroundActivityFullTextEnabled(): Boolean {
         return sharedPreferences.getBoolean(KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED, false)
     }
@@ -385,6 +393,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_RECONNECT_POLL_INTERVAL_SECONDS = "reconnect_poll_interval_seconds"
         private const val KEY_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
         private const val KEY_SSE_TRANSPORT_ENABLED = "sse_transport_enabled"
+        private const val KEY_BLOCK_SCREENSHOTS_ENABLED = "block_screenshots_enabled"
         private const val KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED = "background_activity_full_text_enabled"
         private const val KEY_APP_UPDATE_ALERTS_ENABLED = "app_update_alerts_enabled"
         private const val KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED = "automatic_app_update_checks_enabled"

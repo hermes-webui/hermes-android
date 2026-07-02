@@ -20,6 +20,8 @@ data class MainUiState(
     val isSettingsVisible: Boolean = false,
     val pendingShareBanner: String? = null,
     val currentUrl: String = settings.serverUrl,
+    /** Host shown by the in-flow OAuth chip when an in-app auth flow is on a non-allowlisted origin. */
+    val oauthInFlowHost: String? = null,
     val backgroundReconnectEnabled: Boolean = false,
     val backgroundActivityFullTextEnabled: Boolean = false,
     val reconnectPollIntervalSeconds: Int = 1,

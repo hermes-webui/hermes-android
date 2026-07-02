@@ -56,7 +56,12 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -1085,6 +1090,26 @@ class MainActivity : ComponentActivity() {
                             onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
                         )
                         SnackbarHost(hostState = snackbarHostState)
+
+                        // Anti-phishing chip: shows the current host while an in-app OAuth flow is
+                        // on a non-allowlisted origin, since the WebView has no URL bar.
+                        uiState.oauthInFlowHost?.let { host ->
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 8.dp),
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                tonalElevation = 4.dp
+                            ) {
+                                Text(
+                                    text = "🔒 Signing in on $host",
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -1415,6 +1440,7 @@ class MainActivity : ComponentActivity() {
                             parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
                         }
                     }
+                    updateOAuthInFlowHost(url)
                     viewModel.onPageStarted(url)
                 }
 
@@ -3470,9 +3496,26 @@ class MainActivity : ComponentActivity() {
 
     private fun clearActiveMainFrameOAuth() {
         activeMainFrameOAuthFlow = null
+        viewModel.setOAuthInFlowHost(null)
         if (activeOAuthPopup == null) {
             oauthFlowTimeoutMs = 0L
         }
+    }
+
+    /**
+     * Anti-phishing chip source: while an in-app OAuth flow is active and the current page is a
+     * non-allowlisted origin (an external/self-hosted IdP rendered in the URL-bar-less WebView),
+     * surface the host so the user can see they left the Hermes origin. The residual in-app OAuth
+     * phishing surface (a non-allowlisted authorize host is intentionally allowed in-app for OIDC)
+     * is otherwise invisible without a URL bar.
+     */
+    private fun updateOAuthInFlowHost(url: String?) {
+        val host = if (activeMainFrameOAuthFlow != null && !url.isNullOrBlank() && !urlPolicy.isAllowed(url)) {
+            UrlOrigins.hostFrom(url)
+        } else {
+            null
+        }
+        viewModel.setOAuthInFlowHost(host)
     }
 
     private fun refreshActiveOAuthTimeout() {

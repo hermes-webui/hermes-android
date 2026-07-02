@@ -419,6 +419,11 @@ class MainViewModel(
         _uiState.update { it.copy(blockScreenshotsEnabled = enabled) }
     }
 
+    fun setOAuthInFlowHost(host: String?) {
+        if (_uiState.value.oauthInFlowHost == host) return
+        _uiState.update { it.copy(oauthInFlowHost = host) }
+    }
+
     fun setAppUpdateAlertsEnabled(enabled: Boolean) {
         settingsRepositoryImpl?.setAppUpdateAlertsEnabled(enabled)
         _uiState.update { it.copy(appUpdateAlertsEnabled = enabled) }

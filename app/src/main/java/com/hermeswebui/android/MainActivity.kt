@@ -1045,8 +1045,10 @@ class MainActivity : ComponentActivity() {
             settings.userAgentString = "${settings.userAgentString} Hermes-Android/${appVersionName()}"
             disableWebViewDarkening(settings)
             installHermesNotificationWebMessageBridge(this)
-            isLongClickable = false
-            setOnLongClickListener { true }
+            // Allow native long-press so Android's text selection handles appear in
+            // conversation messages (issue #35). Default WebView behavior already
+            // routes long-press on links to the system context menu.
+            isLongClickable = true
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)

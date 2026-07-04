@@ -6,7 +6,6 @@ import android.app.DownloadManager
 import android.app.AlertDialog
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ActivityNotFoundException
@@ -75,24 +74,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
-import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.ScriptHandler
-import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import com.hermeswebui.android.background.HermesDebugLoggingService
 import com.hermeswebui.android.background.DebugLogBootstrap
-import com.hermeswebui.android.background.HermesReconnectService
-import com.hermeswebui.android.background.ReconnectBackgroundPolicy
-import com.hermeswebui.android.background.ReconnectSessionStreamSupport
+import com.hermeswebui.android.background.HermesForegroundServiceCoordinator
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.core.security.UrlPolicy
@@ -101,6 +93,7 @@ import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.notification.HermesNotificationBridgeCoordinator
+import com.hermeswebui.android.notification.HermesNotificationPresenter
 import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.server.HermesServerProfileCoordinator
 import com.hermeswebui.android.domain.ShareIntentParser
@@ -111,27 +104,16 @@ import com.hermeswebui.android.ui.settings.SettingsScreen
 import com.hermeswebui.android.ui.web.WebShell
 import com.hermeswebui.android.webui.HermesWebUiScripts
 import com.hermeswebui.android.webview.HermesWebViewConfigurator
-import com.hermeswebui.android.update.AppUpdateCheckResult
-import com.hermeswebui.android.update.AppUpdateDownloadPolicy
 import com.hermeswebui.android.update.HermesAppUpdateCoordinator
-import com.hermeswebui.android.update.GitHubReleaseUpdateChecker
-import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
-import com.google.android.play.core.appupdate.AppUpdateOptions
-import com.google.android.play.core.install.model.AppUpdateType
-import com.google.android.play.core.install.model.UpdateAvailability
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
-import kotlinx.coroutines.Job
 
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
 private const val HermesNotificationIdBase = 10_000
-private const val ActionOpenNotificationUrl = "com.hermeswebui.android.OPEN_NOTIFICATION_URL"
-private const val ExtraNotificationUrl = "com.hermeswebui.android.extra.NOTIFICATION_URL"
 private const val HermesGithubIssuesListUrl = "https://github.com/hermes-webui/hermes-android/issues"
 private const val HermesGithubNewIssueUrl = "https://github.com/hermes-webui/hermes-android/issues/new/choose"
 private const val EnableAppSettingsSidebarShim = true
@@ -190,12 +172,12 @@ class MainActivity : ComponentActivity() {
     private var appSettingsEntryScriptHandler: ScriptHandler? = null
     private var enterKeyNewlineScriptHandler: ScriptHandler? = null
     private var activityVisible = false
-    private var reconnectServiceRunning = false
-    private var debugLoggingServiceRunning = false
     private lateinit var appUpdateManager: AppUpdateManager
     private lateinit var appUpdateCoordinator: HermesAppUpdateCoordinator
     private lateinit var notificationBridgeCoordinator: HermesNotificationBridgeCoordinator
+    private lateinit var notificationPresenter: HermesNotificationPresenter
     private lateinit var serverProfileCoordinator: HermesServerProfileCoordinator
+    private lateinit var foregroundServiceCoordinator: HermesForegroundServiceCoordinator
 
     private var activeOAuthPopup: WebView? = null
     private var activeOAuthFlow: OAuthPopupFlow? = null
@@ -278,12 +260,27 @@ class MainActivity : ComponentActivity() {
             this,
             MainViewModelFactory(settingsRepository, settingsRepository, defaultUrl, defaultDashboardUrl)
         )[MainViewModel::class.java]
+        notificationPresenter = HermesNotificationPresenter(
+            context = this,
+            channelId = HermesNotificationChannelId,
+            notificationIdBase = HermesNotificationIdBase,
+            isTrustedTarget = ::isTrustedNotificationTarget
+        )
         notificationBridgeCoordinator = HermesNotificationBridgeCoordinator(
             context = this,
             bridgeName = HermesNotificationBridgeName,
             settingsRepository = settingsRepository,
             isTrustedSource = ::isTrustedNotificationBridgeSource,
-            showNotification = ::showHermesNotification,
+            showNotification = { payload ->
+                if (webNotificationPermissionState() != "granted") {
+                    false
+                } else {
+                    notificationPresenter.showNotification(
+                        payload = payload,
+                        fallbackTargetUrl = viewModel.uiState.value.currentUrl
+                    )
+                }
+            },
             requestNotificationPermissionLauncher = {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             },
@@ -313,6 +310,13 @@ class MainActivity : ComponentActivity() {
             serverUrlValidator = serverUrlValidator,
             onOpenInExternalBrowser = ::openInExternalBrowser,
             onPerformServerProfileSwitch = ::performServerProfileSwitch
+        )
+        foregroundServiceCoordinator = HermesForegroundServiceCoordinator(
+            context = this,
+            settingsRepository = settingsRepository,
+            isTrustedNotificationTarget = ::isTrustedNotificationTarget,
+            onCancelAutoRetry = viewModel::cancelAutoRetry,
+            onSetDebugLoggingEnabled = viewModel::setDebugLoggingEnabled
         )
         urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
 
@@ -346,8 +350,10 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             viewModel.uiState.collect { state ->
-                syncReconnectForegroundService(state.isReconnecting)
-                syncDebugLoggingForegroundService(state.debugLoggingEnabled)
+                foregroundServiceCoordinator.onUiStateChanged(
+                    state = state,
+                    activityVisible = activityVisible
+                )
             }
         }
 
@@ -366,7 +372,7 @@ class MainActivity : ComponentActivity() {
         if (appUpdateCoordinator.handleIntent(intent)) {
             return
         }
-        if (handleNotificationIntent(intent)) {
+        if (notificationPresenter.handleIntent(intent, webView::loadUrl)) {
             return
         }
         if (!handleDeepLink(intent)) {
@@ -384,7 +390,7 @@ class MainActivity : ComponentActivity() {
         if (::webView.isInitialized) {
             activityVisible = true
             viewModel.refreshFeatureFlagsFromRepository()
-            stopReconnectForegroundService()
+            foregroundServiceCoordinator.onActivityResumed()
             viewModel.onAppForegrounded()
             updateWebNotificationPermissionState()
             viewModel.resumeAutoRetryIfNeeded()
@@ -407,18 +413,7 @@ class MainActivity : ComponentActivity() {
         activityVisible = false
         appUpdateCoordinator.cancelAutomaticAppUpdateCheck()
         val state = viewModel.uiState.value
-        syncReconnectForegroundService(state.isReconnecting)
-        if (
-            ReconnectBackgroundPolicy.shouldCancelAutoRetryOnStop(
-                backgroundReconnectEnabled = state.backgroundReconnectEnabled,
-                activityVisible = activityVisible,
-                isReconnecting = state.isReconnecting
-            )
-        ) {
-            // Avoid background polling unless the reconnect foreground service is actively holding
-            // the bounded retry loop alive for a just-backgrounded recovery attempt.
-            viewModel.cancelAutoRetry()
-        }
+        foregroundServiceCoordinator.onActivityStopped(state, activityVisible)
         // Clean up any lingering OAuth popup on app stop.
         cleanupExpiredOAuthPopup()
     }
@@ -608,7 +603,10 @@ class MainActivity : ComponentActivity() {
                             requestNotificationPermissionIfNeeded()
                         }
                         viewModel.setBackgroundReconnectEnabled(enabled)
-                        syncReconnectForegroundService(viewModel.uiState.value.isReconnecting)
+                        foregroundServiceCoordinator.onUiStateChanged(
+                            state = viewModel.uiState.value,
+                            activityVisible = activityVisible
+                        )
                     },
                     onSetBackgroundActivityFullTextEnabled = { enabled ->
                         viewModel.setBackgroundActivityFullTextEnabled(enabled)
@@ -631,7 +629,10 @@ class MainActivity : ComponentActivity() {
                             requestNotificationPermissionIfNeeded()
                         }
                         viewModel.setDebugLoggingEnabled(enabled)
-                        syncDebugLoggingForegroundService(enabled)
+                        foregroundServiceCoordinator.onUiStateChanged(
+                            state = viewModel.uiState.value,
+                            activityVisible = activityVisible
+                        )
                     },
                     onSetBlockScreenshotsEnabled = { enabled ->
                         viewModel.setBlockScreenshotsEnabled(enabled)
@@ -1182,82 +1183,6 @@ class MainActivity : ComponentActivity() {
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
 
-    private fun syncReconnectForegroundService(isReconnecting: Boolean) {
-        val state = viewModel.uiState.value
-        val sessionId = ReconnectSessionStreamSupport.sessionIdFromUrl(state.currentUrl)
-        if (
-            !ReconnectBackgroundPolicy.shouldRunForegroundService(
-                backgroundReconnectEnabled = state.backgroundReconnectEnabled,
-                activityVisible = activityVisible,
-                isReconnecting = isReconnecting,
-                sseTransportEnabled = state.sseTransportEnabled,
-                hasSessionId = sessionId != null
-            )
-        ) {
-            stopReconnectForegroundService()
-            return
-        }
-        if (reconnectServiceRunning) return
-
-        try {
-            val sessionTargetUrl = state.currentUrl.takeIf { isTrustedNotificationTarget(it) }
-            HermesReconnectService.start(
-                this,
-                pollIntervalSeconds = state.reconnectPollIntervalSeconds,
-                serverUrl = state.settings.serverUrl,
-                sessionId = sessionId,
-                sessionTargetUrl = sessionTargetUrl,
-                cookieHeader = CookieManager.getInstance().getCookie(state.settings.serverUrl),
-                sseTransportEnabled = state.sseTransportEnabled,
-                isReconnecting = isReconnecting,
-                showFullTextOnLockScreen = state.backgroundActivityFullTextEnabled
-            )
-            reconnectServiceRunning = true
-        } catch (_: IllegalStateException) {
-            reconnectServiceRunning = false
-            viewModel.cancelAutoRetry()
-        } catch (_: SecurityException) {
-            reconnectServiceRunning = false
-            viewModel.cancelAutoRetry()
-        }
-    }
-
-
-    private fun stopReconnectForegroundService() {
-        if (!reconnectServiceRunning) return
-        HermesReconnectService.stop(this)
-        reconnectServiceRunning = false
-    }
-
-    private fun syncDebugLoggingForegroundService(debugLoggingEnabled: Boolean) {
-        val persistedEnabled = settingsRepository.isDebugLoggingEnabled()
-        if (!debugLoggingEnabled || !persistedEnabled) {
-            if (debugLoggingEnabled && !persistedEnabled) {
-                viewModel.setDebugLoggingEnabled(false)
-            }
-            stopDebugLoggingForegroundService()
-            return
-        }
-        if (debugLoggingServiceRunning) return
-
-        try {
-            HermesDebugLoggingService.start(this)
-            debugLoggingServiceRunning = true
-        } catch (_: IllegalStateException) {
-            debugLoggingServiceRunning = false
-            viewModel.setDebugLoggingEnabled(false)
-        } catch (_: SecurityException) {
-            debugLoggingServiceRunning = false
-            viewModel.setDebugLoggingEnabled(false)
-        }
-    }
-
-    private fun stopDebugLoggingForegroundService() {
-        if (!debugLoggingServiceRunning) return
-        HermesDebugLoggingService.stop(this)
-        debugLoggingServiceRunning = false
-    }
-
     private fun latestDebugLogFile(): File? {
         val logDir = File(filesDir, "debug-logs")
         return logDir
@@ -1324,71 +1249,6 @@ class MainActivity : ComponentActivity() {
             "Saved log to Android/data/$packageName/files/Download/HermesLogs",
             Toast.LENGTH_LONG
         ).show()
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun showHermesNotification(payload: JSONObject): Boolean {
-        if (webNotificationPermissionState() != "granted") return false
-
-        val options = payload.optJSONObject("options") ?: JSONObject()
-        val title = payload.optString("title")
-            .takeIf { it.isNotBlank() }
-            ?: getString(R.string.app_name)
-        val body = options.optString("body").takeIf { it.isNotBlank() }
-        val tag = options.optString("tag").takeIf { it.isNotBlank() }
-        val data = options.optJSONObject("data")
-        val targetUrl = data
-            ?.optString("url")
-            ?.takeIf { isTrustedNotificationTarget(it) }
-            ?: viewModel.uiState.value.currentUrl.takeIf { isTrustedNotificationTarget(it) }
-
-        val pendingIntent = targetUrl?.let { buildNotificationPendingIntent(it, tag) }
-        val notification = NotificationCompat.Builder(this, HermesNotificationChannelId)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(body ?: title)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: title))
-            .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setColor(ContextCompat.getColor(this, R.color.brand_sky))
-            .apply {
-                if (pendingIntent != null) {
-                    setContentIntent(pendingIntent)
-                }
-            }
-            .build()
-
-        val notificationId = HermesNotificationIdBase + ((tag ?: title).hashCode() and 0x0FFFFFFF)
-        NotificationManagerCompat.from(this).notify(tag, notificationId, notification)
-        return true
-    }
-
-    private fun buildNotificationPendingIntent(targetUrl: String, tag: String?): PendingIntent {
-        val requestCode = (tag ?: targetUrl).hashCode()
-        val intent = Intent(this, MainActivity::class.java).apply {
-            action = ActionOpenNotificationUrl
-            putExtra(ExtraNotificationUrl, targetUrl)
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        return PendingIntent.getActivity(
-            this,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-
-    private fun handleNotificationIntent(intent: Intent?): Boolean {
-        val targetUrl = notificationTargetUrl(intent) ?: return false
-        webView.loadUrl(targetUrl)
-        return true
-    }
-
-    private fun notificationTargetUrl(intent: Intent?): String? {
-        if (intent?.action != ActionOpenNotificationUrl) return null
-        return intent.getStringExtra(ExtraNotificationUrl)
-            ?.takeIf { isTrustedNotificationTarget(it) }
     }
 
     private fun isTrustedNotificationTarget(url: String?): Boolean {
@@ -1696,7 +1556,7 @@ class MainActivity : ComponentActivity() {
 
     private fun preflightConfiguredStartupServer(serverUrl: String) {
         val lastLoadedUrl = settingsRepository.getLastLoadedUrl()
-        val notificationUrl = notificationTargetUrl(intent)
+        val notificationUrl = notificationPresenter.notificationTargetUrl(intent)
         val startUrl = notificationUrl ?: if (matchesConfiguredDashboardRoute(lastLoadedUrl)) {
             serverUrl
         } else {

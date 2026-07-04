@@ -100,7 +100,9 @@ import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
+import com.hermeswebui.android.notification.HermesNotificationBridgeCoordinator
 import com.hermeswebui.android.domain.ServerUrlValidator
+import com.hermeswebui.android.server.HermesServerProfileCoordinator
 import com.hermeswebui.android.domain.ShareIntentParser
 import com.hermeswebui.android.ui.MainViewModel
 import com.hermeswebui.android.ui.MainViewModelFactory
@@ -108,8 +110,10 @@ import com.hermeswebui.android.ui.DebugLogFloatingOverlay
 import com.hermeswebui.android.ui.settings.SettingsScreen
 import com.hermeswebui.android.ui.web.WebShell
 import com.hermeswebui.android.webui.HermesWebUiScripts
+import com.hermeswebui.android.webview.HermesWebViewConfigurator
 import com.hermeswebui.android.update.AppUpdateCheckResult
 import com.hermeswebui.android.update.AppUpdateDownloadPolicy
+import com.hermeswebui.android.update.HermesAppUpdateCoordinator
 import com.hermeswebui.android.update.GitHubReleaseUpdateChecker
 import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateManager
@@ -127,21 +131,10 @@ private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
 private const val HermesNotificationIdBase = 10_000
 private const val ActionOpenNotificationUrl = "com.hermeswebui.android.OPEN_NOTIFICATION_URL"
-private const val ActionStartPlayUpdate = "com.hermeswebui.android.START_PLAY_UPDATE"
-private const val ActionDownloadAppUpdate = "com.hermeswebui.android.DOWNLOAD_APP_UPDATE"
 private const val ExtraNotificationUrl = "com.hermeswebui.android.extra.NOTIFICATION_URL"
-private const val ExtraAppUpdateDownloadUrl = "com.hermeswebui.android.extra.APP_UPDATE_DOWNLOAD_URL"
-private const val ExtraAppUpdateFileName = "com.hermeswebui.android.extra.APP_UPDATE_FILE_NAME"
 private const val HermesGithubIssuesListUrl = "https://github.com/hermes-webui/hermes-android/issues"
 private const val HermesGithubNewIssueUrl = "https://github.com/hermes-webui/hermes-android/issues/new/choose"
-private const val AppUpdateNotificationId = 7_001
-private const val AutomaticAppUpdateCheckDelayMs = 60_000L
 private const val EnableAppSettingsSidebarShim = true
-
-private data class NotificationPermissionReply(
-    val id: String?,
-    val replyProxy: JavaScriptReplyProxy
-)
 
 private val HermesDarkColorScheme = darkColorScheme(
     primary = Color(0xFFFFD700),
@@ -191,8 +184,6 @@ class MainActivity : ComponentActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCaptureUri: Uri? = null
     private var pendingAudioPermissionRequest: PermissionRequest? = null
-    private val pendingNotificationPermissionReplies = mutableListOf<NotificationPermissionReply>()
-    private var notificationPermissionRequestInFlight = false
     private var microphoneFallbackScriptHandler: ScriptHandler? = null
     private var notificationBridgeScriptHandler: ScriptHandler? = null
     private var routeRecoveryScriptHandler: ScriptHandler? = null
@@ -201,9 +192,10 @@ class MainActivity : ComponentActivity() {
     private var activityVisible = false
     private var reconnectServiceRunning = false
     private var debugLoggingServiceRunning = false
-    private var serverValidationJob: Job? = null
-    private var automaticAppUpdateCheckJob: Job? = null
     private lateinit var appUpdateManager: AppUpdateManager
+    private lateinit var appUpdateCoordinator: HermesAppUpdateCoordinator
+    private lateinit var notificationBridgeCoordinator: HermesNotificationBridgeCoordinator
+    private lateinit var serverProfileCoordinator: HermesServerProfileCoordinator
 
     private var activeOAuthPopup: WebView? = null
     private var activeOAuthFlow: OAuthPopupFlow? = null
@@ -254,13 +246,8 @@ class MainActivity : ComponentActivity() {
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            notificationPermissionRequestInFlight = false
-            val permission = if (granted && areNativeNotificationsEnabled()) {
-                "granted"
-            } else {
-                "denied"
-            }
-            flushNotificationPermissionReplies(permission)
+            notificationBridgeCoordinator.onPermissionResult(granted)
+            val permission = notificationBridgeCoordinator.permissionState()
             updateWebNotificationPermissionState(permission)
             if (!granted) {
                 Toast.makeText(this, "Notification permission denied", Toast.LENGTH_SHORT).show()
@@ -291,6 +278,42 @@ class MainActivity : ComponentActivity() {
             this,
             MainViewModelFactory(settingsRepository, settingsRepository, defaultUrl, defaultDashboardUrl)
         )[MainViewModel::class.java]
+        notificationBridgeCoordinator = HermesNotificationBridgeCoordinator(
+            context = this,
+            bridgeName = HermesNotificationBridgeName,
+            settingsRepository = settingsRepository,
+            isTrustedSource = ::isTrustedNotificationBridgeSource,
+            showNotification = ::showHermesNotification,
+            requestNotificationPermissionLauncher = {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            },
+            runOnUiThread = { action -> runOnUiThread(action) }
+        )
+        appUpdateCoordinator = HermesAppUpdateCoordinator(
+            context = this,
+            activityScope = lifecycleScope,
+            settingsRepository = settingsRepository,
+            viewModel = viewModel,
+            appUpdateManager = appUpdateManager,
+            playUpdateLauncher = playUpdateLauncher,
+            updateChannel = BuildConfig.UPDATE_CHANNEL,
+            githubReleasesApiUrl = BuildConfig.GITHUB_RELEASES_API_URL,
+            githubReleasesPageUrl = BuildConfig.GITHUB_RELEASES_PAGE_URL,
+            notificationChannelId = HermesNotificationChannelId,
+            notificationPermissionState = ::webNotificationPermissionState,
+            requestNotificationPermissionIfNeeded = ::requestNotificationPermissionIfNeeded,
+            isActivityVisible = { activityVisible },
+            appVersionName = ::appVersionName
+        )
+        serverProfileCoordinator = HermesServerProfileCoordinator(
+            context = this,
+            activityScope = lifecycleScope,
+            settingsRepository = settingsRepository,
+            viewModel = viewModel,
+            serverUrlValidator = serverUrlValidator,
+            onOpenInExternalBrowser = ::openInExternalBrowser,
+            onPerformServerProfileSwitch = ::performServerProfileSwitch
+        )
         urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
 
         val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -307,7 +330,7 @@ class MainActivity : ComponentActivity() {
         webView = buildWebView()
         installHermesWebUiDocumentStartFixes(webView, viewModel.uiState.value.settings.serverUrl)
 
-        if (!handleAppUpdateIntent(intent)) {
+        if (!appUpdateCoordinator.handleIntent(intent)) {
             handleShareIntent(intent)
         }
 
@@ -333,14 +356,14 @@ class MainActivity : ComponentActivity() {
             viewModel.openSettings()
         } else {
             preflightConfiguredStartupServer(settings.serverUrl)
-            scheduleAutomaticAppUpdateCheck()
+            appUpdateCoordinator.scheduleAutomaticAppUpdateCheck()
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (handleAppUpdateIntent(intent)) {
+        if (appUpdateCoordinator.handleIntent(intent)) {
             return
         }
         if (handleNotificationIntent(intent)) {
@@ -365,8 +388,8 @@ class MainActivity : ComponentActivity() {
             viewModel.onAppForegrounded()
             updateWebNotificationPermissionState()
             viewModel.resumeAutoRetryIfNeeded()
-            resumePlayUpdateIfNeeded()
-            scheduleAutomaticAppUpdateCheck()
+            appUpdateCoordinator.resumePlayUpdateIfNeeded()
+            appUpdateCoordinator.scheduleAutomaticAppUpdateCheck()
         }
     }
 
@@ -382,7 +405,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         activityVisible = false
-        cancelAutomaticAppUpdateCheck()
+        appUpdateCoordinator.cancelAutomaticAppUpdateCheck()
         val state = viewModel.uiState.value
         syncReconnectForegroundService(state.isReconnecting)
         if (
@@ -569,7 +592,7 @@ class MainActivity : ComponentActivity() {
                     blockScreenshotsEnabled = uiState.blockScreenshotsEnabled,
                     appUpdateAlertsEnabled = uiState.appUpdateAlertsEnabled,
                     automaticAppUpdateChecksEnabled = uiState.automaticAppUpdateChecksEnabled,
-                    appUpdateChannelLabel = appUpdateChannelLabel(),
+                    appUpdateChannelLabel = appUpdateCoordinator.appUpdateChannelLabel(),
                     appUpdateStatus = uiState.appUpdateStatus,
                     appUpdateReleaseUrl = uiState.appUpdateReleaseUrl,
                     appUpdateDownloadUrl = uiState.appUpdateDownloadUrl,
@@ -623,13 +646,13 @@ class MainActivity : ComponentActivity() {
                     onSetAutomaticAppUpdateChecksEnabled = { enabled ->
                         viewModel.setAutomaticAppUpdateChecksEnabled(enabled)
                         if (enabled) {
-                            scheduleAutomaticAppUpdateCheck()
+                            appUpdateCoordinator.scheduleAutomaticAppUpdateCheck()
                         } else {
-                            cancelAutomaticAppUpdateCheck()
+                            appUpdateCoordinator.cancelAutomaticAppUpdateCheck()
                         }
                     },
-                    onCheckAppUpdates = { checkForAppUpdates(force = true) },
-                    onDownloadAppUpdate = { downloadAvailableGitHubUpdate() },
+                    onCheckAppUpdates = { appUpdateCoordinator.checkForAppUpdates(force = true) },
+                    onDownloadAppUpdate = { appUpdateCoordinator.downloadAvailableGitHubUpdate() },
                     onOpenAppUpdateRelease = {
                         uiState.appUpdateReleaseUrl?.takeIf { it.isNotBlank() }?.let(::openInExternalBrowser)
                     },
@@ -637,11 +660,11 @@ class MainActivity : ComponentActivity() {
                     onDownloadDebugLog = { downloadLatestDebugLog() },
                     onViewGithubIssues = { openInExternalBrowser(HermesGithubIssuesListUrl) },
                     onNewGithubIssue = { openInExternalBrowser(HermesGithubNewIssueUrl) },
-                    onAddProfile = { name, url -> handleAddServerProfile(name, url) },
-                    onDeleteProfile = { profileId -> handleDeleteServerProfile(profileId) },
+                    onAddProfile = { name, url -> serverProfileCoordinator.handleAddServerProfile(name, url) },
+                    onDeleteProfile = { profileId -> serverProfileCoordinator.handleDeleteServerProfile(profileId) },
                     onRenameProfile = { profileId, newName -> viewModel.renameServerProfile(profileId, newName) },
-                    onEditProfile = { profileId, newName, newUrl -> handleEditServerProfile(profileId, newName, newUrl) },
-                    onSwitchProfile = { profileId -> handleSwitchServerProfile(profileId) },
+                    onEditProfile = { profileId, newName, newUrl -> serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl) },
+                    onSwitchProfile = { profileId -> serverProfileCoordinator.handleSwitchServerProfile(profileId) },
                     onClearServerValidation = { viewModel.clearServerValidationState() }
                 )
             } // end if (isSettingsVisible)
@@ -665,17 +688,12 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun buildWebView(): WebView {
         return WebView(this).apply {
-            settings.javaScriptEnabled = true
-            configureWebViewStorageAndCache(settings)
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.loadsImagesAutomatically = true
-            settings.mediaPlaybackRequiresUserGesture = true
-            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.javaScriptCanOpenWindowsAutomatically = true
-            settings.setSupportMultipleWindows(true)
-            settings.userAgentString = "${settings.userAgentString} Hermes-Android/${appVersionName()}"
-            disableWebViewDarkening(settings)
+            HermesWebViewConfigurator.configureMainWebView(
+                webView = this,
+                appVersionName = appVersionName(),
+                configureStorageAndCache = ::configureWebViewStorageAndCache,
+                disableWebViewDarkening = ::disableWebViewDarkening
+            )
             installHermesNotificationWebMessageBridge(this)
             // Allow native long-press so Android's text selection handles appear in
             // conversation messages (issue #35). Default WebView behavior already
@@ -839,15 +857,11 @@ class MainActivity : ComponentActivity() {
     private fun createPopupWindow(resultMsg: Message?): Boolean {
         val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
         val popup = WebView(this).apply {
-            settings.javaScriptEnabled = true
-            configureWebViewStorageAndCache(settings)
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.loadsImagesAutomatically = true
-            settings.mediaPlaybackRequiresUserGesture = true
-            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            disableWebViewDarkening(settings)
-            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+            HermesWebViewConfigurator.configurePopupWebView(
+                webView = this,
+                configureStorageAndCache = ::configureWebViewStorageAndCache,
+                disableWebViewDarkening = ::disableWebViewDarkening
+            )
             webViewClient = buildPopupWebViewClient(this)
         }
 
@@ -1036,65 +1050,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun installHermesNotificationWebMessageBridge(view: WebView) {
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
-
-        runCatching {
-            WebViewCompat.addWebMessageListener(
-                view,
-                HermesNotificationBridgeName,
-                setOf("*")
-            ) { _, message, sourceOrigin, isMainFrame, replyProxy ->
-                runOnUiThread {
-                    handleHermesNotificationBridgeMessage(
-                        message = message,
-                        sourceOrigin = sourceOrigin,
-                        isMainFrame = isMainFrame,
-                        replyProxy = replyProxy
-                    )
-                }
-            }
-        }
-    }
-
-    private fun handleHermesNotificationBridgeMessage(
-        message: WebMessageCompat,
-        sourceOrigin: Uri,
-        isMainFrame: Boolean,
-        replyProxy: JavaScriptReplyProxy
-    ) {
-        val parsed = runCatching { JSONObject(message.data.orEmpty()) }.getOrNull()
-        val id = parsed?.optString("id")?.takeIf { it.isNotBlank() }
-        if (parsed == null || !isTrustedNotificationBridgeSource(sourceOrigin, isMainFrame)) {
-            postNotificationBridgeReply(replyProxy, id, ok = false, permission = "denied")
-            return
-        }
-
-        when (parsed.optString("type")) {
-            "permissionState" -> {
-                postNotificationBridgeReply(
-                    replyProxy = replyProxy,
-                    id = id,
-                    ok = true,
-                    permission = webNotificationPermissionState()
-                )
-            }
-            "requestPermission" -> requestHermesNotificationPermission(replyProxy, id)
-            "show" -> {
-                val shown = showHermesNotification(parsed.optJSONObject("payload") ?: JSONObject())
-                postNotificationBridgeReply(
-                    replyProxy = replyProxy,
-                    id = id,
-                    ok = shown,
-                    permission = webNotificationPermissionState()
-                )
-            }
-            else -> postNotificationBridgeReply(
-                replyProxy = replyProxy,
-                id = id,
-                ok = false,
-                permission = webNotificationPermissionState()
-            )
-        }
+        notificationBridgeCoordinator.installBridge(view)
     }
 
     private fun isTrustedNotificationBridgeSource(sourceOrigin: Uri, isMainFrame: Boolean): Boolean {
@@ -1103,43 +1059,8 @@ class MainActivity : ComponentActivity() {
         return matchesConfiguredWebUiRoute(normalizedOrigin) && matchesConfiguredWebUiRoute(webView.url)
     }
 
-    private fun requestHermesNotificationPermission(replyProxy: JavaScriptReplyProxy, id: String?) {
-        val currentPermission = webNotificationPermissionState()
-        if (currentPermission == "granted") {
-            postNotificationBridgeReply(replyProxy, id, ok = true, permission = "granted")
-            return
-        }
-        if (currentPermission == "denied") {
-            postNotificationBridgeReply(replyProxy, id, ok = false, permission = "denied")
-            Toast.makeText(this, "Enable app notifications in Android settings", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            postNotificationBridgeReply(replyProxy, id, ok = false, permission = currentPermission)
-            return
-        }
-
-        settingsRepository.markNotificationPermissionRequested()
-        pendingNotificationPermissionReplies += NotificationPermissionReply(id, replyProxy)
-        if (!notificationPermissionRequestInFlight) {
-            notificationPermissionRequestInFlight = true
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
     private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        val hasPermission = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
-        if (hasPermission) return
-        settingsRepository.markNotificationPermissionRequested()
-        if (!notificationPermissionRequestInFlight) {
-            notificationPermissionRequestInFlight = true
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
+        notificationBridgeCoordinator.requestNotificationPermissionIfNeeded()
     }
 
     private fun setSseTransportEnabled(enabled: Boolean) {
@@ -1246,349 +1167,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun postNotificationBridgeReply(
-        replyProxy: JavaScriptReplyProxy,
-        id: String?,
-        ok: Boolean,
-        permission: String,
-        error: String? = null
-    ) {
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
-        val response = JSONObject()
-            .put("id", id ?: "")
-            .put("ok", ok)
-            .put("permission", permission)
-        if (!error.isNullOrBlank()) {
-            response.put("error", error)
-        }
-        runCatching {
-            replyProxy.postMessage(response.toString())
-        }
-    }
-
-    private fun flushNotificationPermissionReplies(permission: String) {
-        val replies = pendingNotificationPermissionReplies.toList()
-        pendingNotificationPermissionReplies.clear()
-        replies.forEach { pending ->
-            postNotificationBridgeReply(
-                replyProxy = pending.replyProxy,
-                id = pending.id,
-                ok = permission == "granted",
-                permission = permission
-            )
-        }
-    }
-
     private fun webNotificationPermissionState(): String {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val hasRuntimePermission = ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            return when {
-                hasRuntimePermission && areNativeNotificationsEnabled() -> "granted"
-                settingsRepository.hasRequestedNotificationPermission() -> "denied"
-                else -> "default"
-            }
-        }
-
-        return if (areNativeNotificationsEnabled()) "granted" else "denied"
-    }
-
-    private fun areNativeNotificationsEnabled(): Boolean {
-        return NotificationManagerCompat.from(this).areNotificationsEnabled()
-    }
-
-    private fun appUpdateChannelLabel(): String {
-        return when (BuildConfig.UPDATE_CHANNEL) {
-            "github" -> "GitHub Releases"
-            "play" -> "Google Play"
-            else -> "this build channel"
-        }
-    }
-
-    private fun scheduleAutomaticAppUpdateCheck() {
-        if (!::settingsRepository.isInitialized) return
-        val settings = viewModel.uiState.value.settings
-        if (!settings.isConfigured) return
-        if (!settingsRepository.shouldCheckForAppUpdates(System.currentTimeMillis(), force = false)) return
-        if (automaticAppUpdateCheckJob?.isActive == true) return
-
-        automaticAppUpdateCheckJob = lifecycleScope.launch {
-            delay(AutomaticAppUpdateCheckDelayMs)
-            if (!activityVisible) return@launch
-            checkForAppUpdates(force = false)
-            automaticAppUpdateCheckJob = null
-        }
-    }
-
-    private fun cancelAutomaticAppUpdateCheck() {
-        automaticAppUpdateCheckJob?.cancel()
-        automaticAppUpdateCheckJob = null
-    }
-
-    private fun checkForAppUpdates(force: Boolean) {
-        if (!settingsRepository.shouldCheckForAppUpdates(System.currentTimeMillis(), force)) return
-        settingsRepository.markAppUpdateChecked(System.currentTimeMillis())
-        viewModel.setAppUpdateStatus(if (force) "Checking ${appUpdateChannelLabel()}..." else null)
-
-        when (BuildConfig.UPDATE_CHANNEL) {
-            "github" -> checkGitHubAppUpdate(force)
-            "play" -> checkPlayAppUpdate(force)
-            else -> {
-                if (force) {
-                    viewModel.setAppUpdateStatus("This build does not have an update provider.")
-                    Toast.makeText(this, "No update provider for this build", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    private fun checkGitHubAppUpdate(force: Boolean) {
-        lifecycleScope.launch {
-            val result = GitHubReleaseUpdateChecker(
-                apiUrl = BuildConfig.GITHUB_RELEASES_API_URL,
-                fallbackReleaseUrl = BuildConfig.GITHUB_RELEASES_PAGE_URL
-            ).check(appVersionName())
-
-            when (result) {
-                is AppUpdateCheckResult.Available -> {
-                    viewModel.setAvailableAppUpdate(result)
-                    maybeShowAppUpdateNotification(result, force)
-                }
-                AppUpdateCheckResult.Current -> {
-                    if (force) {
-                        viewModel.clearAvailableAppUpdate("You're on the latest GitHub build.")
-                        Toast.makeText(this@MainActivity, "No GitHub update found", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                is AppUpdateCheckResult.Failed -> {
-                    if (force) {
-                        viewModel.clearAvailableAppUpdate(result.message)
-                        Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
-                    }
-                }
-                AppUpdateCheckResult.Unsupported -> {
-                    if (force) {
-                        viewModel.clearAvailableAppUpdate("GitHub updates are not configured for this build.")
-                    }
-                }
-            }
-        }
-    }
-
-    private fun checkPlayAppUpdate(force: Boolean) {
-        appUpdateManager.appUpdateInfo
-            .addOnSuccessListener { updateInfo ->
-                val isAvailable = updateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
-                val canUpdate = updateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
-                if (isAvailable && canUpdate) {
-                    val version = updateInfo.availableVersionCode().toString()
-                    viewModel.setAppUpdateStatus("A Google Play update is available.")
-                    maybeShowPlayUpdateNotification(version, force)
-                } else if (force) {
-                    viewModel.setAppUpdateStatus("You're on the latest Google Play build.")
-                    Toast.makeText(this, "No Google Play update found", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .addOnFailureListener { error ->
-                if (force) {
-                    val message = error.message ?: "Could not check Google Play for updates."
-                    viewModel.setAppUpdateStatus(message)
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                }
-            }
-    }
-
-    private fun maybeShowAppUpdateNotification(
-        update: AppUpdateCheckResult.Available,
-        force: Boolean
-    ) {
-        if (!settingsRepository.shouldNotifyAppUpdate(update.version, force)) return
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            update.releaseUrl.hashCode(),
-            Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        showAppUpdateNotification(
-            title = update.title,
-            body = update.body,
-            version = update.version,
-            pendingIntent = pendingIntent,
-            downloadIntent = update.downloadUrl?.let { downloadUrl ->
-                buildAppUpdateDownloadPendingIntent(
-                    downloadUrl = downloadUrl,
-                    fileName = update.fileName ?: "hermes-webui-v${update.version}-github.apk"
-                )
-            },
-            force = force
-        )
-    }
-
-    private fun maybeShowPlayUpdateNotification(version: String, force: Boolean) {
-        if (!settingsRepository.shouldNotifyAppUpdate("play-$version", force)) return
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            version.hashCode(),
-            Intent(this, MainActivity::class.java).apply {
-                action = ActionStartPlayUpdate
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        showAppUpdateNotification(
-            title = "Hermes WebUI update available",
-            body = "A newer Google Play build is ready to install.",
-            version = "play-$version",
-            pendingIntent = pendingIntent,
-            downloadIntent = null,
-            force = force
-        )
-    }
-
-    private fun buildAppUpdateDownloadPendingIntent(
-        downloadUrl: String,
-        fileName: String
-    ): PendingIntent {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            action = ActionDownloadAppUpdate
-            putExtra(ExtraAppUpdateDownloadUrl, downloadUrl)
-            putExtra(ExtraAppUpdateFileName, fileName)
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        return PendingIntent.getActivity(
-            this,
-            downloadUrl.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-
-    private fun downloadAvailableGitHubUpdate() {
-        val state = viewModel.uiState.value
-        downloadGitHubUpdate(state.appUpdateDownloadUrl, state.appUpdateFileName)
-    }
-
-    private fun downloadGitHubUpdate(downloadUrl: String?, fileName: String?) {
-        val url = downloadUrl?.trim().orEmpty()
-        // MainActivity is exported, so the DOWNLOAD_APP_UPDATE intent (and its download URL) can be
-        // sent by any installed app. AppUpdateDownloadPolicy confines the download to https `.apk`
-        // assets on GitHub's release hosts so a third-party app cannot drive this component into
-        // enqueueing an attacker-hosted APK.
-        if (!AppUpdateDownloadPolicy.isTrustedApkDownloadUrl(url)) {
-            Toast.makeText(this, "No GitHub APK download is available", Toast.LENGTH_LONG).show()
-            return
-        }
-        val parsed = Uri.parse(url)
-
-        val safeFileName = fileName
-            ?.trim()
-            ?.takeIf { it.endsWith(".apk", ignoreCase = true) }
-            ?: URLUtil.guessFileName(url, null, "application/vnd.android.package-archive")
-        val request = DownloadManager.Request(parsed).apply {
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setTitle(safeFileName)
-            setDescription("Downloading Hermes WebUI GitHub APK")
-            setAllowedOverMetered(true)
-            setMimeType("application/vnd.android.package-archive")
-            setDestinationInExternalFilesDir(
-                this@MainActivity,
-                Environment.DIRECTORY_DOWNLOADS,
-                safeFileName
-            )
-        }
-        getSystemService(DownloadManager::class.java).enqueue(request)
-        Toast.makeText(this, "GitHub APK download started", Toast.LENGTH_SHORT).show()
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun showAppUpdateNotification(
-        title: String,
-        body: String,
-        version: String,
-        pendingIntent: PendingIntent,
-        downloadIntent: PendingIntent?,
-        force: Boolean
-    ) {
-        if (!settingsRepository.isAppUpdateAlertsEnabled()) return
-        if (webNotificationPermissionState() != "granted") {
-            if (force) {
-                requestNotificationPermissionIfNeeded()
-                Toast.makeText(this, body, Toast.LENGTH_LONG).show()
-            }
-            return
-        }
-
-        val notification = NotificationCompat.Builder(this, HermesNotificationChannelId)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setColor(ContextCompat.getColor(this, R.color.brand_sky))
-            .setContentIntent(pendingIntent)
-            .apply {
-                if (downloadIntent != null) {
-                    addAction(0, "Download APK", downloadIntent)
-                }
-            }
-            .build()
-
-        NotificationManagerCompat.from(this).notify(AppUpdateNotificationId, notification)
-        settingsRepository.markAppUpdateNotified(version)
-    }
-
-    private fun handleAppUpdateIntent(intent: Intent?): Boolean {
-        return when (intent?.action) {
-            ActionStartPlayUpdate -> {
-                startPlayUpdateFlow()
-                true
-            }
-            ActionDownloadAppUpdate -> {
-                val downloadUrl = intent.getStringExtra(ExtraAppUpdateDownloadUrl)
-                val fileName = intent.getStringExtra(ExtraAppUpdateFileName)
-                downloadGitHubUpdate(downloadUrl, fileName)
-                true
-            }
-            else -> false
-        }
-    }
-
-    private fun startPlayUpdateFlow() {
-        appUpdateManager.appUpdateInfo
-            .addOnSuccessListener { updateInfo ->
-                if (
-                    updateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
-                    updateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
-                ) {
-                    launchPlayUpdate(updateInfo)
-                } else {
-                    Toast.makeText(this, "No Google Play update is available right now", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .addOnFailureListener {
-                Toast.makeText(this, "Could not start Google Play update", Toast.LENGTH_LONG).show()
-            }
-    }
-
-    private fun resumePlayUpdateIfNeeded() {
-        if (BuildConfig.UPDATE_CHANNEL != "play") return
-        appUpdateManager.appUpdateInfo.addOnSuccessListener { updateInfo ->
-            if (updateInfo.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
-                launchPlayUpdate(updateInfo)
-            }
-        }
-    }
-
-    private fun launchPlayUpdate(updateInfo: AppUpdateInfo) {
-        appUpdateManager.startUpdateFlowForResult(
-            updateInfo,
-            playUpdateLauncher,
-            AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
-        )
+        return notificationBridgeCoordinator.permissionState()
     }
 
     private fun ensureNotificationChannel() {
@@ -2081,8 +1661,8 @@ class MainActivity : ComponentActivity() {
             installHermesWebUiDocumentStartFixes(webView, serverUrl)
             webView.loadUrl(serverUrl)
         }
-        validateServerBeforePersist(
-            serverUrl,
+        serverProfileCoordinator.validateServerForPersistence(
+            serverUrl = serverUrl,
             onFailure = { result -> showServerValidationRecoveryDialog(serverUrl, result, "Save server") { persist() } }
         ) { persist() }
     }
@@ -2122,327 +1702,29 @@ class MainActivity : ComponentActivity() {
         } else {
             lastLoadedUrl ?: serverUrl
         }
-
-        serverValidationJob?.cancel()
-        DiagnosticsLogger.record(
-            this,
-            "startup_validation_start",
-            mapOf("origin" to DiagnosticsLogger.originOnly(serverUrl))
+        serverProfileCoordinator.preflightConfiguredStartupServer(
+            serverUrl = serverUrl,
+            startUrl = startUrl,
+            onContinueToWebView = webView::loadUrl
         )
-        viewModel.setServerValidationState(
-            isChecking = true,
-            message = "Checking Hermes server readiness...",
-            isError = false
-        )
-        serverValidationJob = lifecycleScope.launch {
-            val result = HermesApiClient.checkServerReadiness(serverUrl)
-            DiagnosticsLogger.record(
-                this@MainActivity,
-                "startup_validation_result",
-                mapOf(
-                    "origin" to DiagnosticsLogger.originOnly(serverUrl),
-                    "status" to result.status.name,
-                    "ready" to result.isReady.toString()
-                )
-            )
-            if (result.isReady || HermesApiClient.isServerReachable(serverUrl)) {
-                DiagnosticsLogger.record(
-                    this@MainActivity,
-                    "startup_validation_decision",
-                    mapOf(
-                        "origin" to DiagnosticsLogger.originOnly(serverUrl),
-                        "decision" to "continue_webview"
-                    )
-                )
-                viewModel.clearServerValidationState()
-                webView.loadUrl(startUrl)
-                return@launch
-            }
-
-            DiagnosticsLogger.record(
-                this@MainActivity,
-                "startup_validation_decision",
-                mapOf(
-                    "origin" to DiagnosticsLogger.originOnly(serverUrl),
-                    "decision" to "open_settings"
-                )
-            )
-            viewModel.openSettingsWithServerValidation(result.message, details = result.diagnostics)
-            Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
-        }
     }
 
     private fun handleAddServerProfile(name: String, url: String) {
-        val trimmedName = name.trim()
-        val trimmedUrl = url.trim()
-
-        if (!serverUrlValidator.isValid(trimmedUrl)) {
-            Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        val existingProfiles = settingsRepository.getProfiles()
-        if (existingProfiles.any { normalizeServerProfileUrl(it.url) == normalizeServerProfileUrl(trimmedUrl) }) {
-            Toast.makeText(this, "A server with this URL already exists", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (trimmedName.isNotBlank() && existingProfiles.any { it.name.trim().equals(trimmedName, ignoreCase = true) }) {
-            Toast.makeText(this, "A server with this name already exists", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        validateServerBeforePersist(
-            trimmedUrl,
-            onFailure = { result ->
-                showServerValidationRecoveryDialog(trimmedUrl, result, "Add server") {
-                    val profile = viewModel.addServerProfile(
-                        name = trimmedName.ifBlank { trimmedUrl },
-                        url = trimmedUrl
-                    )
-                    if (profile != null) {
-                        Toast.makeText(this, "Server profile \"${profile.name}\" added (readiness check skipped)", Toast.LENGTH_LONG).show()
-                    } else {
-                        Toast.makeText(this, "Failed to add profile", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        ) {
-            val profile = viewModel.addServerProfile(
-                name = trimmedName.ifBlank { trimmedUrl },
-                url = trimmedUrl
-            )
-            if (profile != null) {
-                Toast.makeText(this, "Server profile \"${profile.name}\" added", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Failed to add profile", Toast.LENGTH_SHORT).show()
-            }
-        }
+        serverProfileCoordinator.handleAddServerProfile(name, url)
     }
 
     private fun handleEditServerProfile(profileId: String, newName: String, newUrl: String) {
-        if (!serverUrlValidator.isValid(newUrl)) {
-            Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
-            return
-        }
-        validateServerBeforePersist(
-            newUrl,
-            onFailure = { result ->
-                showServerValidationRecoveryDialog(newUrl, result, "Save changes") {
-                    viewModel.updateServerProfile(profileId, newName, newUrl)
-                    Toast.makeText(this, "Profile updated (readiness check skipped)", Toast.LENGTH_LONG).show()
-                }
-            }
-        ) {
-            viewModel.updateServerProfile(profileId, newName, newUrl)
-            Toast.makeText(this, "Profile updated", Toast.LENGTH_SHORT).show()
-        }
+        serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl)
     }
 
     private fun handleDeleteServerProfile(profileId: String) {
-        // Clean up the per-server silenced-auth-prompt flag, if any, so a
-        // future profile with the same URL starts fresh and the saved set
-        // does not slowly accumulate orphans.
-        settingsRepository.getProfiles().firstOrNull { it.id == profileId }?.let { profile ->
-            settingsRepository.clearSilencedAuthPromptForUrl(profile.url)
-        }
-        viewModel.deleteServerProfile(profileId)
-        Toast.makeText(this, "Profile deleted", Toast.LENGTH_SHORT).show()
+        serverProfileCoordinator.handleDeleteServerProfile(profileId)
     }
 
     private fun handleSwitchServerProfile(profileId: String) {
-        val newProfile = settingsRepository.getProfiles().firstOrNull { it.id == profileId } ?: return
-
-        if (!serverUrlValidator.isValid(newProfile.url)) {
-            DiagnosticsLogger.record(
-                this,
-                "server_switch_health_check_blocked",
-                mapOf(
-                    "origin" to DiagnosticsLogger.originOnly(newProfile.url),
-                    "decision" to "invalid_url"
-                )
-            )
-            Toast.makeText(this, "Invalid server URL: ${newProfile.url}", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        serverValidationJob?.cancel()
-        DiagnosticsLogger.record(
-            this,
-            "server_switch_health_check_start",
-            mapOf(
-                "origin" to DiagnosticsLogger.originOnly(newProfile.url),
-                "profile_id" to newProfile.id
-            )
-        )
-        viewModel.setServerValidationState(
-            isChecking = true,
-            message = "Checking ${newProfile.name} before switching...",
-            isError = false
-        )
-        serverValidationJob = lifecycleScope.launch {
-            val result = HermesApiClient.checkServerReadiness(newProfile.url)
-            val reachable = result.isReady || HermesApiClient.isServerReachable(newProfile.url)
-            DiagnosticsLogger.record(
-                this@MainActivity,
-                "server_switch_health_check_result",
-                mapOf(
-                    "origin" to DiagnosticsLogger.originOnly(newProfile.url),
-                    "profile_id" to newProfile.id,
-                    "status" to result.status.name,
-                    "ready" to result.isReady.toString(),
-                    "reachable" to reachable.toString()
-                )
-            )
-
-            if (result.isReady) {
-                val message = "${newProfile.name} is reachable. Switch to this server now?"
-                viewModel.setServerValidationState(
-                    isChecking = false,
-                    message = message,
-                    isError = false
-                )
-                showServerSwitchConfirmation(newProfile, "Server reachable", message)
-                return@launch
-            }
-
-            if (reachable && result.status == HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED) {
-                // Per-server opt-out: users who have ticked "Don't ask again"
-                // for this URL should switch silently rather than re-prompting.
-                if (settingsRepository.isAuthPromptSilencedForUrl(newProfile.url)) {
-                    DiagnosticsLogger.record(
-                        this@MainActivity,
-                        "server_switch_auth_required_auto_proceed_silenced",
-                        mapOf(
-                            "origin" to DiagnosticsLogger.originOnly(newProfile.url),
-                            "profile_id" to newProfile.id
-                        )
-                    )
-                    viewModel.clearServerValidationState()
-                    performServerProfileSwitch(newProfile)
-                    return@launch
-                }
-                val message = "${newProfile.name} is reachable, but requires sign-in before Android can read /api/status. Switch and sign in?"
-                viewModel.setServerValidationState(
-                    isChecking = false,
-                    message = message,
-                    isError = false
-                )
-                showAuthRequiredSwitchConfirmation(newProfile, message)
-                return@launch
-            }
-
-            val blockedMessage = "${newProfile.name}: ${result.message}"
-            viewModel.setServerValidationState(
-                isChecking = false,
-                message = blockedMessage,
-                isError = true
-            )
-            DiagnosticsLogger.record(
-                this@MainActivity,
-                "server_switch_health_check_blocked",
-                mapOf(
-                    "origin" to DiagnosticsLogger.originOnly(newProfile.url),
-                    "profile_id" to newProfile.id,
-                    "status" to result.status.name,
-                    "decision" to "stay_current_server"
-                )
-            )
-            showServerHealthBlockedDialog(newProfile, result)
-        }
+        serverProfileCoordinator.handleSwitchServerProfile(profileId)
     }
 
-    private fun showServerSwitchConfirmation(profile: ServerProfile, title: String, message: String) {
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setNegativeButton("Cancel") { dialog, _ ->
-                DiagnosticsLogger.record(
-                    this,
-                    "server_switch_cancelled",
-                    mapOf("origin" to DiagnosticsLogger.originOnly(profile.url), "profile_id" to profile.id)
-                )
-                dialog.dismiss()
-            }
-            .setPositiveButton("Switch") { _, _ ->
-                performServerProfileSwitch(profile)
-            }
-            .show()
-    }
-
-    /**
-     * Confirmation dialog for the AUTH_REQUIRED-but-reachable switch case.
-     * Same Cancel/Switch buttons as [showServerSwitchConfirmation] plus an
-     * inline "Don't ask again for this server" checkbox. When ticked, the URL
-     * is added to the silenced set so future switches to the same server skip
-     * the prompt and go straight to the sign-in page.
-     */
-    private fun showAuthRequiredSwitchConfirmation(profile: ServerProfile, message: String) {
-        val padding = (16 * resources.displayMetrics.density).toInt()
-        val checkBox = android.widget.CheckBox(this).apply {
-            text = "Don't ask again for this server"
-        }
-        val messageView = android.widget.TextView(this).apply {
-            text = message
-            setPadding(0, 0, 0, padding)
-        }
-        val container = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(padding, padding, padding, 0)
-            addView(messageView)
-            addView(checkBox)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Sign-in required")
-            .setView(container)
-            .setNegativeButton("Cancel") { dialog, _ ->
-                DiagnosticsLogger.record(
-                    this,
-                    "server_switch_cancelled",
-                    mapOf("origin" to DiagnosticsLogger.originOnly(profile.url), "profile_id" to profile.id)
-                )
-                dialog.dismiss()
-            }
-            .setPositiveButton("Switch") { _, _ ->
-                if (checkBox.isChecked) {
-                    settingsRepository.silenceAuthPromptForUrl(profile.url)
-                    DiagnosticsLogger.record(
-                        this,
-                        "server_switch_auth_prompt_silenced",
-                        mapOf(
-                            "origin" to DiagnosticsLogger.originOnly(profile.url),
-                            "profile_id" to profile.id
-                        )
-                    )
-                }
-                performServerProfileSwitch(profile)
-            }
-            .show()
-    }
-
-    private fun showServerHealthBlockedDialog(
-        profile: ServerProfile,
-        result: HermesApiClient.ServerReadinessResult
-    ) {
-        showServerValidationRecoveryDialog(
-            url = profile.url,
-            result = result,
-            positiveLabel = "Switch anyway"
-        ) { performServerProfileSwitch(profile) }
-    }
-
-    /**
-     * Shared error-recovery dialog shown when /api/status preflight fails for a
-     * server URL the user is trying to add, edit, save, or switch to. Shows the
-     * server message plus full diagnostic block (HTTP status, body snippet, etc.)
-     * and exposes three escape hatches:
-     *  - "Open in browser": launch the URL in the system browser so the user can
-     *    complete sign-in / inspect the response directly.
-     *  - [positiveLabel]: bypass the readiness check and continue (e.g. for
-     *    auth-protected servers where /api/status returns 401 even when
-     *    the server is healthy).
-     *  - "Cancel": no-op.
-     */
     private fun showServerValidationRecoveryDialog(
         url: String,
         result: HermesApiClient.ServerReadinessResult,
@@ -2519,84 +1801,6 @@ class MainActivity : ComponentActivity() {
         webView.clearHistory()
         webView.clearCache(true)
         webView.clearFormData()
-    }
-
-    private fun validateServerBeforePersist(
-        serverUrl: String,
-        openSettingsOnFailure: Boolean = false,
-        onFailure: ((HermesApiClient.ServerReadinessResult) -> Unit)? = null,
-        onSuccess: () -> Unit
-    ) {
-        serverValidationJob?.cancel()
-        DiagnosticsLogger.record(
-            this,
-            "server_validation_start",
-            mapOf("origin" to DiagnosticsLogger.originOnly(serverUrl))
-        )
-        viewModel.setServerValidationState(
-            isChecking = true,
-            message = "Checking Hermes server readiness...",
-            isError = false
-        )
-        serverValidationJob = lifecycleScope.launch {
-            val result = HermesApiClient.checkServerReadiness(serverUrl)
-            DiagnosticsLogger.record(
-                this@MainActivity,
-                "server_validation_result",
-                mapOf(
-                    "origin" to DiagnosticsLogger.originOnly(serverUrl),
-                    "status" to result.status.name,
-                    "ready" to result.isReady.toString()
-                )
-            )
-
-            // Soft-pass: a 401/403 from /api/status with a reachable server is
-            // a normal sign-in-required Hermes deployment, not a broken server.
-            // Treat it as ready and let the WebView handle the sign-in flow,
-            // matching the server-switch path that just prompts "and sign in".
-            // Without this, auth-protected servers (Tailscale-served Hermes,
-            // OIDC-protected deployments, etc.) get blocked from being saved
-            // even though they work fine in the browser.
-            val authRequiredButReachable = !result.isReady &&
-                result.status == HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED &&
-                HermesApiClient.isServerReachable(serverUrl)
-            if (authRequiredButReachable) {
-                DiagnosticsLogger.record(
-                    this@MainActivity,
-                    "server_validation_soft_pass_auth_required",
-                    mapOf("origin" to DiagnosticsLogger.originOnly(serverUrl))
-                )
-                viewModel.clearServerValidationState()
-                Toast.makeText(
-                    this@MainActivity,
-                    "Server reachable — sign in on the Hermes page to finish.",
-                    Toast.LENGTH_LONG
-                ).show()
-                onSuccess()
-                return@launch
-            }
-
-            if (!result.isReady) {
-                viewModel.setServerValidationState(
-                    isChecking = false,
-                    message = result.message,
-                    isError = true,
-                    details = result.diagnostics
-                )
-                val handled = onFailure != null
-                if (handled) {
-                    onFailure.invoke(result)
-                } else {
-                    if (openSettingsOnFailure) {
-                        viewModel.openSettingsWithServerValidation(result.message, details = result.diagnostics)
-                    }
-                    Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
-                }
-                return@launch
-            }
-            viewModel.clearServerValidationState()
-            onSuccess()
-        }
     }
 
     private fun shouldDirectCaptureImage(fileChooserParams: WebChromeClient.FileChooserParams?): Boolean {
@@ -2756,7 +1960,4 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun normalizeServerProfileUrl(url: String): String {
-        return url.trim().trimEnd('/').lowercase()
-    }
 }

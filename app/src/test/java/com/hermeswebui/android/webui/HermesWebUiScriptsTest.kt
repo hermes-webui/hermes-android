@@ -35,4 +35,14 @@ class HermesWebUiScriptsTest {
         assertThat(script).contains("var initialPermission = \"granted\";")
         assertThat(script).contains("window.__hermesAndroidSetNotificationPermission")
     }
+
+    @Test
+    fun `viewport fix script patches collapsed and expanded update summary containers`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        assertThat(script).contains("#updateSummaryPanel { max-height:")
+        assertThat(script).contains("#updateSummaryScroll { max-height:")
+        assertThat(script).contains("#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height:")
+        assertThat(script).contains("viewportWidth > 0 && viewportWidth <= 600")
+    }
 }

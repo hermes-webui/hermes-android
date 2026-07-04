@@ -24,8 +24,15 @@ Useful entry points:
 - `data/SettingsRepository.kt` - encrypted settings persistence; implements `SettingsStore` interface. Uses a versioned `runMigration()` pattern (`KEY_LAST_MIGRATION_VERSION`): when adding new data schema changes, increment `currentMigrationVersion` and add a corresponding migration block. Non-interface methods (`hasRequestedNotificationPermission`, `markNotificationPermissionRequested`, `getLastLoadedUrl`) are called directly by `MainActivity`.
 - `domain/ServerUrlValidator.kt` - server URL validation rules
 - `domain/ShareIntentParser.kt` - Android share-sheet parsing
-- `ui/MainViewModel.kt` - app state orchestration
+- `ui/MainViewModel.kt` - app state orchestration (paired with `ui/MainViewModelFactory.kt`)
 - `ui/web/WebShell.kt` - Compose WebView host and refresh/error UX
+- `ui/settings/SettingsScreen.kt` / `ui/settings/SettingsBottomSheet.kt` - native settings surfaces (opened via `hermes://app/settings` and the injected WebUI sidebar entry)
+- `ui/DebugLogFloatingButton.kt` - draggable overlay shown while debug logging is active
+- `OAuthPopupFlow.kt` - parses authorization requests and verifies OAuth/OIDC callbacks before allowing in-app provider navigation
+- `background/HermesReconnectService.kt` + `background/ReconnectBackgroundPolicy.kt` - foreground service (manifest `foregroundServiceType="dataSync"`) that keeps the bounded reconnect probe and `/api/session/stream` subscription alive while the activity is backgrounded; policy helpers gate when the service should run/keep-alive/cancel
+- `background/ApprovalClient.kt` + `background/ApprovalActionSupport.kt` + `background/ReconnectSessionStreamSupport.kt` - authenticated `/api/approval/pending`/`/api/approval/respond` client and SSE event support used by the notification approval actions
+- `background/HermesDebugLoggingService.kt` + `background/DebugLogBootstrap.kt` - opt-in foreground logcat capture into `files/debug-logs/` with a persistent Stop notification
+- `update/GitHubReleaseUpdateChecker.kt` + `update/AppVersionComparator.kt` + `update/AppUpdateCheckResult.kt` - GitHub-channel update check (Play channel uses Play Core in `MainActivity`)
 
 Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 

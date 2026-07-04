@@ -138,7 +138,10 @@ object HermesWebUiScripts {
             // apply to `100dvh`), so those panels collapse to a tiny sliver with the content
             // scrolled out of view. Re-cap them with the measured viewport height instead.
             var menuMax = Math.max(120, Math.round(height) - 16) + 'px';
+            var viewportWidth = window.visualViewport && window.visualViewport.width || window.innerWidth || 0;
             var updateSummaryMax = Math.max(120, Math.min(260, Math.round(height * 0.34))) + 'px';
+            var updateSummaryExpandedMax = Math.max(180, Math.min(560, Math.round(height * 0.75))) + 'px';
+            var updateSummaryExpandedMobileMax = Math.max(220, Math.min(640, Math.round(height * 0.82))) + 'px';
             var style = document.getElementById(styleId);
             if (!style) {
               style = document.createElement('style');
@@ -155,7 +158,12 @@ object HermesWebUiScripts {
               'body { overflow-x: hidden !important; }',
               '.layout, .rail, .sidebar, #sessionList, .messages { min-height: 0 !important; }',
               '.session-action-menu, .workspace-prefs-menu { max-height: ' + menuMax + ' !important; }',
-              '#updateSummaryPanel { max-height: ' + updateSummaryMax + ' !important; overflow-y: auto !important; }'
+              '#updateSummaryPanel { max-height: ' + updateSummaryMax + ' !important; overflow-y: auto !important; }',
+              '#updateSummaryScroll { max-height: ' + updateSummaryMax + ' !important; overflow-y: auto !important; }',
+              '#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height: ' + updateSummaryExpandedMax + ' !important; }',
+              (viewportWidth > 0 && viewportWidth <= 600
+                ? '#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height: ' + updateSummaryExpandedMobileMax + ' !important; }'
+                : '')
             ].join('\n');
 
             // Some extension panels (for example Theme Creator) can still collapse to a

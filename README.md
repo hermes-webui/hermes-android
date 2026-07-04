@@ -90,7 +90,7 @@ Requirements:
 - Kotlin + Jetpack Compose Android app
 - Hardened WebView for Hermes WebUI
 - Android WebView compatibility fixes for Hermes WebUI viewport rendering
-- Android WebView compatibility shim that re-caps Hermes WebUI floating/long-press menu height and the generated update summary panel so they render full-size instead of collapsing (Android WebView treats CSS `vh` units as `0` here) while preserving vertical page scrolling for expandable content
+- Android WebView compatibility shim that re-caps Hermes WebUI floating/long-press menu height and the generated update summary panel and scroll container so they render full-size instead of collapsing (Android WebView treats CSS `vh` units as `0` here) while preserving vertical page scrolling for expandable content
 - Default WebView HTTP/service-worker caching with smoother reload rendering
 - System-bar inset handling so WebView content and native controls avoid status and navigation bars
 - Android WebView microphone compatibility that forces WebUI voice input through its MediaRecorder path

@@ -127,6 +127,7 @@ private const val HermesGithubIssuesListUrl = "https://github.com/hermes-webui/h
 private const val HermesGithubNewIssueUrl = "https://github.com/hermes-webui/hermes-android/issues/new/choose"
 private const val AppUpdateNotificationId = 7_001
 private const val AutomaticAppUpdateCheckDelayMs = 60_000L
+private const val EnableAppSettingsSidebarShim = true
 
 private data class NotificationPermissionReply(
     val id: String?,
@@ -174,6 +175,122 @@ private val HermesLightColorScheme = lightColorScheme(
 private val HermesWebViewViewportFixScript = """
     (function() {
       var styleId = 'hermes-android-viewport-fix';
+      var repairedAttr = 'data-hermes-android-panel-repaired';
+      var repairedCollapsedValue = 'collapsed';
+      var repairedThemeValue = 'theme-creator';
+      var scheduledApply = false;
+      var normalizedText = function(value) {
+        return String(value || '').trim().toLowerCase();
+      };
+      var repairThemeCreatorPanel = function(height) {
+        var minPanel = Math.max(260, Math.round(height * 0.45)) + 'px';
+        var maxPanel = Math.max(220, Math.round(height * 0.86)) + 'px';
+        var textNodes = document.querySelectorAll('h1, h2, h3, h4, span, div, button, label');
+
+        // Drop stale Theme Creator repairs before recomputing geometry.
+        document.querySelectorAll('[' + repairedAttr + '="' + repairedThemeValue + '"]').forEach(function(el) {
+          el.style.removeProperty('height');
+          el.style.removeProperty('min-height');
+          el.style.removeProperty('max-height');
+          el.style.removeProperty('overflow-y');
+          el.style.removeProperty('display');
+          el.style.removeProperty('justify-content');
+          el.style.removeProperty('align-content');
+          el.removeAttribute(repairedAttr);
+        });
+
+        textNodes.forEach(function(node) {
+          if (!node || !node.textContent) return;
+          var text = normalizedText(node.textContent);
+          if (text !== 'theme creator') return;
+
+          var current = node;
+          for (var depth = 0; current && depth < 10; depth++) {
+            current = current.parentElement;
+            if (!current || !current.getBoundingClientRect) continue;
+            var rect = current.getBoundingClientRect();
+            if (rect.width < 220) continue;
+
+            // Target the Theme Creator content container (the one that owns most
+            // form controls) instead of outer wrappers to avoid inflating header space.
+            var inputCount = 0;
+            try {
+              inputCount = current.querySelectorAll('input, textarea, select, [contenteditable="true"]').length;
+            } catch (_) { inputCount = 0; }
+            if (inputCount < 4) continue;
+
+            var isCollapsed = rect.height > 0 && rect.height <= 140;
+            var hasOverflowMismatch = current.scrollHeight > rect.height + 120;
+            if (!isCollapsed && !hasOverflowMismatch) continue;
+
+            current.style.height = 'auto';
+            current.style.minHeight = minPanel;
+            current.style.maxHeight = maxPanel;
+            current.style.overflowY = 'auto';
+            current.setAttribute(repairedAttr, repairedThemeValue);
+            break;
+          }
+        });
+      };
+
+      var repairCollapsedPanels = function(height) {
+        var maxPanel = Math.max(180, Math.round(height * 0.82)) + 'px';
+        var minPanel = Math.max(120, Math.round(height * 0.35)) + 'px';
+        var selectors = [
+          '[role="dialog"]',
+          '.modal',
+          '.dialog',
+          '.popover',
+          '.dropdown-menu',
+          '[class*="theme"]',
+          '[id*="theme"]',
+          '[class*="creator"]',
+          '[id*="creator"]',
+          '[style*="vh"]',
+          '[style*="dvh"]'
+        ].join(', ');
+
+        document.querySelectorAll(selectors).forEach(function(el) {
+          if (!el || !el.getBoundingClientRect) return;
+          var rect = el.getBoundingClientRect();
+          var scrollHeight = el.scrollHeight || 0;
+          var text = normalizedText(el.textContent);
+          var isThemeCreatorLike = text.indexOf('theme creator') !== -1;
+
+          // Ignore tiny controls/chips that happen to match selector text.
+          if (rect.width < 160) return;
+
+          if (rect.height > 28) {
+            // Remove stale repair markers once the panel is healthy again.
+            if (el.getAttribute(repairedAttr) === repairedCollapsedValue) {
+              el.style.removeProperty('height');
+              el.style.removeProperty('min-height');
+              el.style.removeProperty('max-height');
+              el.style.removeProperty('overflow-y');
+              el.style.removeProperty('display');
+              el.removeAttribute(repairedAttr);
+            }
+            return;
+          }
+          // Only repair truly collapsed containers that still have meaningful content.
+          if (rect.height <= 0) return;
+          if (!isThemeCreatorLike && scrollHeight < 80) return;
+
+          el.style.height = 'auto';
+          el.style.minHeight = minPanel;
+          el.style.maxHeight = maxPanel;
+          el.style.overflowY = 'auto';
+
+          // Theme Creator can collapse while header/footer stay visible; ensure the
+          // container can grow into a full working panel.
+          if (isThemeCreatorLike) {
+            el.style.display = 'block';
+          }
+
+          el.setAttribute(repairedAttr, repairedCollapsedValue);
+        });
+      };
+
       var applyViewportFix = function() {
         var visualHeight = window.visualViewport && window.visualViewport.height;
         var height = Math.max(
@@ -201,27 +318,51 @@ private val HermesWebViewViewportFixScript = """
         // update summary/details block) expand below the fold and become unusable if body
         // scrolling is locked with `overflow: hidden`.
         style.textContent = [
-          'html, body { height: ' + px + ' !important; min-height: ' + px + ' !important; }',
+          // Avoid fixed `height` on html/body: some extension panels size from percentage/flex
+          // chains and can collapse when the root is hard-locked.
+          'html, body { min-height: ' + px + ' !important; }',
           'body { overflow-x: hidden !important; }',
-          '.layout, .rail, .sidebar, .main, .rightpanel, #sessionList, .messages { min-height: 0 !important; }',
+          '.layout, .rail, .sidebar, #sessionList, .messages { min-height: 0 !important; }',
           '.session-action-menu, .workspace-prefs-menu { max-height: ' + menuMax + ' !important; }',
           '#updateSummaryPanel { max-height: ' + updateSummaryMax + ' !important; overflow-y: auto !important; }'
         ].join('\n');
+
+        // Some extension panels (for example Theme Creator) can still collapse to a
+        // tiny strip when Android WebView resolves vh-based caps to ~0px.
+        repairCollapsedPanels(height);
+        repairThemeCreatorPanel(height);
+      };
+
+      var scheduleApplyViewportFix = function() {
+        if (scheduledApply) return;
+        scheduledApply = true;
+        window.requestAnimationFrame(function() {
+          scheduledApply = false;
+          applyViewportFix();
+        });
       };
 
       window.__hermesAndroidApplyViewportFix = applyViewportFix;
-      applyViewportFix();
+      scheduleApplyViewportFix();
 
       if (!window.__hermesAndroidViewportFixInstalled) {
         window.__hermesAndroidViewportFixInstalled = true;
-        window.addEventListener('resize', applyViewportFix, { passive: true });
+        window.addEventListener('resize', scheduleApplyViewportFix, { passive: true });
         window.addEventListener('orientationchange', function() {
-          window.setTimeout(applyViewportFix, 0);
-          window.setTimeout(applyViewportFix, 250);
+          window.setTimeout(scheduleApplyViewportFix, 0);
+          window.setTimeout(scheduleApplyViewportFix, 250);
         }, { passive: true });
         if (window.visualViewport) {
-          window.visualViewport.addEventListener('resize', applyViewportFix, { passive: true });
+          window.visualViewport.addEventListener('resize', scheduleApplyViewportFix, { passive: true });
         }
+
+        // Theme/extension dialogs are often mounted after initial page load. Re-run
+        // the viewport fix when the DOM changes so collapsed vh-based panels are
+        // repaired at open time, not only on window resize.
+        try {
+          var observer = new MutationObserver(function() { scheduleApplyViewportFix(); });
+          observer.observe(document.documentElement || document.body, { childList: true, subtree: true, attributes: true });
+        } catch (_) {}
       }
     })();
 """.trimIndent()
@@ -336,6 +477,9 @@ private val HermesWebUiAppSettingsEntryScript = """
     (function() {
       var appSettingsHref = 'hermes://app/settings';
       var markerAttr = 'data-hermes-android-app-settings-entry';
+      var markerValue = '1';
+      var labelText = 'Application Settings';
+      var scheduled = false;
 
       var normalizedText = function(value) {
         return String(value || '').trim().toLowerCase();
@@ -353,55 +497,10 @@ private val HermesWebUiAppSettingsEntryScript = """
           normalized.indexOf(' settings') !== -1;
       };
 
-      var isRegularSettingsControl = function(node) {
-        if (!node || !node.getAttribute) return false;
-        if (node.getAttribute(markerAttr)) return false;
-        var panel = normalizedText(node.getAttribute('data-panel'));
-        var settingsSection = normalizedText(node.getAttribute('data-settings-section'));
-        if (panel === 'settings') return true;
-        if (settingsSection === 'settings') return true;
-        if (textMatchesRegularSettings(node.textContent)) return true;
-        if (textMatchesRegularSettings(node.getAttribute('aria-label'))) return true;
-        if (textMatchesRegularSettings(node.getAttribute('title'))) return true;
-        if (textMatchesRegularSettings(node.getAttribute('data-tooltip'))) return true;
-        if (textMatchesRegularSettings(node.getAttribute('data-i18n-title'))) return true;
-        return false;
-      };
-
-      var textContainsHelp = function(value) {
-        var normalized = String(value || '').trim().toLowerCase();
-        return normalized === 'help' || normalized.indexOf('help ') === 0 || normalized.indexOf(' help') !== -1;
-      };
-
-      var clearActiveState = function(root) {
-        if (!root || !root.querySelectorAll) return;
-        root.querySelectorAll('[aria-current], [aria-selected], .active, .selected, .is-active').forEach(function(el) {
-          el.removeAttribute('aria-current');
-          el.removeAttribute('aria-selected');
-          el.classList.remove('active');
-          el.classList.remove('selected');
-          el.classList.remove('is-active');
-        });
-      };
-
-      var stripRoutingAttributes = function(root) {
-        if (!root || !root.querySelectorAll) return;
-        var routeAttrPattern = /(route|router|nav|href|path|url|target|rel|onclick)/i;
-        root.querySelectorAll('*').forEach(function(el) {
-          var names = [];
-          for (var i = 0; i < el.attributes.length; i++) {
-            names.push(el.attributes[i].name);
-          }
-          names.forEach(function(name) {
-            if (routeAttrPattern.test(name)) {
-              el.removeAttribute(name);
-            }
-          });
-        });
-      };
-
       var bindNativeSettingsClick = function(el) {
         if (!el) return;
+        if (el.__hermesAndroidAppSettingsBound) return;
+        el.__hermesAndroidAppSettingsBound = true;
         var openNativeSettings = function(event) {
           if (event) {
             event.preventDefault();
@@ -413,13 +512,71 @@ private val HermesWebUiAppSettingsEntryScript = """
           window.location.href = appSettingsHref;
           return false;
         };
-        el.addEventListener('click', openNativeSettings, true);
-        el.addEventListener('auxclick', openNativeSettings, true);
+        el.addEventListener('click', openNativeSettings, false);
+        el.addEventListener('auxclick', openNativeSettings, false);
         el.addEventListener('keydown', function(event) {
           if (event.key === 'Enter' || event.key === ' ') {
             openNativeSettings(event);
           }
-        }, true);
+        }, false);
+      };
+
+      var getInteractiveNodes = function(scope) {
+        if (!scope || !scope.querySelectorAll) return [];
+        return scope.querySelectorAll('a, button, [role="button"], [role="menuitem"]');
+      };
+
+      var matchesSettingsNode = function(node) {
+        if (!node || !node.getAttribute) return false;
+        if (node.getAttribute(markerAttr)) return false;
+        if (normalizedText(node.getAttribute('data-panel')) === 'settings') return true;
+        if (normalizedText(node.getAttribute('data-settings-section')) === 'settings') return true;
+        if (textMatchesRegularSettings(node.getAttribute('aria-label'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('title'))) return true;
+        if (textMatchesRegularSettings(node.getAttribute('data-tooltip'))) return true;
+        if (textMatchesRegularSettings(node.textContent)) return true;
+        return false;
+      };
+
+      var findSettingsAnchor = function() {
+        var scopeSelectors = ['.rail', '.sidebar', '.sidebar-nav', '.leftpanel', 'aside', 'nav'];
+        for (var i = 0; i < scopeSelectors.length; i++) {
+          var scope = document.querySelector(scopeSelectors[i]);
+          var nodes = getInteractiveNodes(scope);
+          for (var j = 0; j < nodes.length; j++) {
+            if (matchesSettingsNode(nodes[j])) return nodes[j];
+          }
+        }
+        var globalNodes = getInteractiveNodes(document);
+        for (var k = 0; k < globalNodes.length; k++) {
+          if (matchesSettingsNode(globalNodes[k])) return globalNodes[k];
+        }
+        return null;
+      };
+
+      var findInsertedEntry = function(anchorContainer) {
+        if (!anchorContainer || !anchorContainer.parentNode) return null;
+        var sibling = anchorContainer.nextElementSibling;
+        if (sibling && sibling.getAttribute && sibling.getAttribute(markerAttr) === markerValue) {
+          return sibling;
+        }
+        return anchorContainer.parentNode.querySelector('[' + markerAttr + '="' + markerValue + '"]');
+      };
+
+      var clearActiveState = function(root) {
+        if (!root || !root.querySelectorAll) return;
+        root.removeAttribute('aria-current');
+        root.removeAttribute('aria-selected');
+        root.classList.remove('active');
+        root.classList.remove('selected');
+        root.classList.remove('is-active');
+        root.querySelectorAll('[aria-current], [aria-selected], .active, .selected, .is-active').forEach(function(el) {
+          el.removeAttribute('aria-current');
+          el.removeAttribute('aria-selected');
+          el.classList.remove('active');
+          el.classList.remove('selected');
+          el.classList.remove('is-active');
+        });
       };
 
       var createAppIconSvg = function(className) {
@@ -460,15 +617,11 @@ private val HermesWebUiAppSettingsEntryScript = """
       };
 
       var applyApplicationIcon = function(interactive) {
-        if (!interactive) return;
+        if (!interactive || !interactive.querySelector) return;
         var existing = interactive.querySelector('svg, i, [data-icon], [class*="icon"]');
-        var className = '';
-        if (existing && existing.getAttribute) {
-          className = existing.getAttribute('class') || '';
-        }
+        var className = existing && existing.getAttribute ? (existing.getAttribute('class') || '') : '';
         var appIcon = createAppIconSvg(className);
         appIcon.setAttribute(markerAttr, 'icon');
-
         if (existing && existing.parentNode) {
           existing.parentNode.replaceChild(appIcon, existing);
         } else {
@@ -476,172 +629,101 @@ private val HermesWebUiAppSettingsEntryScript = """
         }
       };
 
-      var replaceHelpLabel = function(root) {
-        var changed = false;
-        var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+      var setEntryLabel = function(interactive) {
+        if (!interactive) return;
+        var replaced = false;
+        var walker = document.createTreeWalker(interactive, NodeFilter.SHOW_TEXT, null);
         var node = walker.nextNode();
         while (node) {
-          if (textContainsHelp(node.nodeValue)) {
-            node.nodeValue = 'Application Settings';
-            changed = true;
+          if (textMatchesRegularSettings(node.nodeValue)) {
+            node.nodeValue = labelText;
+            replaced = true;
+            break;
           }
           node = walker.nextNode();
         }
-        return changed;
-      };
+        if (replaced) return;
 
-      var forceVisibleLabel = function(root) {
-        if (!root || !root.querySelectorAll) return;
-        var changed = false;
-        root.querySelectorAll('span, p, div, strong, em').forEach(function(el) {
-          if (textContainsHelp(el.textContent)) {
-            el.textContent = 'Application Settings';
-            changed = true;
-          }
-        });
-        if (changed) return;
+        var labelNode = interactive.querySelector('span, p, strong, em, div');
+        if (labelNode) {
+          labelNode.textContent = labelText;
+          return;
+        }
+
         var fallback = document.createElement('span');
-        fallback.textContent = 'Application Settings';
+        fallback.textContent = labelText;
         fallback.setAttribute(markerAttr, 'label');
-        root.appendChild(fallback);
+        interactive.appendChild(fallback);
       };
 
-      var findInteractiveInScope = function(scope, textMatcher) {
-        if (!scope || !scope.querySelectorAll) return null;
-        var nodes = scope.querySelectorAll('a, button, [role="button"], [role="menuitem"]');
-        for (var i = 0; i < nodes.length; i++) {
-          var node = nodes[i];
-          if (node.getAttribute(markerAttr)) continue;
-          if (textMatcher(node.textContent)) return node;
-          var aria = node.getAttribute('aria-label');
-          if (textMatcher(aria)) return node;
-          var title = node.getAttribute('title');
-          if (textMatcher(title)) return node;
+      var createEntryNode = function(anchorContainer, anchorInteractive) {
+        var clone = anchorContainer.cloneNode(true);
+        clone.setAttribute(markerAttr, markerValue);
+        clone.removeAttribute('id');
+        clearActiveState(clone);
+
+        var interactiveSelector = 'a, button, [role="button"], [role="menuitem"]';
+        var interactive = clone.matches(interactiveSelector) ? clone : clone.querySelector(interactiveSelector);
+        if (!interactive) {
+          interactive = document.createElement('a');
+          interactive.textContent = labelText;
+          clone.appendChild(interactive);
         }
-        return null;
+
+        interactive.removeAttribute('id');
+        interactive.setAttribute(markerAttr, markerValue);
+        interactive.setAttribute('href', appSettingsHref);
+        interactive.setAttribute('role', 'link');
+        interactive.setAttribute('aria-label', labelText);
+        interactive.setAttribute('title', labelText);
+        interactive.setAttribute('data-tooltip', labelText);
+        interactive.removeAttribute('data-panel');
+        interactive.removeAttribute('data-settings-section');
+        interactive.removeAttribute('data-i18n-title');
+
+        setEntryLabel(interactive);
+        applyApplicationIcon(interactive);
+        bindNativeSettingsClick(interactive);
+        return clone;
       };
 
-      var findSettingsInteractivesInScope = function(scope) {
-        if (!scope || !scope.querySelectorAll) return [];
-        var nodes = scope.querySelectorAll('a, button, [role="button"], [role="menuitem"], [data-panel], [data-settings-section]');
-        var hits = [];
-        for (var i = 0; i < nodes.length; i++) {
-          var node = nodes[i];
-          if (isRegularSettingsControl(node)) hits.push(node);
-        }
-        return hits;
-      };
-
-      var findSidebarInteractive = function(textMatcher) {
-        var scopedSelectors = ['.sidebar', '.rail', '.leftpanel', 'aside', 'nav'];
-        for (var i = 0; i < scopedSelectors.length; i++) {
-          var scope = document.querySelector(scopedSelectors[i]);
-          var hit = findInteractiveInScope(scope, textMatcher);
-          if (hit) return hit;
-        }
-        return findInteractiveInScope(document, textMatcher);
-      };
-
-      var findSettingsInteractives = function() {
-        var scopedSelectors = ['.rail', '.sidebar-nav', '.leftpanel'];
-        var seen = [];
-        var hits = [];
-        var addHits = function(scopeHits) {
-          for (var i = 0; i < scopeHits.length; i++) {
-            if (seen.indexOf(scopeHits[i]) !== -1) continue;
-            seen.push(scopeHits[i]);
-            hits.push(scopeHits[i]);
-          }
-        };
-        for (var i = 0; i < scopedSelectors.length; i++) {
-          document.querySelectorAll(scopedSelectors[i]).forEach(function(scope) {
-            addHits(findSettingsInteractivesInScope(scope));
-          });
-        }
-        return hits;
-      };
-
-      var appEntryAlreadyAfter = function(anchorContainer) {
-        var next = anchorContainer && anchorContainer.nextElementSibling;
-        return !!(next && next.getAttribute && next.getAttribute(markerAttr) === '1');
-      };
-
-      var ensureEntryAfter = function(anchorInteractive) {
+      var ensureEntry = function() {
         try {
+          var anchorInteractive = findSettingsAnchor();
           if (!anchorInteractive) return;
 
           var anchorContainer = anchorInteractive.closest('li, [role="menuitem"], .menu-item, .nav-item, .sidebar-item, [data-menu-item]') || anchorInteractive;
           if (!anchorContainer || !anchorContainer.parentNode) return;
-          if (appEntryAlreadyAfter(anchorContainer)) return;
 
-          var cloned = anchorContainer.cloneNode(false);
-          cloned.setAttribute(markerAttr, '1');
-          cloned.removeAttribute('id');
-          clearActiveState(cloned);
-          stripRoutingAttributes(cloned);
-
-          var anchorIsInteractive = anchorContainer.matches('a, button, [role="button"], [role="menuitem"]');
-          var interactive = anchorIsInteractive ? cloned : anchorInteractive.cloneNode(false);
-          if (!anchorIsInteractive) {
-            interactive.removeAttribute('id');
-            clearActiveState(interactive);
-            stripRoutingAttributes(interactive);
-            cloned.appendChild(interactive);
+          var existing = findInsertedEntry(anchorContainer);
+          if (existing) {
+            var existingInteractive = existing.matches('a, button, [role="button"], [role="menuitem"]') ? existing : existing.querySelector('a, button, [role="button"], [role="menuitem"]');
+            bindNativeSettingsClick(existingInteractive || existing);
+            return;
           }
 
-          if (!interactive) return;
-
-          interactive.textContent = '';
-          applyApplicationIcon(interactive);
-          if (!anchorInteractive.matches('[data-panel="settings"], .nav-tab, .rail-btn')) {
-            var label = document.createElement('span');
-            label.textContent = 'Application Settings';
-            label.setAttribute(markerAttr, 'label');
-            interactive.appendChild(label);
-          }
-
-          if (interactive.tagName && interactive.tagName.toLowerCase() === 'a') {
-            interactive.setAttribute('href', appSettingsHref);
-          } else {
-            interactive.setAttribute('role', 'link');
-            interactive.setAttribute('tabindex', '0');
-          }
-          bindNativeSettingsClick(interactive);
-          interactive.setAttribute('aria-label', 'Application Settings');
-          interactive.setAttribute('title', 'Application Settings');
-          interactive.setAttribute('data-tooltip', 'Application Settings');
-          interactive.removeAttribute('data-panel');
-          interactive.removeAttribute('data-settings-section');
-          interactive.removeAttribute('data-i18n-title');
-          interactive.removeAttribute('aria-current');
-          interactive.removeAttribute('aria-selected');
-          interactive.classList.remove('active');
-          interactive.classList.remove('selected');
-          interactive.classList.remove('is-active');
-          interactive.setAttribute(markerAttr, '1');
-          bindNativeSettingsClick(cloned);
-
-          anchorContainer.parentNode.insertBefore(cloned, anchorContainer.nextSibling);
+          var entry = createEntryNode(anchorContainer, anchorInteractive);
+          anchorContainer.parentNode.insertBefore(entry, anchorContainer.nextSibling);
         } catch (_) {}
       };
 
-      var ensureEntry = function() {
-        var settingsHits = findSettingsInteractives();
-        if (settingsHits.length) {
-          settingsHits.forEach(ensureEntryAfter);
-          return;
-        }
-        ensureEntryAfter(findSidebarInteractive(textContainsHelp));
+      var scheduleEnsure = function() {
+        if (scheduled) return;
+        scheduled = true;
+        window.requestAnimationFrame(function() {
+          scheduled = false;
+          ensureEntry();
+        });
       };
 
-      ensureEntry();
+      scheduleEnsure();
 
       if (!window.__hermesAndroidAppSettingsEntryInstalled) {
         window.__hermesAndroidAppSettingsEntryInstalled = true;
-        var observer = new MutationObserver(function() { ensureEntry(); });
-        observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
-        window.addEventListener('pageshow', ensureEntry, { passive: true });
-        window.addEventListener('focus', ensureEntry, { passive: true });
+        var observer = new MutationObserver(function() { scheduleEnsure(); });
+        observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        window.addEventListener('pageshow', scheduleEnsure, { passive: true });
+        window.addEventListener('focus', scheduleEnsure, { passive: true });
       }
     })();
 """.trimIndent()
@@ -681,6 +763,7 @@ class MainActivity : ComponentActivity() {
     private val serverUrlValidator = ServerUrlValidator()
 
     private var lastBackPressTime: Long = 0
+    private var backPressExitStage: Int = 0
     private val BACK_PRESS_TIMEOUT_MS = 2000L // 2 seconds
 
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -917,17 +1000,40 @@ class MainActivity : ComponentActivity() {
 
         BackHandler {
             when {
-                uiState.isSettingsVisible -> viewModel.closeSettings()
-                webView.canGoBack() -> webView.goBack()
+                uiState.isSettingsVisible -> {
+                    backPressExitStage = 0
+                    viewModel.closeSettings()
+                }
+                webView.canGoBack() -> {
+                    backPressExitStage = 0
+                    webView.goBack()
+                }
                 else -> {
                     val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastBackPressTime < BACK_PRESS_TIMEOUT_MS) {
-                        // Second back press within timeout: exit app
-                        onRequestExit()
-                    } else {
-                        // First back press: show toast and reset timer
-                        lastBackPressTime = currentTime
-                        Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                    val withinWindow = currentTime - lastBackPressTime < BACK_PRESS_TIMEOUT_MS
+
+                    if (!withinWindow) {
+                        backPressExitStage = 0
+                    }
+
+                    when (backPressExitStage) {
+                        0 -> {
+                            // First back press: arm safety flow to open native settings.
+                            backPressExitStage = 1
+                            lastBackPressTime = currentTime
+                            Toast.makeText(this@MainActivity, "Press back again for Application Settings", Toast.LENGTH_SHORT).show()
+                        }
+                        1 -> {
+                            // Second back press: open native settings before allowing exit.
+                            backPressExitStage = 2
+                            lastBackPressTime = currentTime
+                            viewModel.openSettings()
+                            Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
+                        }
+                        else -> {
+                            // Third back press within timeout: exit app.
+                            onRequestExit()
+                        }
                     }
                 }
             }
@@ -2251,7 +2357,9 @@ class MainActivity : ComponentActivity() {
         view.evaluateJavascript(HermesWebUiMicrophoneFallbackScript, null)
         view.evaluateJavascript(buildHermesWebUiNotificationBridgeScript(), null)
         view.evaluateJavascript(buildHermesWebUiRouteRecoveryScript(), null)
-        view.evaluateJavascript(HermesWebUiAppSettingsEntryScript, null)
+        if (EnableAppSettingsSidebarShim) {
+            view.evaluateJavascript(HermesWebUiAppSettingsEntryScript, null)
+        }
     }
 
 
@@ -2285,13 +2393,15 @@ class MainActivity : ComponentActivity() {
                 setOf(originRule)
             )
         }.getOrNull()
-        appSettingsEntryScriptHandler = runCatching {
-            WebViewCompat.addDocumentStartJavaScript(
-                view,
-                HermesWebUiAppSettingsEntryScript,
-                setOf(originRule)
-            )
-        }.getOrNull()
+        if (EnableAppSettingsSidebarShim) {
+            appSettingsEntryScriptHandler = runCatching {
+                WebViewCompat.addDocumentStartJavaScript(
+                    view,
+                    HermesWebUiAppSettingsEntryScript,
+                    setOf(originRule)
+                )
+            }.getOrNull()
+        }
         enterKeyNewlineScriptHandler = runCatching {
             WebViewCompat.addDocumentStartJavaScript(
                 view,

@@ -741,61 +741,12 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val target = request?.url?.toString() ?: return true
-                    if (handleAppSettingsNavigation(target)) return true
-                    val activeTopLevelFlow = activeMainFrameOAuthFlow
-                    if (activeTopLevelFlow?.isVerifiedCallbackUrl(target) == true) {
-                        clearActiveMainFrameOAuth()
-                        return false
-                    }
-                    val startedTopLevelFlow = parseTrustedOAuthStart(target)
-                    if (startedTopLevelFlow != null) {
-                        rememberActiveMainFrameOAuth(startedTopLevelFlow)
-                        return false
-                    }
-                    if (activeTopLevelFlow != null && isHttpOrHttpsUrl(target)) {
-                        // Keep loading provider/redirect hosts in-app only while the flow window
-                        // (set once at flow start) is still open. Enforce the timeout INLINE and do
-                        // NOT refresh it per navigation: refreshing on every http(s) load let a
-                        // stale/hijacked flow hold the host allowlist open indefinitely. Once the
-                        // window closes, clear the flow and fall through so non-allowlisted hosts are
-                        // externalized again.
-                        // Residual (P2): the flow is still gated only by the redirect_uri->server-origin
-                        // check because a non-allowlisted authorize host is intentionally allowed in-app
-                        // for external/self-hosted OIDC providers (see OAuthPopupFlowTest). Requiring the
-                        // authorize host to be allowlisted would break legitimate provider logins; fully
-                        // closing the in-app phishing surface needs a product decision (configurable
-                        // trusted-IdP allowlist or an in-flow URL indicator).
-                        if (System.currentTimeMillis() <= oauthFlowTimeoutMs) {
-                            return false
-                        }
-                        clearActiveMainFrameOAuth()
-                    }
-                    if (matchesConfiguredDashboardRoute(target)) {
-                        openDashboardInCustomTab(target)
-                        return true
-                    }
-                    return when (urlPolicy.navigationDecision(target)) {
-                        NavigationDecision.ALLOW_IN_WEBVIEW -> false
-                        NavigationDecision.OPEN_IN_EXTERNAL_BROWSER -> {
-                            openInExternalBrowser(target)
-                            true
-                        }
-                        NavigationDecision.BLOCK -> true
-                    }
+                    return handleMainWebViewNavigation(target)
                 }
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
-                    if (!url.isNullOrBlank()) {
-                        val activeTopLevelFlow = activeMainFrameOAuthFlow
-                        if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
-                            clearActiveMainFrameOAuth()
-                        } else {
-                            parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
-                        }
-                    }
-                    updateOAuthInFlowHost(url)
-                    viewModel.onPageStarted(url)
+                    handleMainWebViewPageStarted(url)
                 }
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
@@ -1001,6 +952,68 @@ class MainActivity : ComponentActivity() {
         clearActiveOAuthPopup()
         handleNewWindowUrl(url)
         destroyPopup(popup)
+    }
+
+    private fun handleMainWebViewNavigation(target: String): Boolean {
+        if (handleAppSettingsNavigation(target)) return true
+
+        val activeTopLevelFlow = activeMainFrameOAuthFlow
+        if (activeTopLevelFlow?.isVerifiedCallbackUrl(target) == true) {
+            clearActiveMainFrameOAuth()
+            return false
+        }
+
+        val startedTopLevelFlow = parseTrustedOAuthStart(target)
+        if (startedTopLevelFlow != null) {
+            rememberActiveMainFrameOAuth(startedTopLevelFlow)
+            return false
+        }
+
+        if (activeTopLevelFlow != null && isHttpOrHttpsUrl(target)) {
+            // Keep loading provider/redirect hosts in-app only while the flow window
+            // (set once at flow start) is still open. Enforce the timeout INLINE and do
+            // NOT refresh it per navigation: refreshing on every http(s) load let a
+            // stale/hijacked flow hold the host allowlist open indefinitely. Once the
+            // window closes, clear the flow and fall through so non-allowlisted hosts are
+            // externalized again.
+            // Residual (P2): the flow is still gated only by the redirect_uri->server-origin
+            // check because a non-allowlisted authorize host is intentionally allowed in-app
+            // for external/self-hosted OIDC providers (see OAuthPopupFlowTest). Requiring the
+            // authorize host to be allowlisted would break legitimate provider logins; fully
+            // closing the in-app phishing surface needs a product decision (configurable
+            // trusted-IdP allowlist or an in-flow URL indicator).
+            if (System.currentTimeMillis() <= oauthFlowTimeoutMs) {
+                return false
+            }
+            clearActiveMainFrameOAuth()
+        }
+
+        if (matchesConfiguredDashboardRoute(target)) {
+            openDashboardInCustomTab(target)
+            return true
+        }
+
+        return when (urlPolicy.navigationDecision(target)) {
+            NavigationDecision.ALLOW_IN_WEBVIEW -> false
+            NavigationDecision.OPEN_IN_EXTERNAL_BROWSER -> {
+                openInExternalBrowser(target)
+                true
+            }
+            NavigationDecision.BLOCK -> true
+        }
+    }
+
+    private fun handleMainWebViewPageStarted(url: String?) {
+        if (!url.isNullOrBlank()) {
+            val activeTopLevelFlow = activeMainFrameOAuthFlow
+            if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
+                clearActiveMainFrameOAuth()
+            } else {
+                parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
+            }
+        }
+        updateOAuthInFlowHost(url)
+        viewModel.onPageStarted(url)
     }
 
     private fun handleWebViewPermissionRequest(request: PermissionRequest) {

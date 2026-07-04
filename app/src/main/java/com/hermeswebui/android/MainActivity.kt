@@ -692,96 +692,7 @@ class MainActivity : ComponentActivity() {
                     isUserGesture: Boolean,
                     resultMsg: Message?
                 ): Boolean {
-                    val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
-                    val popup = WebView(this@MainActivity).apply {
-                        settings.javaScriptEnabled = true
-                        configureWebViewStorageAndCache(settings)
-                        settings.allowFileAccess = false
-                        settings.allowContentAccess = false
-                        settings.loadsImagesAutomatically = true
-                        settings.mediaPlaybackRequiresUserGesture = true
-                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                        disableWebViewDarkening(settings)
-                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
-                    }
-                    trackedPopups.add(popup)
-                    popup.postDelayed({
-                        // Never-navigated window.open('') orphan: destroy it unless it became the
-                        // active OAuth popup (that path is cleaned up by the OAuth timeout instead).
-                        if (activeOAuthPopup !== popup) destroyPopup(popup)
-                    }, ORPHAN_POPUP_SWEEP_MS)
-                    popup.webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(
-                            view: WebView?,
-                            request: WebResourceRequest?
-                        ): Boolean {
-                            val target = request?.url?.toString() ?: return true
-                            if (handleAppSettingsNavigation(target)) {
-                                destroyPopup(popup)
-                                return true
-                            }
-
-                            val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
-                            if (callbackFlow?.isVerifiedCallbackUrl(target) == true) {
-                                clearActiveOAuthPopup()
-                                loadOAuthCallbackInMainWebView(target)
-                                destroyPopup(popup)
-                                return true
-                            }
-
-                            val flow = parseTrustedOAuthStart(target)
-                            if (flow != null) {
-                                rememberActiveOAuthPopup(popup, flow)
-                                view?.loadUrl(target)
-                                return true
-                            }
-
-                            if (activeOAuthPopup === popup && activeOAuthFlow != null && isHttpOrHttpsUrl(target)) {
-                                refreshActiveOAuthTimeout()
-                                return false
-                            }
-
-                            clearActiveOAuthPopup()
-                            handleNewWindowUrl(target)
-                            destroyPopup(popup)
-                            return true
-                        }
-
-                        override fun onPageStarted(
-                            view: WebView?,
-                            url: String?,
-                            favicon: android.graphics.Bitmap?
-                        ) {
-                            super.onPageStarted(view, url, favicon)
-                            if (url.isNullOrBlank()) return
-
-                            val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
-                            if (callbackFlow?.isVerifiedCallbackUrl(url) == true) {
-                                clearActiveOAuthPopup()
-                                loadOAuthCallbackInMainWebView(url)
-                                destroyPopup(popup)
-                                return
-                            }
-
-                            val startedFlow = parseTrustedOAuthStart(url)
-                            if (startedFlow != null) {
-                                rememberActiveOAuthPopup(popup, startedFlow)
-                                return
-                            }
-
-                            if (activeOAuthPopup === popup && activeOAuthFlow != null && isHttpOrHttpsUrl(url)) {
-                                refreshActiveOAuthTimeout()
-                                return
-                            }
-
-                            clearActiveOAuthPopup()
-                            handleNewWindowUrl(url)
-                            destroyPopup(popup)
-                        }
-                    }
-                    transport.webView = popup
-                    resultMsg.sendToTarget()
-                    return true
+                    return createPopupWindow(resultMsg)
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest?) {
@@ -971,6 +882,125 @@ class MainActivity : ComponentActivity() {
 
             setDownloadListener(buildDownloadListener(this@MainActivity))
         }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createPopupWindow(resultMsg: Message?): Boolean {
+        val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+        val popup = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            configureWebViewStorageAndCache(settings)
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.loadsImagesAutomatically = true
+            settings.mediaPlaybackRequiresUserGesture = true
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            disableWebViewDarkening(settings)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+            webViewClient = buildPopupWebViewClient(this)
+        }
+
+        trackPopupWindow(popup)
+        transport.webView = popup
+        resultMsg.sendToTarget()
+        return true
+    }
+
+    private fun trackPopupWindow(popup: WebView) {
+        trackedPopups.add(popup)
+        popup.postDelayed({
+            // Never-navigated window.open('') orphan: destroy it unless it became the
+            // active OAuth popup (that path is cleaned up by the OAuth timeout instead).
+            if (activeOAuthPopup !== popup) destroyPopup(popup)
+        }, ORPHAN_POPUP_SWEEP_MS)
+    }
+
+    private fun buildPopupWebViewClient(popup: WebView): WebViewClient {
+        return object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+                val target = request?.url?.toString() ?: return true
+                return handlePopupNavigation(
+                    popup = popup,
+                    sourceView = view,
+                    target = target
+                )
+            }
+
+            override fun onPageStarted(
+                view: WebView?,
+                url: String?,
+                favicon: android.graphics.Bitmap?
+            ) {
+                super.onPageStarted(view, url, favicon)
+                if (!url.isNullOrBlank()) {
+                    handlePopupPageStarted(popup, url)
+                }
+            }
+        }
+    }
+
+    private fun handlePopupNavigation(
+        popup: WebView,
+        sourceView: WebView?,
+        target: String
+    ): Boolean {
+        if (handleAppSettingsNavigation(target)) {
+            destroyPopup(popup)
+            return true
+        }
+
+        val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
+        if (callbackFlow?.isVerifiedCallbackUrl(target) == true) {
+            clearActiveOAuthPopup()
+            loadOAuthCallbackInMainWebView(target)
+            destroyPopup(popup)
+            return true
+        }
+
+        val flow = parseTrustedOAuthStart(target)
+        if (flow != null) {
+            rememberActiveOAuthPopup(popup, flow)
+            sourceView?.loadUrl(target)
+            return true
+        }
+
+        if (activeOAuthPopup === popup && activeOAuthFlow != null && isHttpOrHttpsUrl(target)) {
+            refreshActiveOAuthTimeout()
+            return false
+        }
+
+        clearActiveOAuthPopup()
+        handleNewWindowUrl(target)
+        destroyPopup(popup)
+        return true
+    }
+
+    private fun handlePopupPageStarted(popup: WebView, url: String) {
+        val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
+        if (callbackFlow?.isVerifiedCallbackUrl(url) == true) {
+            clearActiveOAuthPopup()
+            loadOAuthCallbackInMainWebView(url)
+            destroyPopup(popup)
+            return
+        }
+
+        val startedFlow = parseTrustedOAuthStart(url)
+        if (startedFlow != null) {
+            rememberActiveOAuthPopup(popup, startedFlow)
+            return
+        }
+
+        if (activeOAuthPopup === popup && activeOAuthFlow != null && isHttpOrHttpsUrl(url)) {
+            refreshActiveOAuthTimeout()
+            return
+        }
+
+        clearActiveOAuthPopup()
+        handleNewWindowUrl(url)
+        destroyPopup(popup)
     }
 
     private fun handleWebViewPermissionRequest(request: PermissionRequest) {

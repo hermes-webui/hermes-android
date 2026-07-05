@@ -81,7 +81,7 @@ workflow changes should be made in Hermes WebUI instead.
 - [ ] Optional native sessions list (requires authenticated API access)
 - [ ] WebUI menu shortcuts for files, kanban, and status if needed
 - [ ] Instrumentation tests for WebView navigation and intent flows
-- [ ] Evaluate a Trusted Web Activity (TWA) variant rendered in real Chrome, gated on Hermes WebUI serving `/.well-known/assetlinks.json` (draft + fingerprint in `twa/`); accept loss of native bridges and HTTPS-only verification before pursuing
+- [ ] Evaluate a Trusted Web Activity (TWA) variant rendered in real Chrome, gated on Hermes WebUI serving `/.well-known/assetlinks.json` (draft + fingerprint in `assets/twa/`); accept loss of native bridges and HTTPS-only verification before pursuing
 - [x] Final package/application ID decision before first public release
 - [x] Release signing automation docs and snippets
 - [~] Background continuity while app is backgrounded (Issue 10): Part A is complete; Part B ongoing activity notification and initial Part C tray approvals are implemented. Remaining work is focused on B4 lifecycle/manual validation and cross-client SSE/API contract hardening tracked in `docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md`.

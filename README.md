@@ -1,70 +1,174 @@
-# Hermes-Android 🤖📱
+# Hermes-Android
 
-Hermes-Android is the native Android wrapper for
-[Hermes Web UI](https://github.com/nesquena/hermes-webui). It keeps the
-Hermes web app as the primary interface and adds only the Android pieces that
-should live on-device: secure WebView hosting, native navigation, sharing,
-downloads, notifications, and encrypted local settings.
+Hermes-Android brings the Hermes WebUI experience to Android without turning it
+into a second product.
 
-> 🔒 HTTP/HTTPS URL policy · 🌐 host allowlist · 📂 sharing + downloads · 🧊 encrypted settings
-> 🔔 Android-backed WebUI notifications
+It keeps Hermes WebUI as the real application surface and adds the Android
+capabilities that matter on a phone or tablet: a hardened WebView, trusted
+navigation, native sharing, uploads and downloads, notifications, secure local
+settings, update delivery, and recovery paths when the mobile runtime gets in
+the way.
 
-The app is intentionally thin. Hermes product behavior, UI layout, styling, and
-feature workflows stay server-delivered through WebUI, while this repo owns
-Android integration and device safety.
+If Hermes WebUI is the product, Hermes-Android is the native shell that makes
+it feel at home on Android.
 
-## Repository Scope
+- Your Hermes workspace, on Android
+- Native where Android matters
+- WebUI where Hermes matters
 
-Use this repository for Android-wrapper issues and PRs only:
+![Hermes-Android lifestyle mockup](docs/readme-assets/hero-lifestyle-mockup.jpg)
 
-- WebView hosting, navigation, compatibility, and Android lifecycle behavior
-- Android permissions, microphone, notifications, sharing, uploads, downloads, and deep links
-- Local encrypted settings, app identity, build, signing, and Play distribution
+## See It
 
-Open WebUI/product issues in
-[Hermes Web UI](https://github.com/nesquena/hermes-webui) instead:
+Hermes-Android keeps the real Hermes experience intact, then makes it feel
+right on Android.
 
-- Hermes UI layout, styling, animations, routing, and dashboard behavior
-- Chat/session behavior, product features, API behavior, and WebUI bugs
-- Feature requests that should work the same in browser, desktop, and Android
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/readme-assets/ui-mobile-home.jpg" alt="Hermes-Android mobile home screen" />
+    </td>
+    <td width="50%">
+      <img src="docs/readme-assets/ui-mobile-response-closeup.jpg" alt="Hermes-Android mobile conversation close-up" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/readme-assets/ui-tablet-overview.jpg" alt="Hermes-Android tablet overview with split-pane chat layout" />
+    </td>
+    <td width="50%">
+      <img src="docs/readme-assets/ui-tablet-chat.jpg" alt="Hermes-Android tablet conversation view" />
+    </td>
+  </tr>
+</table>
 
----
+Requires a running
+[Hermes WebUI](https://github.com/nesquena/hermes-webui) instance. On first
+launch, enter the URL for your Hermes server.
 
-## 🧪 Looking for Internal Testers!
+## Why This Exists
 
-We're looking for internal testers for the first pre-release build on Google Play.
+Hermes already has a strong web experience. Android should not fork that
+experience or reimplement it badly.
 
-To get added, **message [@Paladin173](https://github.com/Paladin173) your Gmail address** and we'll send you a Play Store invite.
+This repository exists to solve the Android-specific problems well:
 
-Once added, the app will appear in the Play Store for you to install and receive automatic updates.
+- Host Hermes WebUI inside a secure, reliable Android shell
+- Preserve WebUI behavior instead of replacing it with app-specific workflows
+- Fix Android WebView compatibility issues that break real usage
+- Add Android-native capabilities where the browser alone is not enough
+- Keep distribution, signing, updates, and device behavior production-ready
 
-Current pre-release version: `v0.1.25`.
+The result is a native-feeling Android client that still behaves like Hermes
+WebUI, not a parallel mobile rewrite that drifts out of sync.
 
-Current Android build metadata:
+## Who This Is For
 
-- Version name: `0.1.25`
-- Version code: `125` (derived from semantic version as `major*10000 + minor*100 + patch`)
-- Application ID: `com.hermeswebui.android`
-- Compile/target SDK: `37`
+Hermes-Android is built for:
 
-> Requires a running [Hermes WebUI](https://github.com/nesquena/hermes-webui) instance. Enter your server URL on first launch.
+- Hermes users who want their real workspace on Android, not a reduced mobile fallback
+- Self-hosters who need HTTP or HTTPS support for trusted local or remote Hermes deployments
+- Testers and contributors who want a proper Android distribution channel instead of a one-off wrapper
+- Teams that want Hermes WebUI parity while still respecting Android platform expectations
 
----
+## Why Not Just Use Chrome?
 
-## 🧭 Contents
+Because opening Hermes in a mobile browser is not the same as integrating it
+properly with Android.
 
-- Repository scope
-- ⚡ Quick start
-- ✨ Features
-- ⚙️ Configuration
-- 🧪 Running tests
-- 🗺️ Architecture
-- 📚 Docs
+Hermes-Android adds the platform work that a plain browser tab does not own:
 
----
+- Trusted in-app navigation and host-boundary enforcement
+- Native share-sheet intake, uploads, downloads, and camera capture
+- Android-backed notifications and update delivery
+- Recovery flows for bad server settings, broken WebView states, and reconnect windows
+- WebView-specific compatibility fixes so Hermes surfaces render and behave correctly on Android
 
-<a id="quick-start"></a>
-## ⚡ Quick start
+The goal is not to replace the web app. The goal is to make the web app feel
+first-class on Android.
+
+## What Hermes-Android Owns
+
+- Secure WebView hosting for trusted Hermes HTTP and HTTPS deployments
+- Host allowlist enforcement and external handoff for untrusted links
+- Android lifecycle, recovery, deep links, and session restore behavior
+- Native settings, encrypted local storage, and server profile management
+- Share-sheet intake, file uploads, downloads, and camera capture
+- Android-backed Hermes notifications and update alerts
+- Release packaging for both Play and GitHub channels
+
+## What Stays In Hermes WebUI
+
+- Product behavior and feature workflows
+- Chat, sessions, workspace, routing, and API behavior
+- UI layout, styling, animations, and dashboard behavior
+- Cross-platform features that should work the same in browser, desktop, and Android
+
+If a change belongs to Hermes everywhere, it belongs in WebUI first.
+
+## Highlights
+
+### Native Hermes, not a compromised wrapper
+
+- Kotlin + Jetpack Compose app shell around Hermes WebUI
+- Hardened WebView defaults with DOM storage and browser-managed HTTP and service-worker cache behavior
+- Pull-to-refresh, loading, offline, and recovery flows designed for Android
+- Deep link support for Hermes sessions through `hermes://session/{id}`
+- Native recovery route through `hermes://app/settings`
+
+### Android-specific compatibility work that matters
+
+- Measured viewport-height repair for Android WebView builds that collapse Hermes layout and floating surfaces when CSS viewport units resolve incorrectly
+- System-bar safe inset handling so Hermes content does not sit under Android status and navigation bars
+- Forced WebView darkening disabled so Hermes controls its own visual presentation
+- Microphone compatibility handling so trusted Hermes pages can use Android-supported capture paths
+- OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
+
+### Real Android integration
+
+- File uploads and downloads, including direct camera capture when pages request image capture
+- Share-to-app intake for text and files
+- Android-backed browser notifications for Hermes WebUI alerts
+- Optional ongoing background activity notification for trusted Hermes sessions
+- Optional debug-log capture with persistent foreground notification and one-tap stop action
+
+### Security and trust boundaries
+
+- Only `http://` and `https://` Hermes hosts are supported in-app
+- Allowlisted Hermes navigation stays in-app; other web links are externalized
+- Non-web schemes are blocked
+- Notification routing, microphone access, and callback handling stay scoped to trusted Hermes origins
+- Local settings are encrypted with Android Keystore-backed storage
+
+## What It Feels Like
+
+When Hermes-Android is doing its job well, the experience should be simple:
+
+- Open the app and land in your actual Hermes environment
+- Stay inside Hermes for trusted work instead of bouncing between browser surfaces
+- Use Android-native sharing, capture, notifications, and recovery where the phone should help
+- Keep Hermes WebUI as the source of truth for product behavior and interface flow
+
+## Availability
+
+Hermes-Android currently publishes through two release channels:
+
+- Google Play internal testing via the official `release` build
+- GitHub APK distribution via the side-by-side `github` build
+
+Current checked-in release metadata:
+
+- Version name: `0.1.24`
+- Version code: `124`
+- Play application ID: `com.hermeswebui.android`
+- GitHub application ID: `com.hermeswebui.android.github`
+- Compile SDK / target SDK: `37`
+
+If you want access to the Play internal test track, message
+[@Paladin173](https://github.com/Paladin173) with the Gmail address that should
+be added as a tester.
+
+## Quick Start
 
 ```powershell
 git clone https://github.com/hermes-webui/hermes-android.git
@@ -72,115 +176,49 @@ cd hermes-android
 .\gradlew.bat assembleDebug --no-daemon
 ```
 
-Open the repo root in Android Studio for emulator/device runs.
+Open the repository in Android Studio to run on an emulator or device.
 
 Requirements:
 
 - Android Studio with Android SDK 37
-- JDK 17 or newer runtime compatible with Gradle
-- A reachable HTTP or HTTPS Hermes WebUI URL
+- JDK 17 or newer compatible with Gradle
+- A reachable Hermes WebUI URL over HTTP or HTTPS
 
----
+## Configuration
 
-<a id="features"></a>
-## ✨ Features
-
-### 🧩 Native shell
-
-- Kotlin + Jetpack Compose Android app
-- Hardened WebView for Hermes WebUI
-- Android WebView compatibility fixes for Hermes WebUI viewport rendering
-- Android WebView compatibility shim that re-caps Hermes WebUI floating/long-press menu height and the generated update summary panel and scroll container so they render full-size instead of collapsing (Android WebView treats CSS `vh` units as `0` here) while preserving vertical page scrolling for expandable content
-- Default WebView HTTP/service-worker caching with smoother reload rendering
-- System-bar inset handling so WebView content and native controls avoid status and navigation bars
-- Android WebView microphone compatibility that forces WebUI voice input through its MediaRecorder path
-- WebUI-owned navigation for the Official Hermes Dashboard setting
-- Explicitly configured Official Hermes Dashboard links open in a Chrome Custom Tab with minimal browser UI
-- Deep link support: `hermes://session/{id}` navigates to Hermes sessions
-- OAuth/OIDC sign-in keeps trusted code-flow redirects in-app until the declared `redirect_uri` callback returns to the configured Hermes WebUI origin, preserving PKCE state for self-hosted providers that bounce across login and consent pages before returning to Hermes WebUI
-- Cold-start restore keeps the active Hermes session/workspace route when the app process is restarted, with a WebUI-origin-scoped workspace-button recovery fallback that reloads the last known in-app session route if the panel is tapped from a blank root state
-- Short app switches now preserve the current WebView and briefly favor silent reconnect over immediately replacing the page with the native error screen; if Hermes does not recover before the grace window expires, the normal error UI appears promptly instead of waiting for a later retry probe
-- If the background activity toggle is enabled, Android can keep a trusted session-scoped foreground notification alive while the app is backgrounded: reconnect windows stay alive after an app switch, and trusted `/api/session/stream` summaries can refresh the latest agent activity text with a lock-screen redaction option
-- Server health probing on WebView errors to distinguish server-down from content errors
-- First-run settings flow for the Hermes WebUI URL with an inline readiness check that rejects unreachable, setup-mode, or non-Hermes targets before saving them; auth-protected `/api/status` responses can still pass when the root page fingerprints as Hermes so signed-in WebView sessions are not blocked
-- Saved server rows check connection health before switching, show reachable/sign-in/setup/offline/not-Hermes results, and ask for confirmation before clearing the current WebView session
-- Native app settings are available from the WebUI sidebar as an injected Application Settings entry immediately after the WebUI Settings item, and from the `hermes://app/settings` recovery deep link when the WebView route is stuck
-- Back handling, pull-to-refresh, loading, offline, and error states, including direct server-URL recovery from the native error screen
-
-### SSE capability mapping
-
-When users run **Check SSE support now** in native settings, Android classifies server capability with this precedence:
-
-1. `/api/status` advertises a truthy SSE/session flag -> `SESSION_SSE_ENABLED`
-2. `/api/sessions/gateway/stream?probe=1` returns `enabled=true` and `ok=true` -> `SESSION_SSE_ENABLED`
-3. `/api/sessions/events` returns `2xx` with `Content-Type: text/event-stream` -> `RECONNECT_STREAM_AVAILABLE`
-4. Gateway probe reports `enabled=false` or HTTP `404` (and reconnect stream not usable) -> `FEATURE_DISABLED`
-5. Otherwise -> `NONE` (network/unexpected response)
-
-Operational note:
-
-- Android reconnect transport only needs the lightweight `/api/sessions/events` stream.
-- Full gateway/session SSE remains preferred for richer cross-client event contracts.
-
-### 🔌 Android integration
-
-- File upload and download support, including direct camera capture when a page requests image capture
-- Share-to-app intake for text and files
-- Microphone capture support for trusted Hermes WebUI pages
-- Android-backed browser notifications for Hermes WebUI completion alerts
-- App update alerts use the same Hermes updates notification channel: Google Play builds check Play-managed updates, and GitHub APK builds check GitHub Releases
-- Opt-in ongoing background activity notification for trusted Hermes sessions, with lock-screen redaction control
-- Notification tray approval actions for trusted Hermes sessions, with queue-head validation before Android submits a response
-- Optional troubleshooting debug-log capture with a persistent foreground notification and one-tap Stop action
-- Safe app-owned diagnostic breadcrumbs for startup validation, server health checks, server switching, and main-frame WebView failures are included in exported debug logs without cookies, auth headers, query strings, response bodies, or token-bearing URLs
-- Cookie-backed WebView session persistence
-- Encrypted local settings storage
-- Native app identity, launcher icon, splash, and settings surface
-
-### 🛡️ Security
-
-- HTTP/HTTPS URL validation
-- Host allowlist for in-app navigation
-- External browser handoff for non-allowlisted HTTP/HTTPS links
-- WebView microphone grants are limited to trusted Hermes WebUI pages and audio capture only (with Android `RECORD_AUDIO` + `MODIFY_AUDIO_SETTINGS` permissions)
-- Android seeds WebUI's MediaRecorder microphone fallback for the configured Hermes origin only
-- WebUI notification grants and delivery are scoped to the configured Hermes origin, require Android notification permission when applicable, and route taps only to allowlisted Hermes WebUI URLs
-- Cleartext traffic permitted so configured HTTP deployments can load; HTTPS remains recommended outside trusted local networks
-- Hardened WebView defaults and SSL-error cancellation
-
----
-
-<a id="configuration"></a>
-## ⚙️ Configuration
-
-Default endpoints live in:
+Default app strings live in:
 
 - `app/src/main/res/values/strings.xml`
 
 Important values:
 
 - `default_server_url` - default Hermes WebUI URL
-- `default_dashboard_url` - optional local Official Hermes Dashboard origin used only for Android-side Custom Tab matching when explicitly configured; leave blank so WebUI owns auto-detect and persistence
+- `default_dashboard_url` - optional explicitly configured dashboard origin used only for Android-side Custom Tab matching
 - `app_name` - Android launcher label
 
-The shipped WebUI default is a placeholder HTTPS origin and the shipped dashboard default is blank. Configure your real Hermes WebUI URL in app settings on first run; both `http://` and `https://` URLs are accepted.
+Android identity and app-level wiring live in:
 
-Android identity lives in:
+- `app/build.gradle.kts`
+- `app/src/main/AndroidManifest.xml`
+- `settings.gradle.kts`
 
-- `app/build.gradle.kts` - `namespace` and `applicationId`
-- `settings.gradle.kts` - Gradle project name
-- `app/src/main/AndroidManifest.xml` - launcher, permissions, intent filters
+The shipped WebUI default is a placeholder HTTPS origin and the shipped
+dashboard default is blank. In normal use, WebUI owns dashboard auto-detect and
+persistence.
 
-Release signing is wired for both local builds and GitHub Actions without
-committing secrets.
+## Build, Signing, and Release
 
-### Local signed release setup
+Local signed release builds use an untracked repo-root `keystore.properties`
+file. CI builds use the corresponding `ANDROID_KEYSTORE_*` environment
+variables and secrets.
+
+Local signing setup:
 
 1. Copy `keystore.properties.example` to `keystore.properties`.
-2. Fill in your real keystore path and passwords.
-3. Keep `keystore.properties` untracked.
+2. Fill in the real keystore path and passwords.
+3. Keep that file untracked.
 
-Example `keystore.properties` values:
+Example:
 
 ```properties
 storeFile=C:/path/to/upload-keystore.jks
@@ -189,111 +227,13 @@ keyAlias=upload
 keyPassword=replace-me
 ```
 
-With that file present, release APK builds automatically sign the output.
-
-```powershell
-Copy-Item .\keystore.properties.example .\keystore.properties
-.\gradlew.bat :app:stageGithubReleaseApk --no-daemon
-```
-
-If signing values are missing, `release` tasks fail fast with a clear message
-instead of producing unsigned distribution artifacts.
-
-### GitHub Actions signed release setup
-
-Add these repository secrets before running the release workflow:
-
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64`
-
-To create the Base64 keystore value on Windows PowerShell:
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:/path/to/upload-keystore.jks")) | Set-Clipboard
-```
-
-The workflow in `.github/workflows/1-orchestration-release.yml` can then:
-
-- build and sign one GitHub release APK with application ID `com.hermeswebui.android.github`
-- build and sign one Play release AAB with application ID `com.hermeswebui.android`
-- package release native debug symbol tables for Play Console crash and ANR symbolication
-- upload both files as workflow artifacts
-- fan out to separate GitHub and Play publishing jobs after the build succeeds
-- create or update a GitHub Release using the Gradle Android `versionName`
-- attach only the GitHub APK to the GitHub Release
-- upload only the Play AAB to the Google Play internal testing track
-- include a human-readable GitHub Release body generated from merged PRs and grouped by `.github/release.yml`
-- keep build diagnostics such as version, tag, commit, artifact name, SHA-256, and workflow run in the Actions job summary
-- include a brief Play Store `en-US` What's New changelog generated from the same GitHub release notes, capped below the Play text limit, and ending with `Report issues through the in-app bug report tool.`
-- fail a tag release when the tag, such as `v0.1.8`, does not match the Android `versionName`
-- keep release notes focused on what users and testers need to know
-
-The publish steps live in reusable/manual repair workflows:
-
-- `.github/workflows/2-publish-github-apk.yml` publishes the APK artifact to GitHub Releases.
-- `.github/workflows/3-publish-play-store-release.yml` uploads the AAB artifact to Google Play internal testing.
-
-If either publish target fails after the build artifact upload succeeds, rerun
-only the failed publish workflow manually with the build run ID, artifact name,
-version name, and commit SHA shown in the failed release run.
-
-See [RELEASE.md](./RELEASE.md) for the release operator checklist.
-
-Google Play listing assets:
-
-- `play-store/icon-512.png` - 512x512 high-res app icon for Play Console store listing (opaque PNG)
-- `play-store/icon-512.svg` - editable vector source used for Play listing export
-- `tools/generate_play_store_icon.py` - regenerates both files from the current Hermes WebUI brand SVG source
-- `tools/requirements-play-icon.txt` - Python dependency list for the Play icon generation script
-
-Release artifact naming:
-
-```powershell
-.\gradlew.bat :app:stageGithubReleaseApk --no-daemon
-```
-
-When signing is configured, this stages the signed GitHub distribution APK under
-Gradle's ignored build output directory with the product name, version, and
-release channel:
-
-- `build/release/hermes-webui-v<version>-github.apk` - GitHub/device APK artifact
-- `build/release/hermes-webui-v<version>.aab` - Play internal testing upload artifact
-
-The GitHub APK is a separate Android app variant: it installs as
-`com.hermeswebui.android.github`, displays as "Hermes WebUI GitHub", and reports
-`<version>-github` from inside the app. The Play AAB keeps the official
-`com.hermeswebui.android` application ID and plain `<version>` version name, so
-both channels can be installed on the same device at the same time.
-Both release channels share the same native app update alert setting but use
-build-selected providers: the Play build checks Google Play in-app update
-availability, while the GitHub build checks the latest GitHub Release, shows a
-short What's Changed summary, and can download the published GitHub APK asset.
-Automatic checks wait until the app has been open for about one minute and run
-at most once per day, and can be disabled separately from manual checks; manual
-checks in Settings run immediately. Debug builds do not advertise an update
-provider.
-
-Manual runs of `.github/workflows/1-orchestration-release.yml` auto-bump
-`appVersionName` from the latest published GitHub release tag (`vX.Y.Z ->
-vX.Y.(Z+1)`), update this README's current-version metadata, commit those
-changes back to `main`, and then build from that version-bump commit.
-`versionCode` is derived from that semantic version in Gradle, so it stays
-monotonic without separate manual edits.
-
-Tag-triggered runs still require the pushed tag to match the Gradle
-`versionName` exactly, for example `v0.1.8`.
-
----
-
-<a id="running-tests"></a>
-## 🧪 Running tests
+Useful commands:
 
 ```powershell
 .\gradlew.bat test --no-daemon
 .\gradlew.bat assembleDebug --no-daemon
+.\gradlew.bat stageGithubReleaseApk --no-daemon
+.\gradlew.bat printReleaseVersionName --no-daemon
 ```
 
 Optional checks:
@@ -303,34 +243,47 @@ Optional checks:
 .\gradlew.bat connectedDebugAndroidTest --no-daemon
 ```
 
----
+Release automation is centered on:
 
-<a id="architecture"></a>
-## 🗺️ Architecture
+- `.github/workflows/1-orchestration-release.yml`
+- `.github/workflows/2-publish-github-apk.yml`
+- `.github/workflows/3-publish-play-store-release.yml`
 
-> 🎨 Color key: 🔵 platform boundary · 🟣 security · 🟢 data · 🟠 domain · 🟡 UI · 🔴 tests
+That flow builds:
 
-| Color | Area | Files | Purpose |
-|---|---|---|---|
-| 🔵 | Platform boundary | `app/src/main/java/com/hermeswebui/android/MainActivity.kt` | Main Hermes WebUI host, Android intents, WebView lifecycle, and dashboard Custom Tab handoff |
-| 🟣 | Security | `app/src/main/java/com/hermeswebui/android/core/security/UrlPolicy.kt` | HTTP/HTTPS and allowlist decisions |
-| 🟢 | Data | `app/src/main/java/com/hermeswebui/android/data/` | Encrypted app settings and staged share payloads |
-| 🟠 | Domain | `app/src/main/java/com/hermeswebui/android/domain/` | URL validation and Android share intent parsing |
-| 🟡 | UI | `app/src/main/java/com/hermeswebui/android/ui/` | Compose screens and ViewModel state |
-| 🔴 | Tests | `app/src/test/java/com/hermeswebui/android/` | Unit coverage for URL policy, validation, and ViewModel load-state behavior |
+- `hermes-webui-v<version>-github.apk` for GitHub/device installs
+- `hermes-webui-v<version>.aab` for Google Play internal testing
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design notes and extension
-points.
+Manual orchestration runs auto-bump `appVersionName` from the latest published
+`vX.Y.Z` tag, sync the checked-in README release metadata, commit the bump back
+to `main`, and build from that version-bump commit. `versionCode` is derived
+from semantic version as `major*10000 + minor*100 + patch`.
 
----
+See [RELEASE.md](./RELEASE.md) for the operator workflow.
 
-<a id="docs"></a>
-## 📚 Docs
+## Architecture
 
-- [ROADMAP.md](./ROADMAP.md) - status, wishlist, forward work, and progress
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - runtime flow and security model
-- [RELEASE.md](./RELEASE.md) - release workflow checklist and retry procedure
-- [ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md](./docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md) - phased implementation proposal for background continuity, ongoing activity notifications, and tray approvals (Issue 10)
-- [ISSUE_10_BACKGROUND_EXECUTION_WORKPLAN.md](./docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_WORKPLAN.md) - execution workplan with staged PR slices, decision gates, and verification targets for Issue 10
-- [ISSUE_10_STAGE0_DISCOVERY.md](./docs/proposals/ISSUE_10_STAGE0_DISCOVERY.md) - Stage 0 discovery notes capturing verified current behavior, required contracts, and decision checklist before implementation
-- [AGENTS.md](./AGENTS.md) - instructions for AI assistants working in this repo
+Core runtime areas:
+
+- `MainActivity.kt` - Android platform boundary, WebView host, intents, dashboard Custom Tab handoff
+- `core/security/` - URL policy and trust-boundary decisions
+- `data/` - encrypted settings persistence and local state
+- `domain/` - validation and share-intent parsing
+- `notification/` - Hermes notification bridge and Android notification presentation
+- `background/` - reconnect, debug logging, and foreground-service coordination
+- `server/` - startup preflight and server profile validation/switching
+- `update/` - Play and GitHub update checks and update UX
+- `ui/` - Compose screens and ViewModel state
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the detailed runtime flow and
+security model.
+
+## Documentation
+
+- [ROADMAP.md](./ROADMAP.md) - project status, maintenance posture, and wishlist
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - runtime flow, boundaries, and extension points
+- [RELEASE.md](./RELEASE.md) - release operator workflow and retry path
+- [AGENTS.md](./AGENTS.md) - repository instructions for AI assistants
+- [ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md](./docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_PROPOSAL.md) - background execution proposal
+- [ISSUE_10_BACKGROUND_EXECUTION_WORKPLAN.md](./docs/proposals/ISSUE_10_BACKGROUND_EXECUTION_WORKPLAN.md) - staged execution plan
+- [ISSUE_10_STAGE0_DISCOVERY.md](./docs/proposals/ISSUE_10_STAGE0_DISCOVERY.md) - verified discovery notes and contract questions

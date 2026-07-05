@@ -16,7 +16,7 @@ it feel at home on Android.
 - Native where Android matters
 - WebUI where Hermes matters
 
-![Hermes-Android lifestyle mockup](docs/readme-assets/hero-lifestyle-mockup.jpg)
+![Hermes-Android lifestyle mockup](resources/assets/hero-lifestyle-mockup.jpg)
 
 ## See It
 
@@ -26,18 +26,18 @@ right on Android.
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/readme-assets/ui-mobile-home.jpg" alt="Hermes-Android mobile home screen" />
+      <img src="resources/assets/ui-mobile-home.jpg" alt="Hermes-Android mobile home screen" />
     </td>
     <td width="50%">
-      <img src="docs/readme-assets/ui-mobile-response-closeup.jpg" alt="Hermes-Android mobile conversation close-up" />
+      <img src="resources/assets/ui-mobile-response-closeup.jpg" alt="Hermes-Android mobile conversation close-up" />
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/readme-assets/ui-tablet-overview.jpg" alt="Hermes-Android tablet overview with split-pane chat layout" />
+      <img src="resources/assets/ui-tablet-overview.jpg" alt="Hermes-Android tablet overview with split-pane chat layout" />
     </td>
     <td width="50%">
-      <img src="docs/readme-assets/ui-tablet-chat.jpg" alt="Hermes-Android tablet conversation view" />
+      <img src="resources/assets/ui-tablet-chat.jpg" alt="Hermes-Android tablet conversation view" />
     </td>
   </tr>
 </table>

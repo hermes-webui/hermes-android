@@ -45,4 +45,13 @@ class HermesWebUiScriptsTest {
         assertThat(script).contains("#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height:")
         assertThat(script).contains("viewportWidth > 0 && viewportWidth <= 600")
     }
+
+    @Test
+    fun `viewport fix script patches expanded mobile approval card`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        assertThat(script).contains("var approvalMax = Math.min(420, Math.round(height * 0.60)) + 'px';")
+        assertThat(script).contains(".approval-card:not(.collapsed) .approval-inner { max-height: ' + approvalMax + ' !important;")
+        assertThat(script).contains("viewportWidth > 0 && viewportWidth <= 640")
+    }
 }

@@ -134,7 +134,7 @@ object HermesWebUiScripts {
             var px = Math.round(height) + 'px';
             // Hermes WebUI floating menus cap their height with `max-height: calc(100vh - 16px)`,
             // the generated update-summary panel uses `max-height: min(34vh, 260px)`, and the
-            // mobile approval panel uses `max-height: min(60dvh, 420px)`.
+            // phone/short-viewport approval panel uses `max-height: min(60dvh, 420px)`.
             // Android System WebView evaluates these viewport units as 0 here (same quirk it can
             // apply to `100dvh`), so those panels collapse to a tiny sliver with the content
             // scrolled out of view. Re-cap them with the measured viewport height instead.
@@ -143,7 +143,20 @@ object HermesWebUiScripts {
             var updateSummaryMax = Math.max(120, Math.min(260, Math.round(height * 0.34))) + 'px';
             var updateSummaryExpandedMax = Math.max(180, Math.min(560, Math.round(height * 0.75))) + 'px';
             var updateSummaryExpandedMobileMax = Math.max(220, Math.min(640, Math.round(height * 0.82))) + 'px';
-            var approvalMax = Math.min(420, Math.round(height * 0.60)) + 'px';
+            var approvalMax = Math.min(420, Math.round(height * 0.60));
+            var approvalNeedsViewportCap = viewportWidth > 0 && (viewportWidth <= 640 || height <= 640);
+            if (approvalNeedsViewportCap) {
+              var approvalCard = document.querySelector('.approval-card.visible:not(.collapsed)');
+              var titlebar = document.querySelector('.app-titlebar');
+              if (approvalCard && titlebar && approvalCard.getBoundingClientRect && titlebar.getBoundingClientRect) {
+                var approvalRect = approvalCard.getBoundingClientRect();
+                var titlebarRect = titlebar.getBoundingClientRect();
+                var approvalAvailable = approvalRect.bottom - titlebarRect.bottom - 8;
+                if (approvalAvailable > 0) {
+                  approvalMax = Math.min(approvalMax, Math.floor(approvalAvailable));
+                }
+              }
+            }
             var style = document.getElementById(styleId);
             if (!style) {
               style = document.createElement('style');
@@ -166,8 +179,8 @@ object HermesWebUiScripts {
               (viewportWidth > 0 && viewportWidth <= 600
                 ? '#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height: ' + updateSummaryExpandedMobileMax + ' !important; }'
                 : ''),
-              (viewportWidth > 0 && viewportWidth <= 640
-                ? '.approval-card:not(.collapsed) .approval-inner { max-height: ' + approvalMax + ' !important; overflow-y: auto !important; }'
+              (approvalNeedsViewportCap
+                ? '.approval-card:not(.collapsed) .approval-inner { box-sizing: border-box !important; max-height: ' + approvalMax + 'px !important; overflow-y: auto !important; }'
                 : '')
             ].join('\n');
 

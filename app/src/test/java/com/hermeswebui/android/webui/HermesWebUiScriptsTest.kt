@@ -47,11 +47,14 @@ class HermesWebUiScriptsTest {
     }
 
     @Test
-    fun `viewport fix script patches expanded mobile approval card`() {
+    fun `viewport fix script caps expanded approval card to available portrait or landscape space`() {
         val script = HermesWebUiScripts.viewportFixScript
 
-        assertThat(script).contains("var approvalMax = Math.min(420, Math.round(height * 0.60)) + 'px';")
-        assertThat(script).contains(".approval-card:not(.collapsed) .approval-inner { max-height: ' + approvalMax + ' !important;")
-        assertThat(script).contains("viewportWidth > 0 && viewportWidth <= 640")
+        assertThat(script).contains("viewportWidth <= 640 || height <= 640")
+        assertThat(script).contains("document.querySelector('.approval-card.visible:not(.collapsed)')")
+        assertThat(script).contains("document.querySelector('.app-titlebar')")
+        assertThat(script).contains("approvalRect.bottom - titlebarRect.bottom - 8")
+        assertThat(script).contains("Math.min(approvalMax, Math.floor(approvalAvailable))")
+        assertThat(script).contains(".approval-card:not(.collapsed) .approval-inner { box-sizing: border-box !important; max-height: ' + approvalMax + 'px !important;")
     }
 }

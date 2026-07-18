@@ -45,4 +45,16 @@ class HermesWebUiScriptsTest {
         assertThat(script).contains("#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height:")
         assertThat(script).contains("viewportWidth > 0 && viewportWidth <= 600")
     }
+
+    @Test
+    fun `viewport fix script caps expanded approval card to available portrait or landscape space`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        assertThat(script).contains("viewportWidth <= 640 || height <= 640")
+        assertThat(script).contains("document.querySelector('.approval-card.visible:not(.collapsed)')")
+        assertThat(script).contains("document.querySelector('.app-titlebar')")
+        assertThat(script).contains("approvalRect.bottom - titlebarRect.bottom - 8")
+        assertThat(script).contains("Math.min(approvalMax, Math.floor(approvalAvailable))")
+        assertThat(script).contains(".approval-card:not(.collapsed) .approval-inner { box-sizing: border-box !important; max-height: ' + approvalMax + 'px !important;")
+    }
 }

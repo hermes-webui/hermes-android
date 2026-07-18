@@ -39,6 +39,21 @@ class BumpGradleVersionTests(unittest.TestCase):
         self.assertIn("- Version name: `0.1.16`", updated)
         self.assertIn("- Version code: `116`", updated)
 
+    def test_replace_readme_metadata_allows_current_metadata_without_legacy_pre_release_line(self) -> None:
+        original = "\n".join(
+            [
+                "- Version name: `0.1.24`",
+                "- Version code: `124`",
+            ]
+        )
+
+        updated = bump_gradle_version.replace_readme_metadata(original, "0.1.25")
+
+        self.assertEqual(
+            updated,
+            "- Version name: `0.1.25`\n- Version code: `125`",
+        )
+
     def test_bump_from_latest_tag_writes_next_patch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             gradle_file = Path(tmp_dir) / "build.gradle.kts"

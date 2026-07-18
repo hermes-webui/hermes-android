@@ -59,11 +59,19 @@ def version_code(version: str) -> int:
 
 def replace_readme_metadata(contents: str, next_version: str) -> str:
     replacements = [
-        (README_PRE_RELEASE_RE, rf"\g<1>{next_version}\g<3>", "Current pre-release version"),
         (README_VERSION_NAME_RE, rf"\g<1>{next_version}\g<3>", "Version name"),
         (README_VERSION_CODE_RE, rf"\g<1>{version_code(next_version)}\g<3>", "Version code"),
     ]
     updated = contents
+
+    # Older README versions exposed a separate pre-release line. It is no
+    # longer part of the current release metadata, so update it when present
+    # without making it a prerequisite for manual release orchestration.
+    if README_PRE_RELEASE_RE.search(updated):
+        updated = README_PRE_RELEASE_RE.sub(
+            rf"\g<1>{next_version}\g<3>", updated, count=1
+        )
+
     for pattern, replacement, label in replacements:
         updated, count = pattern.subn(replacement, updated, count=1)
         if count != 1:

@@ -121,6 +121,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Measured viewport-height repair for Android WebView builds that collapse Hermes layout and floating surfaces when CSS viewport units resolve incorrectly
 - System-bar safe inset handling so Hermes content does not sit under Android status and navigation bars
 - Forced WebView darkening disabled so Hermes controls its own visual presentation
+- Local network permission handling for Android 16+ so LAN-hosted Hermes WebUI instances can load inside the WebView
 - Microphone compatibility handling so trusted Hermes pages can use Android-supported capture paths
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
 

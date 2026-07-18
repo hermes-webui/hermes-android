@@ -110,6 +110,7 @@ import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
+import java.net.InetAddress
 
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
@@ -166,6 +167,7 @@ class MainActivity : ComponentActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingCameraCaptureUri: Uri? = null
     private var pendingAudioPermissionRequest: PermissionRequest? = null
+    private var pendingLocalNetworkPermissionAction: (() -> Unit)? = null
     private var microphoneFallbackScriptHandler: ScriptHandler? = null
     private var notificationBridgeScriptHandler: ScriptHandler? = null
     private var routeRecoveryScriptHandler: ScriptHandler? = null
@@ -225,6 +227,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private val localNetworkPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val onGranted = pendingLocalNetworkPermissionAction
+            pendingLocalNetworkPermissionAction = null
+            if (granted) {
+                onGranted?.invoke()
+            } else {
+                Toast.makeText(this, "Local network permission denied", Toast.LENGTH_SHORT).show()
+            }
+        }
 
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -802,6 +815,17 @@ class MainActivity : ComponentActivity() {
                 ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame != true) return
+                    val failedUrl = request.url?.toString().orEmpty()
+                    if (
+                        isLocalNetworkPermissionError(error) &&
+                            failedUrl.isNotBlank() &&
+                            !hasLocalNetworkPermission()
+                    ) {
+                        requestLocalNetworkPermissionIfNeeded(failedUrl) {
+                            webView.loadUrl(failedUrl)
+                        }
+                        return
+                    }
                     val offline = isOfflineError(error?.errorCode)
                     val message = error?.description?.toString() ?: "Failed to load page"
                     DiagnosticsLogger.record(
@@ -1048,6 +1072,52 @@ class MainActivity : ComponentActivity() {
         pendingAudioPermissionRequest?.deny()
         pendingAudioPermissionRequest = request
         audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun requestLocalNetworkPermissionIfNeeded(
+        url: String,
+        onGranted: () -> Unit
+    ) {
+        if (!shouldRequestLocalNetworkPermission(url) || hasLocalNetworkPermission()) {
+            onGranted()
+            return
+        }
+
+        pendingLocalNetworkPermissionAction = onGranted
+        localNetworkPermissionLauncher.launch("android.permission.ACCESS_LOCAL_NETWORK")
+    }
+
+    private fun hasLocalNetworkPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            "android.permission.ACCESS_LOCAL_NETWORK"
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun shouldRequestLocalNetworkPermission(url: String): Boolean {
+        val host = runCatching { url.toUri().host?.trim().orEmpty() }.getOrDefault("")
+        if (host.isBlank()) return false
+        val normalizedHost = host.lowercase()
+        if (normalizedHost == "localhost" || normalizedHost.endsWith(".local")) return true
+        val strippedBrackets = normalizedHost.removePrefix("[").removeSuffix("]")
+        return isLikelyLocalAddress(strippedBrackets)
+    }
+
+    private fun isLikelyLocalAddress(host: String): Boolean {
+        return runCatching {
+            val address = InetAddress.getByName(host)
+            address.isAnyLocalAddress ||
+                address.isLoopbackAddress ||
+                address.isLinkLocalAddress ||
+                address.isSiteLocalAddress
+        }.getOrDefault(false)
+    }
+
+    private fun isLocalNetworkPermissionError(error: WebResourceError?): Boolean {
+        return error?.description?.contains(
+            "ERR_LOCAL_NETWORK_PERMISSION_MISSING",
+            ignoreCase = true
+        ) == true
     }
 
     private fun installHermesNotificationWebMessageBridge(view: WebView) {
@@ -1519,7 +1589,9 @@ class MainActivity : ComponentActivity() {
             viewModel.saveAppUrls(serverUrl, dashboardUrl)
             urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
             installHermesWebUiDocumentStartFixes(webView, serverUrl)
-            webView.loadUrl(serverUrl)
+            requestLocalNetworkPermissionIfNeeded(serverUrl) {
+                webView.loadUrl(serverUrl)
+            }
         }
         serverProfileCoordinator.validateServerForPersistence(
             serverUrl = serverUrl,
@@ -1565,7 +1637,11 @@ class MainActivity : ComponentActivity() {
         serverProfileCoordinator.preflightConfiguredStartupServer(
             serverUrl = serverUrl,
             startUrl = startUrl,
-            onContinueToWebView = webView::loadUrl
+            onContinueToWebView = { targetUrl ->
+                requestLocalNetworkPermissionIfNeeded(targetUrl) {
+                    webView.loadUrl(targetUrl)
+                }
+            }
         )
     }
 
@@ -1647,7 +1723,9 @@ class MainActivity : ComponentActivity() {
         viewModel.switchServerProfile(profile.id)
         urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
         installHermesWebUiDocumentStartFixes(webView, profile.url)
-        webView.loadUrl(profile.url)
+        requestLocalNetworkPermissionIfNeeded(profile.url) {
+            webView.loadUrl(profile.url)
+        }
         viewModel.closeSettings()
         Toast.makeText(this, "Switched to ${profile.name}", Toast.LENGTH_SHORT).show()
     }

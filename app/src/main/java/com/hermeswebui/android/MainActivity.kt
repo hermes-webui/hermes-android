@@ -238,7 +238,13 @@ class MainActivity : ComponentActivity() {
             if (granted) {
                 onGranted?.invoke()
             } else {
-                Toast.makeText(this, "Local network permission denied", Toast.LENGTH_SHORT).show()
+                // Only surface the denial toast when there is no best-effort fallback
+                // (i.e. this is the hard-fail WebView error-recovery path). Pre-load
+                // preflight denials on OEM builds that don't expose a real grant toggle
+                // should not produce a visible error because the load will still proceed.
+                if (onDenied == null) {
+                    Toast.makeText(this, "Local network permission denied", Toast.LENGTH_SHORT).show()
+                }
                 onDenied?.invoke()
             }
         }

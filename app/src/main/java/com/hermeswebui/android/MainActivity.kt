@@ -168,6 +168,7 @@ class MainActivity : ComponentActivity() {
     private var pendingCameraCaptureUri: Uri? = null
     private var pendingAudioPermissionRequest: PermissionRequest? = null
     private var pendingLocalNetworkPermissionAction: (() -> Unit)? = null
+    private var pendingLocalNetworkPermissionDeniedAction: (() -> Unit)? = null
     private var microphoneFallbackScriptHandler: ScriptHandler? = null
     private var notificationBridgeScriptHandler: ScriptHandler? = null
     private var routeRecoveryScriptHandler: ScriptHandler? = null
@@ -231,11 +232,14 @@ class MainActivity : ComponentActivity() {
     private val localNetworkPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             val onGranted = pendingLocalNetworkPermissionAction
+            val onDenied = pendingLocalNetworkPermissionDeniedAction
             pendingLocalNetworkPermissionAction = null
+            pendingLocalNetworkPermissionDeniedAction = null
             if (granted) {
                 onGranted?.invoke()
             } else {
                 Toast.makeText(this, "Local network permission denied", Toast.LENGTH_SHORT).show()
+                onDenied?.invoke()
             }
         }
 
@@ -821,9 +825,12 @@ class MainActivity : ComponentActivity() {
                             failedUrl.isNotBlank() &&
                             !hasLocalNetworkPermission()
                     ) {
-                        requestLocalNetworkPermissionIfNeeded(failedUrl) {
-                            webView.loadUrl(failedUrl)
-                        }
+                        requestLocalNetworkPermissionIfNeeded(
+                            url = failedUrl,
+                            onGranted = {
+                                webView.loadUrl(failedUrl)
+                            }
+                        )
                         return
                     }
                     val offline = isOfflineError(error?.errorCode)
@@ -1076,7 +1083,8 @@ class MainActivity : ComponentActivity() {
 
     private fun requestLocalNetworkPermissionIfNeeded(
         url: String,
-        onGranted: () -> Unit
+        onGranted: () -> Unit,
+        onDenied: (() -> Unit)? = null
     ) {
         if (!shouldRequestLocalNetworkPermission(url) || hasLocalNetworkPermission()) {
             onGranted()
@@ -1084,6 +1092,7 @@ class MainActivity : ComponentActivity() {
         }
 
         pendingLocalNetworkPermissionAction = onGranted
+        pendingLocalNetworkPermissionDeniedAction = onDenied
         localNetworkPermissionLauncher.launch("android.permission.ACCESS_LOCAL_NETWORK")
     }
 
@@ -1589,9 +1598,15 @@ class MainActivity : ComponentActivity() {
             viewModel.saveAppUrls(serverUrl, dashboardUrl)
             urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
             installHermesWebUiDocumentStartFixes(webView, serverUrl)
-            requestLocalNetworkPermissionIfNeeded(serverUrl) {
-                webView.loadUrl(serverUrl)
-            }
+            requestLocalNetworkPermissionIfNeeded(
+                url = serverUrl,
+                onGranted = {
+                    webView.loadUrl(serverUrl)
+                },
+                onDenied = {
+                    webView.loadUrl(serverUrl)
+                }
+            )
         }
         serverProfileCoordinator.validateServerForPersistence(
             serverUrl = serverUrl,
@@ -1638,9 +1653,15 @@ class MainActivity : ComponentActivity() {
             serverUrl = serverUrl,
             startUrl = startUrl,
             onContinueToWebView = { targetUrl ->
-                requestLocalNetworkPermissionIfNeeded(targetUrl) {
-                    webView.loadUrl(targetUrl)
-                }
+                requestLocalNetworkPermissionIfNeeded(
+                    url = targetUrl,
+                    onGranted = {
+                        webView.loadUrl(targetUrl)
+                    },
+                    onDenied = {
+                        webView.loadUrl(targetUrl)
+                    }
+                )
             }
         )
     }
@@ -1723,9 +1744,15 @@ class MainActivity : ComponentActivity() {
         viewModel.switchServerProfile(profile.id)
         urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
         installHermesWebUiDocumentStartFixes(webView, profile.url)
-        requestLocalNetworkPermissionIfNeeded(profile.url) {
-            webView.loadUrl(profile.url)
-        }
+        requestLocalNetworkPermissionIfNeeded(
+            url = profile.url,
+            onGranted = {
+                webView.loadUrl(profile.url)
+            },
+            onDenied = {
+                webView.loadUrl(profile.url)
+            }
+        )
         viewModel.closeSettings()
         Toast.makeText(this, "Switched to ${profile.name}", Toast.LENGTH_SHORT).show()
     }

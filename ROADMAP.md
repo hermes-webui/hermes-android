@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-06-28
+> Last updated: 2026-07-20
 
 ---
 
@@ -217,4 +217,5 @@ sketches are captured inline below.
 | REL-026 | 2026-06-28 | Release | Added native app update alerts for both release channels: Play builds check Google Play in-app update availability, GitHub APK builds check the latest GitHub Release with What's Changed text plus direct APK download, and both alert through the existing Hermes updates notification channel |
 | BUG-026 | 2026-07-03 | WebView / Settings | Fixed Issue 38 extension compatibility by replacing the aggressive Application Settings sidebar shim with a lightweight clone-based injector that preserves sidebar layout while avoiding extension-item suppression; hardened Android WebView viewport repair so Theme Creator no longer collapses to a sliver, and added a back-button safety ladder that opens native Application Settings before final app exit when no in-app history remains |
 | BUG-027 | 2026-07-13 | WebView | Fixed Issue 44 by re-capping the expanded mobile approval panel's `max-height: min(60dvh, 420px)` with a measured pixel height on narrow Android WebView viewports, restoring the approval details and action buttons while preserving the intentional collapsed header-only dock |
+| BUG-028 | 2026-07-20 | Permissions | Fixed Issue 49 regression on OEM Android 16 builds where `ACCESS_LOCAL_NETWORK` requests can deny without exposing a user-togglable grant path: LAN startup/save/switch flows now treat the permission prompt as best-effort and still attempt the first WebView load, while the existing `ERR_LOCAL_NETWORK_PERMISSION_MISSING` recovery path remains the enforcement fallback for platforms that do require the grant |
 

@@ -599,11 +599,25 @@ fun SettingsScreen(
                                         }
                                     }
                                     if (!appUpdateReleaseUrl.isNullOrBlank()) {
-                                        OutlinedButton(
-                                            onClick = onOpenAppUpdateRelease,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text("Release notes")
+                                        val isPlay = appUpdateReleaseUrl.startsWith("play://")
+                                        if (isPlay) {
+                                            Button(
+                                                onClick = onOpenAppUpdateRelease,
+                                                modifier = Modifier.weight(1f),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = primaryColor,
+                                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                                )
+                                            ) {
+                                                Text("Update now")
+                                            }
+                                        } else {
+                                            OutlinedButton(
+                                                onClick = onOpenAppUpdateRelease,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text("Release notes")
+                                            }
                                         }
                                     }
                                 }

@@ -161,13 +161,13 @@ jobs:
           PY
           cat build/play-whatsnew/whatsnew-en-US
 
-      - name: Upload AAB to Google Play internal testing
+      - name: Upload AAB to Google Play production
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJson: signing/google-play-service-account.json
           packageName: com.hermeswebui.android
           releaseFiles: build/release/*.aab
-          tracks: internal
+          tracks: production
           status: completed
           releaseName: Hermes WebUI Android v${{ inputs.version_name }}
           whatsNewDirectory: build/play-whatsnew

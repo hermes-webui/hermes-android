@@ -37,7 +37,7 @@ The GitHub publish workflow attaches only the `-github.apk` to the GitHub
 Release and writes human-readable generated GitHub release notes grouped by
 `.github/release.yml`. Build diagnostics stay in the Actions job summary rather
 than the public release body. The Play publish workflow uploads only the `.aab`
-to Google Play internal testing and writes a brief `en-US` What's New changelog
+to Google Play production and writes a brief `en-US` What's New changelog
 generated from those same notes. The Play text is capped below the Play limit
 and ends with `Report issues through the in-app bug report tool.`
 

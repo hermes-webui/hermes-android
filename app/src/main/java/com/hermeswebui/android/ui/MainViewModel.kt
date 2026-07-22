@@ -451,6 +451,16 @@ class MainViewModel(
         }
     }
 
+    fun setPlayUpdateAvailable(versionCode: String) {
+        _uiState.update {
+            it.copy(
+                appUpdateStatus = "A Google Play update is available.",
+                appUpdateVersion = versionCode,
+                appUpdateReleaseUrl = "play://update"
+            )
+        }
+    }
+
     fun clearAvailableAppUpdate(status: String?) {
         _uiState.update {
             it.copy(

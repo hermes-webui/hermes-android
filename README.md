@@ -252,7 +252,7 @@ Release automation is centered on:
 That flow builds:
 
 - `hermes-webui-v<version>-github.apk` for GitHub/device installs
-- `hermes-webui-v<version>.aab` for Google Play internal testing
+- `hermes-webui-v<version>.aab` for Google Play production
 
 Manual orchestration runs auto-bump `appVersionName` from the latest published
 `vX.Y.Z` tag, sync the checked-in README release metadata, commit the bump back

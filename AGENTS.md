@@ -173,7 +173,7 @@ all three workflows aligned with `app/build.gradle.kts`,
 `keystore.properties.example`, and the documented GitHub secrets whenever the
 release flow changes. The GitHub publish workflow should publish only the
 `hermes-webui-v<version>-github.apk` APK, the Play publish workflow should
-submit only the `hermes-webui-v<version>.aab` AAB to internal testing,
+submit only the `hermes-webui-v<version>.aab` AAB to Google Play production,
 tag-triggered releases should match the Gradle `versionName`, and the public
 GitHub release body should contain human-readable What's New notes rather than
 build metadata.

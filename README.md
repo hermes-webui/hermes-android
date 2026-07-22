@@ -154,20 +154,19 @@ When Hermes-Android is doing its job well, the experience should be simple:
 
 Hermes-Android currently publishes through two release channels:
 
-- Google Play internal testing via the official `release` build
+- Google Play production via the official `release` build
 - GitHub APK distribution via the side-by-side `github` build
 
 Current checked-in release metadata:
 
-- Version name: `0.1.28`
-- Version code: `128`
+- Version name: `1.0.0`
+- Version code: `10000`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - Compile SDK / target SDK: `37`
 
-If you want access to the Play internal test track, message
-[@Paladin173](https://github.com/Paladin173) with the Gmail address that should
-be added as a tester.
+If you want access to the Play release, install from Google Play or sideload the
+GitHub APK from the [Releases page](https://github.com/hermes-webui/hermes-android/releases).
 
 ## Quick Start
 

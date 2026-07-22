@@ -678,7 +678,12 @@ class MainActivity : ComponentActivity() {
                     onCheckAppUpdates = { appUpdateCoordinator.checkForAppUpdates(force = true) },
                     onDownloadAppUpdate = { appUpdateCoordinator.downloadAvailableGitHubUpdate() },
                     onOpenAppUpdateRelease = {
-                        uiState.appUpdateReleaseUrl?.takeIf { it.isNotBlank() }?.let(::openInExternalBrowser)
+                        val releaseUrl = uiState.appUpdateReleaseUrl
+                        when {
+                            releaseUrl.isNullOrBlank() -> Unit
+                            releaseUrl.startsWith("play://") -> appUpdateCoordinator.startPlayUpdateFlow()
+                            else -> openInExternalBrowser(releaseUrl)
+                        }
                     },
                     onShareDebugLog = { shareLatestDebugLog() },
                     onDownloadDebugLog = { downloadLatestDebugLog() },

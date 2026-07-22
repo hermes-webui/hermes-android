@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-07-20
+> Last updated: 2026-07-21
 
 ---
 
@@ -22,8 +22,9 @@
 | Native navigation | Done - WebUI-owned dashboard link integration and deep links |
 | Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
 | Browser notifications | Done - WebUI Notification API bridge, Android runtime permission, notification channel, and trusted WebUI tap routing |
-| App update alerts | Done - shared settings/notification UX with build-selected Google Play or GitHub Releases update providers |
+| App update alerts | Done - shared settings/notification UX with build-selected Google Play or GitHub Releases update providers; Play shows "Update now" in-app update flow, GitHub shows "Download APK" |
 | Native distribution polish | Done - app identity and signed GitHub APK plus Play AAB release automation are wired for local builds plus GitHub Actions |
+| Google Play Production | Done - approved for production release; shipping as v1.0.0 |
 | Maintenance posture | Stable - accept Android-wrapper fixes, compatibility updates, dependency updates, and release maintenance |
 | Native feature expansion | Deferred - revisit only for Android-specific needs with a clear WebUI/API boundary |
 

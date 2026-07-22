@@ -175,10 +175,10 @@ class HermesAppUpdateCoordinator(
                 val canUpdate = updateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
                 if (isAvailable && canUpdate) {
                     val version = updateInfo.availableVersionCode().toString()
-                    viewModel.setAppUpdateStatus("A Google Play update is available.")
+                    viewModel.setPlayUpdateAvailable(version)
                     maybeShowPlayUpdateNotification(version, force)
                 } else if (force) {
-                    viewModel.setAppUpdateStatus("You're on the latest Google Play build.")
+                    viewModel.clearAvailableAppUpdate("You're on the latest Google Play build.")
                     Toast.makeText(context, "No Google Play update found", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -323,7 +323,7 @@ class HermesAppUpdateCoordinator(
         settingsRepository.markAppUpdateNotified(version)
     }
 
-    private fun startPlayUpdateFlow() {
+    fun startPlayUpdateFlow() {
         appUpdateManager.appUpdateInfo
             .addOnSuccessListener { updateInfo ->
                 if (

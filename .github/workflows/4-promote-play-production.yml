@@ -1,46 +1,31 @@
-name: 3 - Publish Play Store Beta
+name: 4 - Promote to Play Production
+
+# Manually promotes an existing open-testing (beta) build to the Play
+# production track. Run this after validating the open-testing build.
+# Inputs come from the "Manual Publish Retry Details" summary of the
+# 1 - Orchestration Release run that built the artifacts.
 
 on:
-  workflow_call:
-    inputs:
-      artifact_name:
-        required: true
-        type: string
-      build_run_id:
-        required: true
-        type: string
-      commit_sha:
-        required: true
-        type: string
-      tag_name:
-        required: true
-        type: string
-      version_name:
-        required: true
-        type: string
-    secrets:
-      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64:
-        required: true
   workflow_dispatch:
     inputs:
       artifact_name:
-        description: Play AAB artifact name from the build run.
+        description: 'Play AAB artifact name from the build run (e.g. hermes-webui-v1.0.0-play-aab)'
         required: true
         type: string
       build_run_id:
-        description: GitHub Actions run ID that created the AAB artifact.
+        description: 'GitHub Actions run ID that created the AAB artifact'
         required: true
         type: string
       commit_sha:
-        description: Commit SHA used by the build run.
+        description: 'Commit SHA used by the build run'
         required: true
         type: string
       tag_name:
-        description: Release tag, such as v0.1.8.
+        description: 'Release tag (e.g. v1.0.0)'
         required: true
         type: string
       version_name:
-        description: Android versionName, such as 0.1.8.
+        description: 'Android versionName (e.g. 1.0.0)'
         required: true
         type: string
 
@@ -49,12 +34,12 @@ permissions:
   actions: read
 
 concurrency:
-  group: publish-play-open-testing-${{ inputs.version_name }}
+  group: promote-play-production-${{ inputs.version_name }}
   cancel-in-progress: false
 
 jobs:
-  publish-play-open-testing:
-    name: 3 - Publish Play Store Beta
+  promote-play-production:
+    name: 4 - Promote to Play Production
     runs-on: ubuntu-latest
 
     steps:
@@ -161,13 +146,13 @@ jobs:
           PY
           cat build/play-whatsnew/whatsnew-en-US
 
-      - name: Upload AAB to Google Play open testing
+      - name: Upload AAB to Google Play production
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJson: signing/google-play-service-account.json
           packageName: com.hermeswebui.android
           releaseFiles: build/release/*.aab
-          tracks: beta
+          tracks: production
           status: completed
           releaseName: Hermes WebUI Android v${{ inputs.version_name }}
           whatsNewDirectory: build/play-whatsnew

@@ -200,8 +200,8 @@ jobs:
       tag_name: ${{ needs.build-release-artifacts.outputs.tag_name }}
       version_name: ${{ needs.build-release-artifacts.outputs.version_name }}
 
-  publish-play-store:
-    name: 3 - Publish Play Store Release
+  publish-play-open-testing:
+    name: 3 - Publish Play Store Beta
     needs: build-release-artifacts
     uses: ./.github/workflows/3-publish-play-store-release.yml
     permissions:

@@ -165,15 +165,17 @@ clearly out of scope or already tracked.
 When package identity, release signing, store distribution, or public release
 behavior changes, update `ROADMAP.md` and `README.md` in the same change.
 
-The repo includes `.github/workflows/1-orchestration-release.yml` as the single signed release
-entry point. It builds both the GitHub APK and Play AAB, then fans out to
-`.github/workflows/2-publish-github-apk.yml` and
-`.github/workflows/3-publish-play-store-release.yml` for target-specific publishing. Keep
-all three workflows aligned with `app/build.gradle.kts`,
+The repo uses four workflows for building and releasing:
+- `.github/workflows/1-orchestration-release.yml` — single signed release entry point; builds both the GitHub APK and Play AAB, then fans out to workflows 2 and 3.
+- `.github/workflows/2-publish-github-apk.yml` — publishes the signed APK to GitHub Releases.
+- `.github/workflows/3-publish-play-store-release.yml` — submits the AAB to the Play **open testing (beta)** track after every orchestrated build.
+- `.github/workflows/4-promote-play-production.yml` — **manual only**; promotes a beta build to the Play **production** track. Run this after validating open testing. Inputs come from the "Manual Publish Retry Details" summary of the orchestration run.
+
+Keep all four workflows aligned with `app/build.gradle.kts`,
 `keystore.properties.example`, and the documented GitHub secrets whenever the
 release flow changes. The GitHub publish workflow should publish only the
-`hermes-webui-v<version>-github.apk` APK, the Play publish workflow should
-submit only the `hermes-webui-v<version>.aab` AAB to Google Play production,
+`hermes-webui-v<version>-github.apk` APK, the Play beta workflow should
+submit only the `hermes-webui-v<version>.aab` AAB to the beta track,
 tag-triggered releases should match the Gradle `versionName`, and the public
 GitHub release body should contain human-readable What's New notes rather than
 build metadata.

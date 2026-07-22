@@ -1,4 +1,4 @@
-name: CI
+name: Build & Test
 
 # Build + unit-test gate for pushes and PRs. The repo previously had only the
 # signed-release workflows (1/2/3-*), so nothing compiled or tested changes on a

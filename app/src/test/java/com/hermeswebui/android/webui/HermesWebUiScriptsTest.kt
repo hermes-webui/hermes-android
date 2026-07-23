@@ -37,24 +37,45 @@ class HermesWebUiScriptsTest {
     }
 
     @Test
-    fun `viewport fix script patches collapsed and expanded update summary containers`() {
+    fun `viewport fix script injects CSS custom properties for viewport dimensions`() {
         val script = HermesWebUiScripts.viewportFixScript
 
-        assertThat(script).contains("#updateSummaryPanel { max-height:")
-        assertThat(script).contains("#updateSummaryScroll { max-height:")
-        assertThat(script).contains("#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height:")
-        assertThat(script).contains("viewportWidth > 0 && viewportWidth <= 600")
+        assertThat(script).contains("root.style.setProperty('--vh',")
+        assertThat(script).contains("root.style.setProperty('--dvh',")
+        assertThat(script).contains("root.style.setProperty('--viewport-height',")
+        assertThat(script).contains("root.style.setProperty('--viewport-width',")
     }
 
     @Test
-    fun `viewport fix script caps expanded approval card to available portrait or landscape space`() {
+    fun `viewport fix script uses generic collapse detection instead of explicit selectors`() {
         val script = HermesWebUiScripts.viewportFixScript
 
-        assertThat(script).contains("viewportWidth <= 640 || height <= 640")
-        assertThat(script).contains("document.querySelector('.approval-card.visible:not(.collapsed)')")
-        assertThat(script).contains("document.querySelector('.app-titlebar')")
-        assertThat(script).contains("approvalRect.bottom - titlebarRect.bottom - 8")
-        assertThat(script).contains("Math.min(approvalMax, Math.floor(approvalAvailable))")
-        assertThat(script).contains(".approval-card:not(.collapsed) .approval-inner { box-sizing: border-box !important; max-height: ' + approvalMax + 'px !important;")
+        // Generic detection heuristics
+        assertThat(script).contains("isCollapsedElement")
+        assertThat(script).contains("scrollHeight")
+        assertThat(script).contains("rect.height")
+        assertThat(script).contains("hasOverflowMismatch")
+        
+        // Performance guards
+        assertThat(script).contains("MAX_REPAIRS_PER_SCAN")
+        assertThat(script).contains("MIN_SCAN_INTERVAL_MS")
+        
+        // Repair tracking attribute
+        assertThat(script).contains("data-hermes-android-vh-repaired")
+    }
+
+    @Test
+    fun `viewport fix script includes baseline CSS for layout containers`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        // Root sizing
+        assertThat(script).contains("html, body { min-height:")
+        assertThat(script).contains("body { overflow-x: hidden")
+        
+        // Flex container helpers
+        assertThat(script).contains(".layout, .rail, .sidebar, #sessionList, .messages { min-height: 0")
+        
+        // Settings page fix
+        assertThat(script).contains(".main.showing-settings .main-view { max-height: none")
     }
 }

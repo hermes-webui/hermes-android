@@ -3,261 +3,252 @@ package com.hermeswebui.android.webui
 import org.json.JSONObject
 
 object HermesWebUiScripts {
+    /**
+     * Hybrid Viewport Polyfill for Android WebView
+     *
+     * Android System WebView has a bug where CSS viewport units (vh, dvh, svh, lvh) can
+     * evaluate to 0px instead of the actual viewport dimensions. This causes elements with
+     * viewport-relative sizing (e.g., `max-height: min(60dvh, 420px)`) to collapse.
+     *
+     * This polyfill uses a hybrid approach:
+     * 1. Injects CSS custom properties (--vh, --dvh) with measured pixel values
+     * 2. Injects baseline CSS rules for html/body/layout containers
+     * 3. Uses generic collapse detection to find and repair ANY element that appears
+     *    collapsed due to the vh=0 bug, without needing explicit selectors
+     *
+     * The generic detection catches new UI elements automatically, eliminating the need
+     * to add new selectors each time a viewport-unit-based component is discovered.
+     */
     val viewportFixScript = """
         (function() {
-          var styleId = 'hermes-android-viewport-fix';
-          var repairedAttr = 'data-hermes-android-panel-repaired';
-          var repairedCollapsedValue = 'collapsed';
-          var repairedThemeValue = 'theme-creator';
-          var scheduledApply = false;
-          var normalizedText = function(value) {
-            return String(value || '').trim().toLowerCase();
-          };
-          var repairThemeCreatorPanel = function(height) {
-            var minPanel = Math.max(260, Math.round(height * 0.45)) + 'px';
-            var maxPanel = Math.max(220, Math.round(height * 0.86)) + 'px';
-            var textNodes = document.querySelectorAll('h1, h2, h3, h4, span, div, button, label');
+          'use strict';
 
-            // Drop stale Theme Creator repairs before recomputing geometry.
-            document.querySelectorAll('[' + repairedAttr + '="' + repairedThemeValue + '"]').forEach(function(el) {
+          var STYLE_ID = 'hermes-android-viewport-fix';
+          var REPAIRED_ATTR = 'data-hermes-android-vh-repaired';
+          var MAX_REPAIRS_PER_SCAN = 50;
+          var MIN_SCAN_INTERVAL_MS = 100;
+
+          var lastScanTime = 0;
+          var scheduled = false;
+
+          // Tags to skip entirely (not visual content containers)
+          var SKIP_TAGS = {
+            'script': 1, 'style': 1, 'link': 1, 'meta': 1, 'head': 1, 'html': 1,
+            'br': 1, 'hr': 1, 'img': 1, 'svg': 1, 'path': 1, 'circle': 1,
+            'rect': 1, 'line': 1, 'polygon': 1, 'polyline': 1, 'g': 1, 'defs': 1,
+            'clippath': 1, 'mask': 1, 'use': 1, 'symbol': 1, 'text': 1, 'tspan': 1,
+            'input': 1, 'textarea': 1, 'select': 1, 'option': 1, 'canvas': 1,
+            'video': 1, 'audio': 1, 'source': 1, 'track': 1, 'iframe': 1, 'embed': 1,
+            'object': 1, 'param': 1, 'noscript': 1, 'template': 1
+          };
+
+          function getMeasuredViewport() {
+            var visualHeight = window.visualViewport && window.visualViewport.height;
+            var visualWidth = window.visualViewport && window.visualViewport.width;
+            return {
+              height: Math.max(
+                window.innerHeight || 0,
+                document.documentElement.clientHeight || 0,
+                visualHeight || 0
+              ),
+              width: Math.max(
+                window.innerWidth || 0,
+                document.documentElement.clientWidth || 0,
+                visualWidth || 0
+              )
+            };
+          }
+
+          function injectBaselineCSS(viewport) {
+            var px = Math.round(viewport.height) + 'px';
+
+            // Inject CSS custom properties on :root for potential future use
+            var root = document.documentElement;
+            root.style.setProperty('--vh', (viewport.height / 100) + 'px');
+            root.style.setProperty('--dvh', (viewport.height / 100) + 'px');
+            root.style.setProperty('--vw', (viewport.width / 100) + 'px');
+            root.style.setProperty('--viewport-height', viewport.height + 'px');
+            root.style.setProperty('--viewport-width', viewport.width + 'px');
+
+            // Baseline CSS rules that generic detection cannot handle
+            var style = document.getElementById(STYLE_ID);
+            if (!style) {
+              style = document.createElement('style');
+              style.id = STYLE_ID;
+              (document.head || document.documentElement).appendChild(style);
+            }
+
+            style.textContent = [
+              // Root sizing baseline
+              'html, body { min-height: ' + px + ' !important; }',
+              'body { overflow-x: hidden !important; }',
+              // Flex container helpers - prevent min-height inheritance issues
+              '.layout, .rail, .sidebar, #sessionList, .messages { min-height: 0 !important; }',
+              // Settings page clip fix
+              (viewport.width > 0 && viewport.width <= 600
+                ? '.main.showing-settings .main-view { max-height: none !important; overflow-y: auto !important; }'
+                : '')
+            ].filter(Boolean).join('\n');
+          }
+
+          function shouldSkipElement(el) {
+            var tag = (el.tagName || '').toLowerCase();
+            return SKIP_TAGS[tag] === 1;
+          }
+
+          function isCollapsedElement(el, viewport) {
+            if (!el || !el.getBoundingClientRect) return false;
+            if (shouldSkipElement(el)) return false;
+
+            var rect = el.getBoundingClientRect();
+            var scrollHeight = el.scrollHeight || 0;
+
+            // Quick filters - skip obviously fine elements
+            if (rect.width < 100) return false;
+            if (rect.height <= 0) return false;
+            if (rect.height >= viewport.height * 0.25) return false;
+            if (rect.height >= scrollHeight * 0.8) return false;
+
+            // Collapsed threshold
+            var collapsedThreshold = Math.max(48, Math.min(180, Math.round(viewport.height * 0.16)));
+            var hasOverflowMismatch = scrollHeight > rect.height + 96;
+
+            // Not collapsed if height is reasonable AND no significant overflow
+            if (rect.height > collapsedThreshold && !hasOverflowMismatch) return false;
+
+            // Skip elements with trivial content
+            if (scrollHeight < 80) return false;
+
+            // Check for meaningful interactive content
+            var hasInteractive = false;
+            try {
+              hasInteractive = !!el.querySelector('button, input, a, [role="button"], [role="menuitem"], textarea, select');
+            } catch (e) {}
+
+            // Require either interactive content OR significant hidden content
+            if (!hasInteractive && scrollHeight < 200) return false;
+
+            // Final safety: skip invisible elements
+            try {
+              var style = window.getComputedStyle(el);
+              if (style.display === 'none' || style.visibility === 'hidden') return false;
+            } catch (e) {}
+
+            return true;
+          }
+
+          function repairElement(el, viewport) {
+            if (el.getAttribute(REPAIRED_ATTR)) return false;
+
+            var maxPanel = Math.max(180, Math.round(viewport.height * 0.82)) + 'px';
+            var minPanel = Math.max(100, Math.round(viewport.height * 0.25)) + 'px';
+
+            el.style.height = 'auto';
+            el.style.minHeight = minPanel;
+            el.style.maxHeight = maxPanel;
+            el.style.overflowY = 'auto';
+            el.setAttribute(REPAIRED_ATTR, 'true');
+
+            return true;
+          }
+
+          function clearRepairIfHealthy(el, viewport) {
+            if (!el.getAttribute(REPAIRED_ATTR)) return;
+
+            var rect = el.getBoundingClientRect();
+            var threshold = Math.max(48, Math.min(180, Math.round(viewport.height * 0.16)));
+
+            // Clear repair if element is now naturally healthy
+            if (rect.height > threshold && el.scrollHeight <= rect.height + 50) {
               el.style.removeProperty('height');
               el.style.removeProperty('min-height');
               el.style.removeProperty('max-height');
               el.style.removeProperty('overflow-y');
-              el.style.removeProperty('display');
-              el.style.removeProperty('justify-content');
-              el.style.removeProperty('align-content');
-              el.removeAttribute(repairedAttr);
-            });
+              el.removeAttribute(REPAIRED_ATTR);
+            }
+          }
 
-            textNodes.forEach(function(node) {
-              if (!node || !node.textContent) return;
-              var text = normalizedText(node.textContent);
-              if (text !== 'theme creator') return;
+          function scanAndRepair() {
+            var now = Date.now();
+            if (now - lastScanTime < MIN_SCAN_INTERVAL_MS) return;
+            lastScanTime = now;
 
-              var current = node;
-              for (var depth = 0; current && depth < 10; depth++) {
-                current = current.parentElement;
-                if (!current || !current.getBoundingClientRect) continue;
-                var rect = current.getBoundingClientRect();
-                if (rect.width < 220) continue;
+            var viewport = getMeasuredViewport();
+            if (!viewport.height) return;
 
-                // Target the Theme Creator content container (the one that owns most
-                // form controls) instead of outer wrappers to avoid inflating header space.
-                var inputCount = 0;
-                try {
-                  inputCount = current.querySelectorAll('input, textarea, select, [contenteditable="true"]').length;
-                } catch (_) { inputCount = 0; }
-                if (inputCount < 4) continue;
+            // Inject baseline CSS and custom properties
+            injectBaselineCSS(viewport);
 
-                var isCollapsed = rect.height > 0 && rect.height <= 140;
-                var hasOverflowMismatch = current.scrollHeight > rect.height + 120;
-                if (!isCollapsed && !hasOverflowMismatch) continue;
+            // Scan all elements for collapsed state
+            var elements = document.querySelectorAll('*');
+            var repaired = 0;
 
-                current.style.height = 'auto';
-                current.style.minHeight = minPanel;
-                current.style.maxHeight = maxPanel;
-                current.style.overflowY = 'auto';
-                current.setAttribute(repairedAttr, repairedThemeValue);
-                break;
-              }
-            });
-          };
+            for (var i = 0; i < elements.length; i++) {
+              var el = elements[i];
 
-          var repairCollapsedPanels = function(height) {
-            var maxPanel = Math.max(180, Math.round(height * 0.82)) + 'px';
-            var minPanel = Math.max(120, Math.round(height * 0.35)) + 'px';
-            var collapsedThreshold = Math.max(48, Math.min(180, Math.round(height * 0.16)));
-            var selectors = [
-              '[role="dialog"]',
-              '.modal',
-              '.dialog',
-              '.popover',
-              '.dropdown-menu',
-              '.menu',
-              '.drawer',
-              '.sheet',
-              '.panel',
-              '[class*="theme"]',
-              '[id*="theme"]',
-              '[class*="creator"]',
-              '[id*="creator"]',
-              '[class*="kanban"]',
-              '[id*="kanban"]',
-              '[class*="board"]',
-              '[id*="board"]',
-              '[class*="popup"]',
-              '[id*="popup"]',
-              '[style*="vh"]',
-              '[style*="dvh"]'
-            ].join(', ');
+              if (shouldSkipElement(el)) continue;
 
-            document.querySelectorAll(selectors).forEach(function(el) {
-              if (!el || !el.getBoundingClientRect) return;
-              var rect = el.getBoundingClientRect();
-              var scrollHeight = el.scrollHeight || 0;
-              var text = normalizedText(el.textContent);
-              var isThemeCreatorLike = text.indexOf('theme creator') !== -1;
-              var className = normalizedText(el.className);
-              var id = normalizedText(el.id);
-              var isLikelyOverlay =
-                className.indexOf('modal') !== -1 ||
-                className.indexOf('dialog') !== -1 ||
-                className.indexOf('popover') !== -1 ||
-                className.indexOf('dropdown') !== -1 ||
-                className.indexOf('popup') !== -1 ||
-                className.indexOf('sheet') !== -1 ||
-                id.indexOf('modal') !== -1 ||
-                id.indexOf('dialog') !== -1 ||
-                id.indexOf('popover') !== -1 ||
-                id.indexOf('popup') !== -1;
-              var isLikelyBoard =
-                className.indexOf('kanban') !== -1 ||
-                className.indexOf('board') !== -1 ||
-                id.indexOf('kanban') !== -1 ||
-                id.indexOf('board') !== -1;
-              var hasOverflowMismatch = scrollHeight > rect.height + 96;
-
-              // Ignore tiny controls/chips that happen to match selector text.
-              if (rect.width < 160) return;
-
-              if (rect.height > collapsedThreshold && !hasOverflowMismatch) {
-                // Remove stale repair markers once the panel is healthy again.
-                if (el.getAttribute(repairedAttr) === repairedCollapsedValue) {
-                  el.style.removeProperty('height');
-                  el.style.removeProperty('min-height');
-                  el.style.removeProperty('max-height');
-                  el.style.removeProperty('overflow-y');
-                  el.style.removeProperty('display');
-                  el.removeAttribute(repairedAttr);
-                }
-                return;
-              }
-              // Only repair truly collapsed containers that still have meaningful content.
-              if (rect.height <= 0) return;
-              if (!isThemeCreatorLike && !isLikelyOverlay && !isLikelyBoard && !hasOverflowMismatch) return;
-              if (!isThemeCreatorLike && !hasOverflowMismatch && scrollHeight < 80) return;
-
-              el.style.height = 'auto';
-              el.style.minHeight = minPanel;
-              el.style.maxHeight = maxPanel;
-              el.style.overflowY = 'auto';
-
-              // Theme Creator can collapse while header/footer stay visible; ensure the
-              // container can grow into a full working panel.
-              if (isThemeCreatorLike) {
-                el.style.display = 'block';
+              // Check if previously repaired element is now healthy
+              if (el.getAttribute(REPAIRED_ATTR)) {
+                clearRepairIfHealthy(el, viewport);
+                continue;
               }
 
-              el.setAttribute(repairedAttr, repairedCollapsedValue);
-            });
-          };
-
-          var applyViewportFix = function() {
-            var visualHeight = window.visualViewport && window.visualViewport.height;
-            var height = Math.max(
-              window.innerHeight || 0,
-              document.documentElement.clientHeight || 0,
-              visualHeight || 0
-            );
-            if (!height) return;
-
-            var px = Math.round(height) + 'px';
-            var viewportWidth = window.visualViewport && window.visualViewport.width || window.innerWidth || 0;
-            // Hermes WebUI floating menus cap their height with `max-height: calc(100vh - 16px)`,
-            // the generated update-summary panel uses `max-height: min(34vh, 260px)`, and the
-            // phone/short-viewport approval panel uses `max-height: min(60dvh, 420px)`.
-            // Android System WebView evaluates these viewport units as 0 here (same quirk it can
-            // apply to `100dvh`), so those panels collapse to a tiny sliver with the content
-            // scrolled out of view. Re-cap them with the measured viewport height instead.
-            var menuMax = Math.max(120, Math.round(height) - 16) + 'px';
-            var viewportWidth = window.visualViewport && window.visualViewport.width || window.innerWidth || 0;
-            var updateSummaryMax = Math.max(120, Math.min(260, Math.round(height * 0.34))) + 'px';
-            var updateSummaryExpandedMax = Math.max(180, Math.min(560, Math.round(height * 0.75))) + 'px';
-            var updateSummaryExpandedMobileMax = Math.max(220, Math.min(640, Math.round(height * 0.82))) + 'px';
-            var approvalMax = Math.min(420, Math.round(height * 0.60));
-            var approvalNeedsViewportCap = viewportWidth > 0 && (viewportWidth <= 640 || height <= 640);
-            if (approvalNeedsViewportCap) {
-              var approvalCard = document.querySelector('.approval-card.visible:not(.collapsed)');
-              var titlebar = document.querySelector('.app-titlebar');
-              if (approvalCard && titlebar && approvalCard.getBoundingClientRect && titlebar.getBoundingClientRect) {
-                var approvalRect = approvalCard.getBoundingClientRect();
-                var titlebarRect = titlebar.getBoundingClientRect();
-                var approvalAvailable = approvalRect.bottom - titlebarRect.bottom - 8;
-                if (approvalAvailable > 0) {
-                  approvalMax = Math.min(approvalMax, Math.floor(approvalAvailable));
+              // Check if element needs repair
+              if (isCollapsedElement(el, viewport)) {
+                if (repairElement(el, viewport)) {
+                  repaired++;
+                  if (repaired >= MAX_REPAIRS_PER_SCAN) break;
                 }
               }
             }
-            var style = document.getElementById(styleId);
-            if (!style) {
-              style = document.createElement('style');
-              style.id = styleId;
-              (document.head || document.documentElement).appendChild(style);
-            }
-            // Keep vertical scrolling available. Some WebUI panels (for example the generated
-            // update summary/details block) expand below the fold and become unusable if body
-            // scrolling is locked with `overflow: hidden`.
-            style.textContent = [
-              // Avoid fixed `height` on html/body: some extension panels size from percentage/flex
-              // chains and can collapse when the root is hard-locked.
-              'html, body { min-height: ' + px + ' !important; }',
-              'body { overflow-x: hidden !important; }',
-              '.layout, .rail, .sidebar, #sessionList, .messages { min-height: 0 !important; }',
-              '.session-action-menu, .workspace-prefs-menu { max-height: ' + menuMax + ' !important; }',
-              '[role="dialog"], .modal, .dialog, .popover, .dropdown-menu { max-height: ' + menuMax + ' !important; }',
-              '#updateSummaryPanel { max-height: ' + updateSummaryMax + ' !important; overflow-y: auto !important; }',
-              '#updateSummaryScroll { max-height: ' + updateSummaryMax + ' !important; overflow-y: auto !important; }',
-              '#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height: ' + updateSummaryExpandedMax + ' !important; }',
-              (viewportWidth > 0 && viewportWidth <= 600
-                ? '#updateSummaryPanel.update-summary-expanded #updateSummaryScroll { max-height: ' + updateSummaryExpandedMobileMax + ' !important; }'
-                : ''),
-              (approvalNeedsViewportCap
-                ? '.approval-card:not(.collapsed) .approval-inner { box-sizing: border-box !important; max-height: ' + approvalMax + 'px !important; overflow-y: auto !important; }'
-                : ''),
-              // Fix Settings page overflow on narrow viewports: the .main-view container inside
-              // .main.showing-settings has inline max-height that clips content - override with none
-              (viewportWidth > 0 && viewportWidth <= 600
-                ? '.main.showing-settings .main-view { max-height: none !important; overflow-y: auto !important; }'
-                : '')
-            ].join('\n');
+          }
 
-            // Some extension panels (for example Theme Creator) can still collapse to a
-            // tiny strip when Android WebView resolves vh-based caps to ~0px.
-            repairCollapsedPanels(height);
-            repairThemeCreatorPanel(height);
-          };
-
-          var scheduleApplyViewportFix = function() {
-            if (scheduledApply) return;
-            scheduledApply = true;
+          function schedulePolyfill() {
+            if (scheduled) return;
+            scheduled = true;
             window.requestAnimationFrame(function() {
-              scheduledApply = false;
-              applyViewportFix();
+              scheduled = false;
+              scanAndRepair();
             });
-          };
+          }
 
-          window.__hermesAndroidApplyViewportFix = applyViewportFix;
-          scheduleApplyViewportFix();
+          // Expose for debugging
+          window.__hermesAndroidApplyViewportFix = scanAndRepair;
+
+          // Initial run
+          schedulePolyfill();
 
           if (!window.__hermesAndroidViewportFixInstalled) {
             window.__hermesAndroidViewportFixInstalled = true;
-            window.addEventListener('resize', scheduleApplyViewportFix, { passive: true });
+
+            window.addEventListener('resize', schedulePolyfill, { passive: true });
             window.addEventListener('orientationchange', function() {
-              window.setTimeout(scheduleApplyViewportFix, 0);
-              window.setTimeout(scheduleApplyViewportFix, 250);
+              setTimeout(schedulePolyfill, 0);
+              setTimeout(schedulePolyfill, 250);
             }, { passive: true });
+
             if (window.visualViewport) {
-              window.visualViewport.addEventListener('resize', scheduleApplyViewportFix, { passive: true });
+              window.visualViewport.addEventListener('resize', schedulePolyfill, { passive: true });
             }
 
-            // Theme/extension dialogs are often mounted after initial page load. Re-run
-            // the viewport fix when the DOM changes so collapsed vh-based panels are
-            // repaired at open time, not only on window resize.
+            // MutationObserver for DOM changes
             try {
-              var observer = new MutationObserver(function() { scheduleApplyViewportFix(); });
-              observer.observe(document.documentElement || document.body, { childList: true, subtree: true, attributes: true });
-            } catch (_) {}
+              var observer = new MutationObserver(function(mutations) {
+                // Skip mutations that are just our own repairs
+                var dominated = mutations.every(function(m) {
+                  return m.attributeName === REPAIRED_ATTR ||
+                    (m.attributeName === 'style' && m.target.getAttribute && m.target.getAttribute(REPAIRED_ATTR));
+                });
+                if (!dominated) schedulePolyfill();
+              });
+              observer.observe(document.documentElement || document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style', 'class', REPAIRED_ATTR]
+              });
+            } catch (e) {}
           }
         })();
     """.trimIndent()

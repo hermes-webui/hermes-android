@@ -2,6 +2,7 @@ package com.hermeswebui.android
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.DownloadManager
 import android.app.AlertDialog
 import android.app.NotificationChannel
@@ -75,15 +76,18 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.content.FileProvider
 import androidx.core.app.NotificationCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.webkit.ScriptHandler
@@ -592,6 +596,13 @@ class MainActivity : ComponentActivity() {
             if (isDark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
         } else {
             if (isDark) HermesDarkColorScheme else HermesLightColorScheme
+        }
+        val view = LocalView.current
+        if (!view.isInEditMode) {
+            SideEffect {
+                val window = (view.context as Activity).window
+                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDark
+            }
         }
         MaterialTheme(colorScheme = colorScheme) {
             Box(modifier = Modifier.fillMaxSize()) {

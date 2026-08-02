@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 
 object HermesWebViewConfigurator {
     @SuppressLint("SetJavaScriptEnabled")
@@ -25,6 +27,12 @@ object HermesWebViewConfigurator {
             setSupportMultipleWindows(true)
             userAgentString = "${userAgentString} Hermes-Android/$appVersionName"
             disableWebViewDarkening(this)
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+                WebSettingsCompat.setWebAuthenticationSupport(
+                    this,
+                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                )
+            }
         }
 
         CookieManager.getInstance().setAcceptCookie(true)
@@ -45,7 +53,14 @@ object HermesWebViewConfigurator {
             loadsImagesAutomatically = true
             mediaPlaybackRequiresUserGesture = true
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            setSupportMultipleWindows(true)
             disableWebViewDarkening(this)
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+                WebSettingsCompat.setWebAuthenticationSupport(
+                    this,
+                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                )
+            }
         }
 
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)

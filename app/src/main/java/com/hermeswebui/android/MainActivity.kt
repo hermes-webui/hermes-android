@@ -24,6 +24,7 @@ import android.os.Environment
 import android.os.Message
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
@@ -781,6 +782,16 @@ class MainActivity : ComponentActivity() {
                 disableWebViewDarkening = ::disableWebViewDarkening
             )
             installHermesNotificationWebMessageBridge(this)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setOnTouchListener { v, event ->
+                if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_UP) {
+                    if (!v.hasFocus()) {
+                        v.requestFocus()
+                    }
+                }
+                false
+            }
             // Allow native long-press so Android's text selection handles appear in
             // conversation messages (issue #35). Default WebView behavior already
             // routes long-press on links to the system context menu.
@@ -2077,11 +2088,13 @@ class MainActivity : ComponentActivity() {
     private fun rememberActiveOAuthPopup(popup: WebView, flow: OAuthPopupFlow) {
         activeOAuthPopup = popup
         activeOAuthFlow = flow
+        setOAuthThirdPartyCookiesEnabled(true)
         refreshActiveOAuthTimeout()
     }
 
     private fun rememberActiveMainFrameOAuth(flow: OAuthPopupFlow) {
         activeMainFrameOAuthFlow = flow
+        setOAuthThirdPartyCookiesEnabled(true)
         refreshActiveOAuthTimeout()
     }
 
@@ -2090,6 +2103,7 @@ class MainActivity : ComponentActivity() {
         viewModel.setOAuthInFlowHost(null)
         if (activeOAuthPopup == null) {
             oauthFlowTimeoutMs = 0L
+            setOAuthThirdPartyCookiesEnabled(false)
         }
     }
 
@@ -2118,7 +2132,14 @@ class MainActivity : ComponentActivity() {
         activeOAuthFlow = null
         if (activeMainFrameOAuthFlow == null) {
             oauthFlowTimeoutMs = 0L
+            setOAuthThirdPartyCookiesEnabled(false)
         }
+    }
+
+    private fun setOAuthThirdPartyCookiesEnabled(enabled: Boolean) {
+        val cookies = CookieManager.getInstance()
+        cookies.setAcceptThirdPartyCookies(webView, enabled)
+        activeOAuthPopup?.let { cookies.setAcceptThirdPartyCookies(it, enabled) }
     }
 
     private fun destroyPopup(popup: WebView) {

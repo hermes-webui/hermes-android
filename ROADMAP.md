@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-07-25
+> Last updated: 2026-08-01
 
 ---
 
@@ -228,3 +228,4 @@ sketches are captured inline below.
 | BUG-034 | 2026-07-25 | Updates / Connectivity | Refined VPN/update recovery UX: while VPN guard blocks a Tailscale server, Hermes keeps a short-timeout `/api/status` probe running every second across the Tailscale app handoff, then auto-resumes pending server load only after VPN transport and the server are both ready. It sends Tailscale's exported `com.tailscale.ipn.CONNECT_VPN` broadcast as a best-effort auto-connect trigger before app/settings fallback. GitHub update flow now preserves an explicit in-app `Check -> Download -> Install` button progression and no longer auto-launches installer immediately on foreground download completion. |
 | BUG-035 | 2026-07-25 | Connectivity | Fixed Tailscale recovery: Hermes now asks Tailscale to connect while remaining visible, retries the pending server load automatically, and only opens Tailscale/VPN settings after a 10-second auto-connect grace period. It dismisses Settings and reloads Hermes once VPN plus server are ready, posts a ready notification when the fallback app remains foregrounded, and routes pull-to-refresh, Retry, reconnect events, and current-server taps through the VPN-aware loader. |
 | BUG-036 | 2026-07-28 | Android compatibility | Fixed approval gates and quoted approval context repeatedly expanding and collapsing in Android WebView by retaining generic viewport repairs while the affected panel remains visible; the repair now refreshes on viewport changes and releases only after the panel is hidden. |
+| BUG-037 | 2026-08-01 | Authentication | Fixed Issue 54 PocketID SSO usability: enabled AndroidX WebKit `WEB_AUTHENTICATION_SUPPORT_FOR_APP` on main/popup WebViews for passkeys, improved touch-to-focus handling so keyboard input reliably opens on code-entry forms, and temporarily enables third-party cookies only while an OAuth flow is active to preserve federated sign-in compatibility without broadening baseline cookie policy. |

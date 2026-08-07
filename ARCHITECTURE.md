@@ -71,7 +71,8 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - After artifacts are uploaded, `.github/workflows/1-orchestration-release.yml` publishes both targets in the same run: GitHub (`hermes-webui-v<version>-github.apk`) and Play production (`hermes-webui-v<version>.aab`) with the configured Play service account.
 - The beta workflow `.github/workflows/play-store-beta-manual.yml` remains available for manual/open-testing runs and is no longer part of default orchestration.
 - GitHub APK publishing writes human-readable generated GitHub release notes grouped by `.github/release.yml`; build metadata stays in the Actions job summary rather than the public release body. Play publishing generates a brief `whatsnew-en-US` changelog from the same GitHub release notes, caps it below the Play text limit, appends the in-app bug-report reminder, and passes it to the Play upload action as `whatsNewDirectory`.
-- Release workflows use concurrency groups so duplicate runs for the same ref or target version do not publish over each other.
+- Release workflows use concurrency groups so duplicate runs for the same ref or target version do not publish over each other. The orchestration workflow serializes artifact lifecycle cleanup globally so concurrent runs cannot race while deleting or replacing artifacts.
+- Before release artifacts are generated, the orchestration workflow prunes superseded debug APKs and signed release artifacts through least-privilege cleanup jobs. Cleanup treats GitHub API 404 responses as already-deleted artifacts and fails on other deletion errors. Signed workflow artifacts are retained for one day.
 - The build and publish workflows validate that exactly one matching APK or AAB exists before upload or publication.
 - The publish workflows also support manual dispatch with the build run ID and artifact metadata so a failed GitHub or Play publish can be retried without rebuilding both release artifacts.
 

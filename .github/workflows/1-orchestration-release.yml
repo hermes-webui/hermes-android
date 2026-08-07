@@ -11,12 +11,43 @@ permissions:
   actions: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-artifact-lifecycle
   cancel-in-progress: false
 
 jobs:
+  cleanup_release_artifacts:
+    name: Prune previous release artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete previous release artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          artifact_ids="$(gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name | test("^hermes-webui-v.*-(github-apk|play-aab)$")) | select(.created_at < "'"$cutoff"'") | .id')"
+          delete_error="$(mktemp)"
+          trap 'rm -f "$delete_error"' EXIT
+          while IFS= read -r artifact_id; do
+            test -n "$artifact_id" || continue
+            echo "Deleting previous release artifact $artifact_id"
+            if ! gh api --method DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id" 2>"$delete_error"; then
+              if grep -q 'HTTP 404' "$delete_error"; then
+                echo "Artifact $artifact_id was already deleted"
+              else
+                cat "$delete_error" >&2
+                exit 1
+              fi
+            fi
+          done <<< "$artifact_ids"
+
   build-release-artifacts:
     name: 1 - Build Release Artifacts
+    needs: cleanup_release_artifacts
+    if: always() && needs.cleanup_release_artifacts.result == 'success'
     runs-on: ubuntu-latest
 
     outputs:
@@ -178,6 +209,7 @@ jobs:
           name: ${{ steps.artifact_names.outputs.github_apk_artifact_name }}
           path: build/release/*-github.apk
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload Play AAB artifact
         uses: actions/upload-artifact@v7
@@ -185,6 +217,7 @@ jobs:
           name: ${{ steps.artifact_names.outputs.play_aab_artifact_name }}
           path: build/release/*.aab
           if-no-files-found: error
+          retention-days: 1
 
   publish-github-release:
     name: 2 - Publish GitHub APK

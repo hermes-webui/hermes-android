@@ -96,7 +96,7 @@ data class OAuthPopupFlow(
         }
 
         private fun String.decodeUrlComponent(): String {
-            return URLDecoder.decode(this, StandardCharsets.UTF_8)
+            return URLDecoder.decode(this, StandardCharsets.UTF_8.name())
         }
 
         private fun String.toUriOrNull(): URI? = runCatching { URI(this) }.getOrNull()

@@ -69,7 +69,12 @@ target unless the build artifacts are missing or expired.
 ## Safety Checks
 
 - Release workflows use concurrency groups to avoid duplicate publishing for
-  the same release ref or target version.
+  the same release ref or target version. The orchestration workflow also
+  serializes artifact cleanup globally so concurrent runs cannot race while
+  deleting or replacing artifacts.
+- Before release artifacts are generated, the orchestration workflow deletes
+  superseded debug APK and signed release artifacts. Deletion is idempotent for
+  already-removed artifacts, and signed workflow artifacts expire after one day.
 - Build and publish workflows fail if they find anything other than exactly one
   matching APK or AAB artifact.
 - GitHub Releases use human-readable generated GitHub release notes; Play Store

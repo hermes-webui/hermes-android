@@ -13,3 +13,5 @@ app/release/
 /keystore.properties
 /signing/
 /gradle-*.log
+__pycache__/
+*.py[cod]

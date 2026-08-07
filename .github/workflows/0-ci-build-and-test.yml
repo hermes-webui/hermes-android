@@ -18,8 +18,39 @@ permissions:
   contents: read
 
 jobs:
+  cleanup_debug_artifacts:
+    name: Prune previous debug APKs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete previous debug APK artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_ids="$(gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/artifacts?name=hermes-debug-apk&per_page=100" \
+            --jq '.artifacts[].id')"
+          delete_error="$(mktemp)"
+          trap 'rm -f "$delete_error"' EXIT
+          while IFS= read -r artifact_id; do
+            test -n "$artifact_id" || continue
+            echo "Deleting previous debug APK artifact $artifact_id"
+            if ! gh api --method DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id" 2>"$delete_error"; then
+              if grep -q 'HTTP 404' "$delete_error"; then
+                echo "Artifact $artifact_id was already deleted"
+              else
+                cat "$delete_error" >&2
+                exit 1
+              fi
+            fi
+          done <<< "$artifact_ids"
+
   build:
     name: Unit tests + debug build
+    needs: cleanup_debug_artifacts
+    if: always() && (needs.cleanup_debug_artifacts.result == 'success' || needs.cleanup_debug_artifacts.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,16 +67,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4.4.3
 
+      - name: Workflow tooling tests
+        run: python3 -m unittest discover -s tools/tests -v
+
       - name: Unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Assemble debug APK
         run: ./gradlew --no-daemon assembleDebug
-
-      - name: Upload debug APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hermes-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: ignore

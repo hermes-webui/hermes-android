@@ -262,6 +262,8 @@ That flow builds:
 - `hermes-webui-v<version>-github.apk` for GitHub/device installs
 - `hermes-webui-v<version>.aab` for Google Play production
 
+Before release automation generates replacements, the orchestration workflow prunes superseded debug and signed release artifacts. Signed artifacts are retained for one day as a bounded fallback, preventing GitHub Actions artifact storage from growing without bound.
+
 Manual orchestration runs auto-bump `appVersionName` from the latest published
 `vX.Y.Z` tag, sync the checked-in README release metadata, commit the bump back
 to `main`, and build from that version-bump commit. `versionCode` is derived

@@ -26,7 +26,8 @@
 | Native distribution polish | Done - app identity and signed GitHub APK plus Play AAB release automation are wired for local builds plus GitHub Actions |
 | Google Play Production | Done - approved for production release; shipping as v1.0.0 |
 | Maintenance posture | Stable - accept Android-wrapper fixes, compatibility updates, dependency updates, and release maintenance |
-| Native feature expansion | Deferred - revisit only for Android-specific needs with a clear WebUI/API boundary |
+|| Native feature expansion | Deferred - revisit only for Android-specific needs with a clear WebUI/API boundary |
+|| Artifact lifecycle | Maintained - release orchestration prunes superseded Actions artifacts before replacement generation and bounds signed artifact retention |
 
 ---
 

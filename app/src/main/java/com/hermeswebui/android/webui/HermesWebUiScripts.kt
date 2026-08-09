@@ -104,6 +104,10 @@ object HermesWebUiScripts {
             var chatSurface = el.closest('.messages, #messages, [data-testid="messages"]');
             if (!chatSurface) return false;
 
+            // Allow the primary chat/messages container itself to be repaired when
+            // it collapses; only skip its descendants to avoid per-message churn.
+            if (el === chatSurface) return false;
+
             // Keep floating overlays eligible for repair even when they are rendered
             // inside chat containers.
             try {

@@ -3,6 +3,7 @@ package com.hermeswebui.android.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.URI
@@ -200,43 +201,20 @@ object HermesApiClient {
                 )
             )
         } catch (exception: Exception) {
-            val baseResult = when {
-                exception is UnknownHostException -> {
-                    ServerReadinessResult(
-                        isReady = false,
-                        message = "Could not find that host. Check the server name and try again.",
-                        status = ServerReadinessStatus.UNREACHABLE
-                    )
-                }
-                exception is ConnectException -> {
-                    ServerReadinessResult(
-                        isReady = false,
-                        message = "Could not connect to this server. Check that Hermes is running and reachable from Android.",
-                        status = ServerReadinessStatus.UNREACHABLE
-                    )
-                }
-                exception is SocketTimeoutException -> {
-                    ServerReadinessResult(
-                        isReady = false,
-                        message = "The server took too long to respond. Check that Hermes finished starting up and try again.",
-                        status = ServerReadinessStatus.UNREACHABLE
-                    )
-                }
-                exception is SSLHandshakeException || exception is SSLProtocolException || exception is SSLException || exception.message.orEmpty().contains("ssl", ignoreCase = true) -> {
-                    ServerReadinessResult(
-                        isReady = false,
-                        message = "Could not connect securely. Check whether this Hermes server should use http:// instead of https://.",
-                        status = ServerReadinessStatus.UNREACHABLE
-                    )
-                }
-                else -> {
-                    ServerReadinessResult(
-                        isReady = false,
-                        message = "Could not reach this Hermes server. Check the URL, scheme, and whether the server is online.",
-                        status = ServerReadinessStatus.UNREACHABLE
-                    )
-                }
+            val rootFallback = probeHermesRootPage(baseUrl)
+            if (rootFallback != null) {
+                return@withContext rootFallback.copy(
+                    diagnostics = buildString {
+                        appendLine("Probed: $probedUrl")
+                        appendLine("Exception: ${exception::class.java.simpleName}")
+                        val msg = exception.message?.take(300)
+                        if (!msg.isNullOrBlank()) appendLine("Message: $msg")
+                        appendLine("Fallback: Root page fingerprint matched Hermes WebUI.")
+                    }.trim()
+                )
             }
+
+            val baseResult = buildUnreachableResult(baseUrl, exception)
             baseResult.copy(
                 diagnostics = buildString {
                     appendLine("Probed: $probedUrl")
@@ -245,6 +223,61 @@ object HermesApiClient {
                     if (!msg.isNullOrBlank()) appendLine("Message: $msg")
                 }.trim()
             )
+        }
+    }
+
+    internal fun buildUnreachableResult(baseUrl: String, exception: Exception): ServerReadinessResult {
+        val normalizedHost = runCatching {
+            URI(baseUrl.trim()).host?.trim().orEmpty().removePrefix("[").removeSuffix("]").lowercase()
+        }.getOrDefault("")
+        val isLoopbackHost = normalizedHost == "localhost" || runCatching {
+            normalizedHost.isNotBlank() && InetAddress.getByName(normalizedHost).isLoopbackAddress
+        }.getOrDefault(false)
+
+        if (isLoopbackHost) {
+            return ServerReadinessResult(
+                isReady = false,
+                message = "This URL points to your Android device itself. Use your Hermes server's LAN hostname or IP instead of localhost/127.0.0.1.",
+                status = ServerReadinessStatus.UNREACHABLE
+            )
+        }
+
+        return when {
+            exception is UnknownHostException -> {
+                ServerReadinessResult(
+                    isReady = false,
+                    message = "Could not find that host. Check the server name and try again.",
+                    status = ServerReadinessStatus.UNREACHABLE
+                )
+            }
+            exception is ConnectException -> {
+                ServerReadinessResult(
+                    isReady = false,
+                    message = "Could not connect to this server. Check that Hermes is running and reachable from Android.",
+                    status = ServerReadinessStatus.UNREACHABLE
+                )
+            }
+            exception is SocketTimeoutException -> {
+                ServerReadinessResult(
+                    isReady = false,
+                    message = "The server took too long to respond. Check that Hermes finished starting up and try again.",
+                    status = ServerReadinessStatus.UNREACHABLE
+                )
+            }
+            exception is SSLHandshakeException || exception is SSLProtocolException || exception is SSLException || exception.message.orEmpty().contains("ssl", ignoreCase = true) -> {
+                ServerReadinessResult(
+                    isReady = false,
+                    message = "Could not connect securely. Check whether this Hermes server should use http:// instead of https://.",
+                    status = ServerReadinessStatus.UNREACHABLE
+                )
+            }
+            else -> {
+                ServerReadinessResult(
+                    isReady = false,
+                    message = "Could not reach this Hermes server. Check the URL, scheme, and whether the server is online.",
+                    status = ServerReadinessStatus.UNREACHABLE
+                )
+            }
         }
     }
 

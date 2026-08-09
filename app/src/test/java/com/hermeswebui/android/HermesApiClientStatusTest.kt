@@ -2,6 +2,7 @@ package com.hermeswebui.android
 
 import com.google.common.truth.Truth.assertThat
 import com.hermeswebui.android.data.HermesApiClient
+import java.net.ConnectException
 import org.junit.Test
 
 class HermesApiClientStatusTest {
@@ -150,5 +151,29 @@ class HermesApiClientStatusTest {
         )
 
         assertThat(result).isNull()
+    }
+
+    @Test
+    fun `loopback urls report device-local guidance`() {
+        val result = HermesApiClient.buildUnreachableResult(
+            baseUrl = "http://127.0.0.1:8765",
+            exception = ConnectException("failed")
+        )
+
+        assertThat(result.isReady).isFalse()
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.UNREACHABLE)
+        assertThat(result.message).contains("Android device itself")
+    }
+
+    @Test
+    fun `non loopback connect failures keep generic connectivity guidance`() {
+        val result = HermesApiClient.buildUnreachableResult(
+            baseUrl = "http://192.168.0.8:9119",
+            exception = ConnectException("failed")
+        )
+
+        assertThat(result.isReady).isFalse()
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.UNREACHABLE)
+        assertThat(result.message).contains("Could not connect to this server")
     }
 }

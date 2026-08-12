@@ -195,6 +195,7 @@ class MainActivity : ComponentActivity() {
     private var routeRecoveryScriptHandler: ScriptHandler? = null
     private var appSettingsEntryScriptHandler: ScriptHandler? = null
     private var enterKeyNewlineScriptHandler: ScriptHandler? = null
+    private var suppressKeyboardForDialogsScriptHandler: ScriptHandler? = null
     private var lastVpnLaunchAttemptElapsedMs: Long = 0L
     private var pendingVpnGuardUrl: String? = null
     private var vpnReconnectWaitJob: Job? = null
@@ -1516,6 +1517,7 @@ class MainActivity : ComponentActivity() {
     private fun applyHermesWebUiRuntimeScripts(view: WebView) {
         view.evaluateJavascript(HermesWebUiScripts.viewportFixScript, null)
         view.evaluateJavascript(HermesWebUiScripts.microphoneFallbackScript, null)
+        view.evaluateJavascript(HermesWebUiScripts.suppressKeyboardForDialogsScript, null)
         view.evaluateJavascript(buildHermesWebUiNotificationBridgeScript(), null)
         view.evaluateJavascript(buildHermesWebUiRouteRecoveryScript(), null)
         if (EnableAppSettingsSidebarShim) {
@@ -1555,6 +1557,11 @@ class MainActivity : ComponentActivity() {
             originRule,
             HermesWebUiScripts.enterKeyNewlineScript
         )
+        suppressKeyboardForDialogsScriptHandler = addDocumentStartScript(
+            view,
+            originRule,
+            HermesWebUiScripts.suppressKeyboardForDialogsScript
+        )
     }
 
     private fun removeHermesWebUiDocumentStartFixes() {
@@ -1563,6 +1570,7 @@ class MainActivity : ComponentActivity() {
         routeRecoveryScriptHandler?.remove()
         appSettingsEntryScriptHandler?.remove()
         enterKeyNewlineScriptHandler?.remove()
+        suppressKeyboardForDialogsScriptHandler?.remove()
     }
 
     private fun addDocumentStartScript(

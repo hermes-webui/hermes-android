@@ -791,6 +791,129 @@ object HermesWebUiScripts {
         })();
     """.trimIndent()
 
+    val suppressKeyboardForDialogsScript = """
+        (function() {
+          if (window.__hermesAndroidSuppressKeyboardForDialogsInstalled) return;
+          window.__hermesAndroidSuppressKeyboardForDialogsInstalled = true;
+
+          // Issue #65: When the agent calls the Clarify tool (multiple-choice prompt),
+          // the Android app automatically opens the on-screen keyboard, overlapping
+          // the option buttons. This script suppresses the keyboard for dialog/modal
+          // elements by preventing focus on input elements within dialogs.
+
+          var isDialogLike = function(el) {
+            if (!el) return false;
+            var role = (el.getAttribute('role') || '').toLowerCase();
+            var tag = (el.tagName || '').toLowerCase();
+            
+            // Check for modal/dialog ARIA roles
+            if (role === 'dialog' || role === 'alertdialog') return true;
+            
+            // Check for modal/dialog HTML elements
+            if (tag === 'dialog') return true;
+            
+            // Check for common modal class names
+            var cls = (el.getAttribute('class') || '').toLowerCase();
+            if (cls.indexOf('modal') !== -1 || cls.indexOf('dialog') !== -1 || 
+                cls.indexOf('prompt') !== -1 || cls.indexOf('alert') !== -1) return true;
+            
+            return false;
+          };
+
+          var getDialogContainer = function(el) {
+            if (!el) return null;
+            var current = el;
+            while (current && current !== document.body && current !== document.documentElement) {
+              if (isDialogLike(current)) return current;
+              current = current.parentElement;
+            }
+            return null;
+          };
+
+          var suppressKeyboardForElement = function(el) {
+            if (!el) return;
+            try {
+              // Blur the element to hide the keyboard if it gained focus
+              el.blur();
+            } catch (_) {}
+          };
+
+          // Listen for focus events on input elements
+          document.addEventListener('focus', function(event) {
+            var target = event.target;
+            if (!target) return;
+
+            var tag = (target.tagName || '').toLowerCase();
+            var isInput = tag === 'input' || tag === 'textarea' || target.isContentEditable;
+            if (!isInput) return;
+
+            var dialogContainer = getDialogContainer(target);
+            if (!dialogContainer) return;
+
+            // If an input element in a dialog gains focus, suppress the keyboard
+            suppressKeyboardForElement(target);
+          }, true);
+
+          // Also watch for new dialogs being added to the DOM and suppress focus on their inputs
+          if (window.MutationObserver) {
+            var suppressInputsInDialog = function(dialog) {
+              if (!dialog || !dialog.querySelectorAll) return;
+              try {
+                var inputs = dialog.querySelectorAll('input, textarea, [contenteditable="true"]');
+                inputs.forEach(function(input) {
+                  if (input && input.blur) {
+                    input.blur();
+                  }
+                  // Prevent auto-focus by marking as temporarily unfocusable
+                  if (input && input.setAttribute) {
+                    var wasTabIndex = input.getAttribute('tabindex');
+                    input.setAttribute('tabindex', '-1');
+                    // Restore tabindex after a small delay to allow dialog to initialize
+                    setTimeout(function() {
+                      if (wasTabIndex !== null && wasTabIndex !== undefined) {
+                        input.setAttribute('tabindex', wasTabIndex);
+                      } else {
+                        input.removeAttribute('tabindex');
+                      }
+                    }, 100);
+                  }
+                });
+              } catch (_) {}
+            };
+
+            var observer = new MutationObserver(function(mutations) {
+              mutations.forEach(function(mutation) {
+                if (mutation.addedNodes && mutation.addedNodes.length) {
+                  mutation.addedNodes.forEach(function(node) {
+                    if (!node.querySelectorAll) return;
+
+                    // Check if the added node itself is a dialog
+                    if (isDialogLike(node)) {
+                      suppressInputsInDialog(node);
+                    }
+
+                    // Also check for dialogs nested within the added node
+                    try {
+                      var nestedDialogs = node.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog, .modal, .dialog, .prompt, .alert');
+                      nestedDialogs.forEach(function(dialog) {
+                        if (isDialogLike(dialog)) {
+                          suppressInputsInDialog(dialog);
+                        }
+                      });
+                    } catch (_) {}
+                  });
+                }
+              });
+            });
+
+            observer.observe(document.body || document.documentElement, {
+              childList: true,
+              subtree: true
+            });
+          }
+        })();
+    """.trimIndent()
+
     fun buildRouteRecoveryScript(recoveryUrl: String): String {
         val quotedLastUrl = JSONObject.quote(recoveryUrl)
         return """

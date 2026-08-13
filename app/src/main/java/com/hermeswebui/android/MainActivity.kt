@@ -189,6 +189,7 @@ class MainActivity : ComponentActivity() {
     private var pendingAudioPermissionRequest: PermissionRequest? = null
     private var pendingLocalNetworkPermissionAction: (() -> Unit)? = null
     private var pendingLocalNetworkPermissionDeniedAction: (() -> Unit)? = null
+    private var viewportFixScriptHandler: ScriptHandler? = null
     private var microphoneFallbackScriptHandler: ScriptHandler? = null
     private var notificationBridgeScriptHandler: ScriptHandler? = null
     private var routeRecoveryScriptHandler: ScriptHandler? = null
@@ -219,7 +220,7 @@ class MainActivity : ComponentActivity() {
     private var activeMainFrameOAuthFlow: OAuthPopupFlow? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
-    private var shouldSkipDashboardMatchNextNavigation: Boolean = false
+    private val oauthReturnNavigation = OAuthReturnNavigation()
 
     // Popups created by onCreateWindow that have not yet been destroyed. A window.open('') that
     // never navigates never reaches the popup's shouldOverrideUrlLoading/onPageStarted, so it would
@@ -891,8 +892,10 @@ class MainActivity : ComponentActivity() {
                         // OAuth provider pages (non-allowlisted in-app IdP hosts) must not be
                         // restored on launch: the flow is gone and the page needs the OAuth
                         // context to render.
-                        rememberLastUrl = matchesConfiguredWebUiRoute(url)
+                        rememberLastUrl = matchesConfiguredWebUiRoute(url) &&
+                            oauthReturnNavigation.shouldRememberUrl(url)
                     )
+                    completeOAuthReturnIfHermesPage(view, url)
                     CookieManager.getInstance().flush()
                 }
 
@@ -902,6 +905,7 @@ class MainActivity : ComponentActivity() {
                     // Ignore internal/non-web URLs; persist only trusted Hermes WebUI routes.
                     if (!urlPolicy.isAllowed(visitedUrl)) return
                     if (!matchesConfiguredWebUiRoute(visitedUrl)) return
+                    if (!oauthReturnNavigation.shouldRememberUrl(visitedUrl)) return
 
                     // Persist SPA/history route changes so cold starts restore the active session route.
                     viewModel.onUrlVisited(url = visitedUrl, rememberLastUrl = true)
@@ -1045,7 +1049,7 @@ class MainActivity : ComponentActivity() {
         val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
         if (callbackFlow?.isVerifiedCallbackUrl(target) == true) {
             clearActiveOAuthPopup()
-            loadOAuthCallbackInMainWebView(target)
+            loadOAuthCallbackInMainWebView(callbackFlow, target)
             destroyPopup(popup)
             return true
         }
@@ -1074,7 +1078,7 @@ class MainActivity : ComponentActivity() {
         val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
         if (callbackFlow?.isVerifiedCallbackUrl(url) == true) {
             clearActiveOAuthPopup()
-            loadOAuthCallbackInMainWebView(url)
+            loadOAuthCallbackInMainWebView(callbackFlow, url)
             destroyPopup(popup)
             return
         }
@@ -1103,9 +1107,8 @@ class MainActivity : ComponentActivity() {
 
         val activeTopLevelFlow = activeMainFrameOAuthFlow
         if (activeTopLevelFlow?.isVerifiedCallbackUrl(target) == true) {
+            oauthReturnNavigation.begin(activeTopLevelFlow)
             clearActiveMainFrameOAuth()
-            // Skip dashboard matching for the immediate next navigation (OAuth redirect)
-            shouldSkipDashboardMatchNextNavigation = true
             return false
         }
 
@@ -1134,11 +1137,14 @@ class MainActivity : ComponentActivity() {
             clearActiveMainFrameOAuth()
         }
 
-        // Skip dashboard matching if we just cleared an OAuth callback (the server's
-        // redirect response should load in the main WebView, not Custom Tab).
-        val skipDashboardMatch = shouldSkipDashboardMatchNextNavigation
-        shouldSkipDashboardMatchNextNavigation = false
-        if (!skipDashboardMatch && matchesConfiguredDashboardRoute(target)) {
+        // Keep the verified callback and every same-origin return redirect in the main
+        // WebView until the final Hermes page finishes. A single-navigation flag is not
+        // sufficient because WebView callback ordering and IdP redirect chains vary.
+        if (oauthReturnNavigation.shouldStayInMainWebView(target)) {
+            return false
+        }
+
+        if (matchesConfiguredDashboardRoute(target)) {
             openDashboardInCustomTab(target)
             return true
         }
@@ -1157,6 +1163,7 @@ class MainActivity : ComponentActivity() {
         if (!url.isNullOrBlank()) {
             val activeTopLevelFlow = activeMainFrameOAuthFlow
             if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
+                oauthReturnNavigation.begin(activeTopLevelFlow)
                 clearActiveMainFrameOAuth()
             } else {
                 parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
@@ -1164,6 +1171,33 @@ class MainActivity : ComponentActivity() {
         }
         updateOAuthInFlowHost(url)
         viewModel.onPageStarted(url)
+    }
+
+    private fun completeOAuthReturnIfHermesPage(view: WebView?, url: String?) {
+        if (view == null || url.isNullOrBlank()) return
+        if (!oauthReturnNavigation.shouldStayInMainWebView(url)) return
+
+        view.evaluateJavascript(
+            """
+            (function() {
+              return !!(
+                window.__HERMES_WEBUI_BUNDLE_VERSION__ ||
+                (document.querySelector('.layout') && document.querySelector('main.main'))
+              );
+            })();
+            """.trimIndent()
+        ) { result ->
+            // Ignore a delayed result from a page that navigated again while JavaScript ran.
+            if (view.url == url) {
+                val completed = oauthReturnNavigation.completeIfHermesPage(
+                    url = url,
+                    isHermesPage = result == "true"
+                )
+                if (completed && matchesConfiguredWebUiRoute(url)) {
+                    viewModel.onUrlVisited(url = url, rememberLastUrl = true)
+                }
+            }
+        }
     }
 
     private fun handleWebViewPermissionRequest(request: PermissionRequest) {
@@ -1554,6 +1588,11 @@ class MainActivity : ComponentActivity() {
         val originRule = UrlOrigins.documentStartOriginRule(serverUrl) ?: return
 
         removeHermesWebUiDocumentStartFixes()
+        viewportFixScriptHandler = addDocumentStartScript(
+            view,
+            originRule,
+            HermesWebUiScripts.viewportFixScript
+        )
         microphoneFallbackScriptHandler = addDocumentStartScript(
             view,
             originRule,
@@ -1589,6 +1628,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun removeHermesWebUiDocumentStartFixes() {
+        viewportFixScriptHandler?.remove()
         microphoneFallbackScriptHandler?.remove()
         notificationBridgeScriptHandler?.remove()
         routeRecoveryScriptHandler?.remove()
@@ -1665,7 +1705,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun loadOAuthCallbackInMainWebView(url: String) {
+    private fun loadOAuthCallbackInMainWebView(flow: OAuthPopupFlow, url: String) {
+        oauthReturnNavigation.begin(flow)
         webView.loadUrl(url)
     }
 
@@ -1750,6 +1791,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resetWebSession() {
+        oauthReturnNavigation.clear()
         viewModel.resetSession()
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
@@ -1890,6 +1932,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun clearWebViewStateForServerSwitch() {
+        oauthReturnNavigation.clear()
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
         WebStorage.getInstance().deleteAllData()

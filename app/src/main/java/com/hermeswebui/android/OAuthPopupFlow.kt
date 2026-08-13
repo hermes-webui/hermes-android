@@ -25,6 +25,16 @@ data class OAuthPopupFlow(
             fragment.containsKey("error")
     }
 
+    fun isCallbackEndpointUrl(url: String): Boolean {
+        val target = url.toUriOrNull() ?: return false
+        return matchesEndpoint(target, url)
+    }
+
+    fun isRedirectOriginUrl(url: String): Boolean {
+        val origin = redirectOrigin ?: return false
+        return UrlOrigins.hasSameOrigin(url, origin, ignoreScheme = true)
+    }
+
     fun redirectsToOrigin(baseUrl: String): Boolean {
         return UrlOrigins.hasSameOrigin(redirectUri, baseUrl, ignoreScheme = true)
     }

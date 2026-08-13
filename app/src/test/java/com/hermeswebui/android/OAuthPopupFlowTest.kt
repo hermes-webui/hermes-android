@@ -54,6 +54,9 @@ class OAuthPopupFlowTest {
 
         assertThat(flow?.isVerifiedCallbackUrl("https://agent.racci.dev/auth/callback?code=abc123&state=test-state")).isTrue()
         assertThat(flow?.isVerifiedCallbackUrl("https://agent.racci.dev/auth/callback?error=access_denied&state=test-state")).isTrue()
+        assertThat(flow?.isCallbackEndpointUrl("https://agent.racci.dev/auth/callback?state=test-state")).isTrue()
+        assertThat(flow?.isRedirectOriginUrl("https://agent.racci.dev/")).isTrue()
+        assertThat(flow?.isRedirectOriginUrl("https://evil.racci.dev/")).isFalse()
         assertThat(flow?.isVerifiedCallbackUrl("https://agent.racci.dev/auth/other?code=abc123&state=test-state")).isFalse()
         assertThat(flow?.isVerifiedCallbackUrl("https://evil.racci.dev/auth/callback?code=abc123&state=test-state")).isFalse()
         assertThat(flow?.isVerifiedCallbackUrl("https://agent.racci.dev/auth/callback?state=test-state")).isFalse()

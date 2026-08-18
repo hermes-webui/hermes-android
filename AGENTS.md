@@ -82,6 +82,15 @@ When a user references GitHub issues (e.g., by URL or issue number), agents shou
 - If you must use inline `--body`, use a true PowerShell multiline here-string and verify output immediately.
 - Consider markdown rendering broken until verified in a non-JSON view (`gh pr view`, `gh issue view`, or GitHub web UI) after each update.
 
+### GitHub issue + PR workflow
+
+- For issue work, create or reuse a branch named after the issue (for example `issue-73`) before publishing any code.
+- Push the branch to GitHub with `git push --set-upstream origin <branch>` once the work is ready for review.
+- Create the PR with `gh pr create --title "<user-facing release note>" --body-file <path-to-markdown> --base main --head <branch>`; do not hand-write a long inline body in `--body`.
+- Attach the PR to the issue in the PR body by including a closing keyword such as `Fixes #123` or `Closes #123`; use `Related #123` when the PR contributes without fully resolving the issue.
+- If an issue needs a follow-up comment, post the same markdown content to the issue with a file-based body, such as `gh api repos/<owner>/<repo>/issues/<issue-number>/comments --input <path-to-markdown>`.
+- Always verify the rendered result with `gh pr view` or `gh issue view` after posting, and fix any markdown formatting regression immediately.
+
 ### PR and release-note quality
 
 - Write PR titles as user-facing release-note entries when the change may ship

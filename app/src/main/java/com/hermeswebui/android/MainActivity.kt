@@ -27,6 +27,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.WindowManager
+import android.webkit.ClientCertRequest
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.PermissionRequest
@@ -103,6 +104,7 @@ import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.notification.HermesNotificationBridgeCoordinator
+import com.hermeswebui.android.security.ClientCertificateRequestSupport
 import com.hermeswebui.android.notification.HermesNotificationPresenter
 import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.server.HermesServerProfileCoordinator
@@ -679,6 +681,8 @@ class MainActivity : ComponentActivity() {
                     appUpdateDownloadUrl = uiState.appUpdateDownloadUrl,
                     appUpdateInstallReady = uiState.appUpdateInstallReady,
                     appUpdateReleaseNotes = uiState.appUpdateReleaseNotes,
+                    clientCertificateUri = uiState.clientCertificateUri,
+                    clientCertificatePassword = uiState.clientCertificatePassword,
                     serverValidation = uiState.serverValidation,
                     appVersionLabel = "Version ${appVersionName()}",
                     serverProfiles = serverProfiles,
@@ -736,6 +740,12 @@ class MainActivity : ComponentActivity() {
                             requestNotificationPermissionIfNeeded()
                         }
                         viewModel.setAppUpdateAlertsEnabled(enabled)
+                    },
+                    onSetClientCertificateConfig = { uri, password ->
+                        viewModel.setClientCertificateConfig(uri, password)
+                    },
+                    onClearClientCertificateConfig = {
+                        viewModel.clearClientCertificateConfig()
                     },
                     onSetAutomaticAppUpdateChecksEnabled = { enabled ->
                         viewModel.setAutomaticAppUpdateChecksEnabled(enabled)
@@ -977,6 +987,42 @@ class MainActivity : ComponentActivity() {
                         )
                     )
                     viewModel.onPageError("SSL validation failed for this page.", false)
+                }
+
+                override fun onReceivedClientCertRequest(view: WebView?, request: ClientCertRequest?) {
+                    if (view == null || request == null) return
+                    val allowedHosts = viewModel.uiState.value.settings.allowedHosts
+                    if (!ClientCertificateRequestSupport.isAllowedHost(request.host, allowedHosts)) {
+                        DiagnosticsLogger.record(
+                            this@MainActivity,
+                            "client_cert_request_blocked",
+                            mapOf(
+                                "host" to request.host.orEmpty(),
+                                "allowlist" to allowedHosts.joinToString(",")
+                            )
+                        )
+                        request.cancel()
+                        return
+                    }
+                    val cert = ClientCertificateRequestSupport.resolveRequest(
+                        contentResolver = contentResolver,
+                        config = settingsRepository.getClientCertificateConfig(),
+                        request = request,
+                        allowedHosts = allowedHosts
+                    )
+                    if (cert == null) {
+                        DiagnosticsLogger.record(
+                            this@MainActivity,
+                            "client_cert_request_unavailable",
+                            mapOf(
+                                "host" to request.host.orEmpty(),
+                                "configured" to settingsRepository.getClientCertificateConfig().uri.isNullOrBlank().not().toString()
+                            )
+                        )
+                        request.cancel()
+                        return
+                    }
+                    request.proceed(cert.privateKey, cert.certChain)
                 }
             }
 

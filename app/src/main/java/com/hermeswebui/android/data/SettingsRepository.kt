@@ -20,6 +20,34 @@ class SettingsRepository(context: Context) : SettingsStore {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
+    fun getClientCertificateConfig(): ClientCertificateConfig {
+        val uri = sharedPreferences.getString(KEY_CLIENT_CERT_URI, null)?.trim()
+        val password = sharedPreferences.getString(KEY_CLIENT_CERT_PASSWORD, null)?.trim()
+        return ClientCertificateConfig(uri = uri, password = password)
+    }
+
+    fun saveClientCertificateConfig(uri: String?, password: String?) {
+        sharedPreferences.edit {
+            if (uri.isNullOrBlank()) {
+                remove(KEY_CLIENT_CERT_URI)
+            } else {
+                putString(KEY_CLIENT_CERT_URI, uri.trim())
+            }
+            if (password.isNullOrBlank()) {
+                remove(KEY_CLIENT_CERT_PASSWORD)
+            } else {
+                putString(KEY_CLIENT_CERT_PASSWORD, password)
+            }
+        }
+    }
+
+    fun clearClientCertificateConfig() {
+        sharedPreferences.edit {
+            remove(KEY_CLIENT_CERT_URI)
+            remove(KEY_CLIENT_CERT_PASSWORD)
+        }
+    }
+
     init {
         // Migrate away from storing dashboard URLs in Android preferences.
         // Versions before 0.1.5 stored a dashboard URL in SharedPreferences and injected it
@@ -30,7 +58,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 12 // Increment this when adding new migrations
+        val currentMigrationVersion = 13 // Increment this when adding new migrations
 
         if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
@@ -119,6 +147,15 @@ class SettingsRepository(context: Context) : SettingsStore {
             val vpnPackage = sharedPreferences.getString(KEY_VPN_LAUNCH_PACKAGE, null)?.trim().orEmpty()
             if (vpnPackage.isBlank()) {
                 sharedPreferences.edit { putString(KEY_VPN_LAUNCH_PACKAGE, DEFAULT_VPN_LAUNCH_PACKAGE) }
+            }
+        }
+
+        if (lastMigrationVersion < 13) {
+            // Migration 13: clear any legacy client-certificate settings so app-level
+            // mTLS handling starts from a known default before the first explicit setup.
+            sharedPreferences.edit {
+                remove(KEY_CLIENT_CERT_URI)
+                remove(KEY_CLIENT_CERT_PASSWORD)
             }
         }
 
@@ -465,6 +502,8 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_PENDING_GITHUB_UPDATE_DOWNLOAD_ID = "pending_github_update_download_id"
         private const val KEY_PENDING_GITHUB_UPDATE_CLEANUP_DOWNLOAD_ID = "pending_github_update_cleanup_download_id"
         private const val KEY_AUTH_PROMPT_SILENCED_URLS = "auth_prompt_silenced_urls"
+        private const val KEY_CLIENT_CERT_URI = "client_cert_uri"
+        private const val KEY_CLIENT_CERT_PASSWORD = "client_cert_password"
         private const val KEY_LAST_MIGRATION_VERSION = "last_migration_version"
         private const val DEFAULT_VPN_LAUNCH_PACKAGE = "com.tailscale.ipn"
         private const val DEFAULT_RECONNECT_POLL_INTERVAL_SECONDS = 1

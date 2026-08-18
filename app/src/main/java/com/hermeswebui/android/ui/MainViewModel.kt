@@ -48,7 +48,9 @@ class MainViewModel(
         debugLoggingEnabled = settingsRepositoryImpl?.isDebugLoggingEnabled() ?: false,
         blockScreenshotsEnabled = settingsRepositoryImpl?.isBlockScreenshotsEnabled() ?: false,
         appUpdateAlertsEnabled = settingsRepositoryImpl?.isAppUpdateAlertsEnabled() ?: false,
-        automaticAppUpdateChecksEnabled = settingsRepositoryImpl?.isAutomaticAppUpdateChecksEnabled() ?: false
+        automaticAppUpdateChecksEnabled = settingsRepositoryImpl?.isAutomaticAppUpdateChecksEnabled() ?: false,
+        clientCertificateUri = settingsRepositoryImpl?.getClientCertificateConfig()?.uri,
+        clientCertificatePassword = settingsRepositoryImpl?.getClientCertificateConfig()?.password
     ))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
@@ -431,6 +433,16 @@ class MainViewModel(
         _uiState.update { it.copy(blockScreenshotsEnabled = enabled) }
     }
 
+    fun setClientCertificateConfig(uri: String?, password: String?) {
+        settingsRepositoryImpl?.saveClientCertificateConfig(uri, password)
+        _uiState.update { it.copy(clientCertificateUri = uri, clientCertificatePassword = password) }
+    }
+
+    fun clearClientCertificateConfig() {
+        settingsRepositoryImpl?.clearClientCertificateConfig()
+        _uiState.update { it.copy(clientCertificateUri = null, clientCertificatePassword = null) }
+    }
+
     fun setOAuthInFlowHost(host: String?) {
         if (_uiState.value.oauthInFlowHost == host) return
         _uiState.update { it.copy(oauthInFlowHost = host) }
@@ -520,7 +532,9 @@ class MainViewModel(
                 debugLoggingEnabled = repo.isDebugLoggingEnabled(),
                 blockScreenshotsEnabled = repo.isBlockScreenshotsEnabled(),
                 appUpdateAlertsEnabled = repo.isAppUpdateAlertsEnabled(),
-                automaticAppUpdateChecksEnabled = repo.isAutomaticAppUpdateChecksEnabled()
+                automaticAppUpdateChecksEnabled = repo.isAutomaticAppUpdateChecksEnabled(),
+                clientCertificateUri = repo.getClientCertificateConfig().uri,
+                clientCertificatePassword = repo.getClientCertificateConfig().password
             )
         }
     }

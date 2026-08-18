@@ -94,6 +94,8 @@ fun SettingsScreen(
     appUpdateDownloadUrl: String?,
     appUpdateInstallReady: Boolean,
     appUpdateReleaseNotes: String?,
+    clientCertificateUri: String?,
+    clientCertificatePassword: String?,
     serverValidation: ServerValidationUiState,
     appVersionLabel: String,
     serverProfiles: List<ServerProfile>,
@@ -112,6 +114,8 @@ fun SettingsScreen(
     onSetBlockScreenshotsEnabled: (Boolean) -> Unit,
     onSetAppUpdateAlertsEnabled: (Boolean) -> Unit,
     onSetAutomaticAppUpdateChecksEnabled: (Boolean) -> Unit,
+    onSetClientCertificateConfig: (String?, String?) -> Unit,
+    onClearClientCertificateConfig: () -> Unit,
     onCheckAppUpdates: () -> Unit,
     onDownloadAppUpdate: () -> Unit,
     onOpenAppUpdateRelease: () -> Unit,
@@ -136,6 +140,8 @@ fun SettingsScreen(
     var editCurrentServerWithoutProfile by remember { mutableStateOf(false) }
     var showResetSessionConfirm by remember { mutableStateOf(false) }
     var showVpnAppPickerDialog by remember { mutableStateOf(false) }
+    var clientCertificateUri by remember(clientCertificateUri, isConfigured) { mutableStateOf(clientCertificateUri ?: "") }
+    var clientCertificatePassword by remember(clientCertificatePassword) { mutableStateOf(clientCertificatePassword ?: "") }
     var serverUrl by remember(initialServerUrl, isConfigured) {
         mutableStateOf(if (isConfigured) initialServerUrl else "")
     }
@@ -434,6 +440,78 @@ fun SettingsScreen(
                         serverValidation = serverValidation,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                     )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ── Security ───────────────────────────────────────────────
+                SectionHeader("Security")
+
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(surfaceColor)
+                        .fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Client certificate for mTLS",
+                            color = onSurface,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Import a PKCS#12 (.pfx/.p12) or PEM certificate bundle for self-hosted Hermes instances protected by mutual TLS.",
+                            color = onSurfaceVar,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedTextField(
+                            value = clientCertificateUri,
+                            onValueChange = { clientCertificateUri = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Certificate file URI") },
+                            placeholder = { Text("content://... or file:///...") }
+                        )
+                        OutlinedTextField(
+                            value = clientCertificatePassword,
+                            onValueChange = { clientCertificatePassword = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Certificate password") },
+                            placeholder = { Text("Optional for unlocked certs") }
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    onSetClientCertificateConfig(clientCertificateUri.trim().ifBlank { null }, clientCertificatePassword.trim().ifBlank { null })
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = primaryColor,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            ) {
+                                Text("Save certificate")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    clientCertificateUri = ""
+                                    clientCertificatePassword = ""
+                                    onClearClientCertificateConfig()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Clear")
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

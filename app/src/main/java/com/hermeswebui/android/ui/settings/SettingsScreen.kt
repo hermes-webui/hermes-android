@@ -60,6 +60,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.hermeswebui.android.R
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.ui.ServerValidationUiState
 import kotlin.math.roundToInt
@@ -850,7 +852,11 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
-                                text = "$reconnectPollIntervalSeconds seconds between reconnect checks",
+                                text = stringResource(
+                                    R.plurals.reconnect_settings_polling_interval,
+                                    reconnectPollIntervalSeconds,
+                                    reconnectPollIntervalSeconds
+                                ),
                                 color = onSurfaceVar,
                                 style = MaterialTheme.typography.bodySmall
                             )

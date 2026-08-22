@@ -21,6 +21,10 @@
         <item quantity="one">Pinging the server every %1$d second to stay alive.</item>
         <item quantity="other">Pinging the server every %1$d seconds to stay alive.</item>
     </plurals>
+    <plurals name="reconnect_settings_polling_interval">
+        <item quantity="one">%1$d second between reconnect checks</item>
+        <item quantity="other">%1$d seconds between reconnect checks</item>
+    </plurals>
     <string name="debug_logging_channel_name">Hermes debug logging</string>
     <string name="debug_logging_channel_description">Persistent troubleshooting capture for Hermes Android behavior</string>
     <string name="debug_logging_notification_title">Debug logging is running</string>

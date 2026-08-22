@@ -1368,7 +1368,10 @@ class MainActivity : ComponentActivity() {
 
         viewModel.setSseSupportStatus("Checking server SSE support…")
         lifecycleScope.launch {
-            when (HermesApiClient.detectSseCapability(serverUrl)) {
+            // Pass the WebView session cookie so probes authenticate on password/OIDC servers
+            // the same way the real /api/session/stream connection does (issue #75).
+            val sessionCookie = CookieManager.getInstance().getCookie(serverUrl)
+            when (HermesApiClient.detectSseCapability(serverUrl, sessionCookie = sessionCookie)) {
                 HermesApiClient.SseCapability.SESSION_SSE_ENABLED -> {
                     if (enableIfAvailable) {
                         viewModel.setSseTransportEnabled(true)
@@ -1406,6 +1409,22 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(
                         this@MainActivity,
                         "Gateway SSE extras unavailable; session streaming remains enabled.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                HermesApiClient.SseCapability.AUTH_REQUIRED -> {
+                    // Sign-in wall, not a missing feature: never disable the transport here.
+                    if (enableIfAvailable) {
+                        viewModel.setSseTransportEnabled(true)
+                    }
+                    viewModel.setSseSupportStatus(
+                        "🔒  Sign-in required: SSE capability could not be verified on this server. " +
+                            "SSE transport stays enabled; Android will try the authenticated /api/session/stream for the active session. " +
+                            "Sign in inside the app, then re-run the check."
+                    )
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Sign-in required to verify SSE — transport left enabled.",
                         Toast.LENGTH_LONG
                     ).show()
                 }

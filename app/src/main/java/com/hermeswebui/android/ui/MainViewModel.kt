@@ -26,7 +26,13 @@ class MainViewModel(
     private val defaultUrl: String,
     private val defaultDashboardUrl: String,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
-    private val sseReconnectChecker: suspend (String) -> Boolean = HermesApiClient::isReconnectSseReachable,
+    private val sseReconnectChecker: suspend (String) -> Boolean = { serverUrl ->
+        // Lambda (not a callable reference) because isReconnectSseReachable also accepts an
+        // optional session cookie; when omitted, the probe falls back to the shared
+        // CookieManager so reconnect liveness checks stay authenticated on password/OIDC
+        // servers (issue #75).
+        HermesApiClient.isReconnectSseReachable(serverUrl)
+    },
     private val serverReachabilityChecker: suspend (String) -> Boolean = HermesApiClient::isServerReachable
 ) : ViewModel() {
     private data class DeferredPageError(

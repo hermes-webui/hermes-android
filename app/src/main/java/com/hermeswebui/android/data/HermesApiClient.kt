@@ -1,5 +1,6 @@
 package com.hermeswebui.android.data
 
+import android.webkit.CookieManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -101,6 +102,13 @@ object HermesApiClient {
          * user's session-stream transport preference and let its authenticated connection decide.
          */
         FEATURE_DISABLED(true),
+        /**
+         * The probes were rejected with HTTP 401/403 (authentication required), so SSE
+         * capability could not be verified. This happens on password/OIDC-protected servers
+         * when no session cookie is available yet; it must not disable the transport because
+         * the authenticated `/api/session/stream` connection may still work once signed in.
+         */
+        AUTH_REQUIRED(true),
         /** No SSE capability detected (network error or unexpected server response). */
         NONE(false)
     }
@@ -472,10 +480,28 @@ object HermesApiClient {
     }
 
     /**
+     * Attaches the WebView session cookie for [baseUrl] to this connection so probes on
+     * password/OIDC-protected servers authenticate the same way the real
+     * `/api/session/stream` connection does. An explicit [sessionCookie] wins; otherwise the
+     * shared [CookieManager] value is used. The [CookieManager] read is guarded so pure-JVM
+     * unit tests without an Android runtime simply probe without credentials.
+     */
+    private fun HttpURLConnection.applySessionCookie(baseUrl: String, sessionCookie: String?) {
+        val cookie = sessionCookie?.takeIf { it.isNotBlank() }
+            ?: runCatching { CookieManager.getInstance().getCookie(baseUrl) }.getOrNull()?.takeIf { it.isNotBlank() }
+        if (cookie != null) {
+            setRequestProperty("Cookie", cookie)
+        }
+    }
+
+    /** HTTP statuses that mean "sign-in required", not "feature unavailable". */
+    private fun isAuthChallengeStatus(httpStatus: Int?): Boolean = httpStatus == 401 || httpStatus == 403
+
+    /**
      * Probes the lightweight reconnect SSE endpoint at [baseUrl]/api/sessions/events.
      * Returns response metadata when reachable, or null on network/connection error.
      */
-    private suspend fun probeReconnectSseEndpoint(baseUrl: String): SseStreamProbeResult? = withContext(Dispatchers.IO) {
+    private suspend fun probeReconnectSseEndpoint(baseUrl: String, sessionCookie: String? = null): SseStreamProbeResult? = withContext(Dispatchers.IO) {
         try {
             val url = URI(baseUrl.trimEnd('/')).resolve(RECONNECT_SSE_PATH).toURL()
             val conn = url.openConnection() as HttpURLConnection
@@ -484,6 +510,7 @@ object HermesApiClient {
             conn.readTimeout = TIMEOUT_MS
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "text/event-stream")
+            conn.applySessionCookie(baseUrl, sessionCookie)
             val code = conn.responseCode
             val contentType = conn.contentType
             conn.disconnect()
@@ -504,9 +531,10 @@ object HermesApiClient {
      *  - 200 with enabled=true and ok=true → SSE is enabled and healthy
      *  - 404 with enabled=false            → agent sessions / gateway SSE disabled
      *  - 503 with enabled=true and ok=false → route exists, but watcher is unhealthy
+     *  - 401/403                           → authentication required; capability unverified
      *  - null                              → could not reach server at all
      */
-    private suspend fun probeGatewayStreamEndpoint(baseUrl: String): GatewayProbeResult? = withContext(Dispatchers.IO) {
+    private suspend fun probeGatewayStreamEndpoint(baseUrl: String, sessionCookie: String? = null): GatewayProbeResult? = withContext(Dispatchers.IO) {
         try {
             val url = URI(baseUrl.trimEnd('/')).resolve("/api/sessions/gateway/stream?probe=1").toURL()
             val conn = url.openConnection() as HttpURLConnection
@@ -515,6 +543,7 @@ object HermesApiClient {
             conn.readTimeout = TIMEOUT_MS
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "application/json")
+            conn.applySessionCookie(baseUrl, sessionCookie)
             val code = conn.responseCode
             val stream = if (code >= 400) conn.errorStream else conn.inputStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -528,15 +557,22 @@ object HermesApiClient {
     /**
      * Returns the detected [SseCapability] level for the given server.
      *
+     * All probes attach the WebView session cookie for [baseUrl] — an explicit [sessionCookie]
+     * when provided, otherwise the shared [CookieManager] value — so capability checks on
+     * password/OIDC-protected servers are authenticated the same way the real
+     * `/api/session/stream` connection is (issue #75).
+     *
      * Priority:
      * 1. If /api/status reports a truthy SSE flag → SESSION_SSE_ENABLED
      * 2. If the gateway probe reports enabled=true and ok=true → SESSION_SSE_ENABLED
      * 3. If /api/sessions/events responds with text/event-stream → RECONNECT_STREAM_AVAILABLE
      * 4. If the gateway probe reports enabled=false or HTTP 404 → FEATURE_DISABLED
-     * 5. Otherwise → NONE (network error / unreachable)
+     * 5. If any probe was rejected with HTTP 401/403 → AUTH_REQUIRED (capability unverified)
+     * 6. Otherwise → NONE (network error / unreachable)
      */
-    suspend fun detectSseCapability(baseUrl: String): SseCapability = withContext(Dispatchers.IO) {
+    suspend fun detectSseCapability(baseUrl: String, sessionCookie: String? = null): SseCapability = withContext(Dispatchers.IO) {
         var statusReportsSse = false
+        var statusHttpStatus: Int? = null
         try {
             val statusUrl = URI(baseUrl.trimEnd('/')).resolve("/api/status").toURL()
             val conn = statusUrl.openConnection() as HttpURLConnection
@@ -544,7 +580,9 @@ object HermesApiClient {
             conn.connectTimeout = TIMEOUT_MS
             conn.readTimeout = TIMEOUT_MS
             conn.instanceFollowRedirects = false
+            conn.applySessionCookie(baseUrl, sessionCookie)
             val code = conn.responseCode
+            statusHttpStatus = code
             if (code in 200..299) {
                 val body = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
@@ -554,10 +592,11 @@ object HermesApiClient {
             }
         } catch (_: Exception) { /* fall through to gateway probe */ }
 
-        val gatewayProbe = probeGatewayStreamEndpoint(baseUrl)
-        val reconnectProbe = probeReconnectSseEndpoint(baseUrl)
+        val gatewayProbe = probeGatewayStreamEndpoint(baseUrl, sessionCookie)
+        val reconnectProbe = probeReconnectSseEndpoint(baseUrl, sessionCookie)
         decideSseCapability(
             statusReportsSse = statusReportsSse,
+            statusHttpStatus = statusHttpStatus,
             gatewayEnabled = gatewayProbe?.enabled,
             gatewayOk = gatewayProbe?.ok,
             gatewayHttpStatus = gatewayProbe?.httpStatus,
@@ -568,6 +607,7 @@ object HermesApiClient {
 
     internal fun decideSseCapability(
         statusReportsSse: Boolean,
+        statusHttpStatus: Int?,
         gatewayEnabled: Boolean?,
         gatewayOk: Boolean?,
         gatewayHttpStatus: Int?,
@@ -587,15 +627,21 @@ object HermesApiClient {
         }
 
         return when {
-            gatewayHttpStatus == null -> SseCapability.NONE
+            // A definitively disabled gateway signal wins over auth challenges on other probes:
+            // an authenticated enabled=false/404 response is the server telling us the feature
+            // is off, while a 401/403 elsewhere only means that endpoint needs sign-in.
             gatewayEnabled == false || gatewayHttpStatus == 404 -> SseCapability.FEATURE_DISABLED
+            isAuthChallengeStatus(statusHttpStatus) ||
+                isAuthChallengeStatus(gatewayHttpStatus) ||
+                isAuthChallengeStatus(reconnectHttpStatus) -> SseCapability.AUTH_REQUIRED
+            gatewayHttpStatus == null -> SseCapability.NONE
             else -> SseCapability.NONE
         }
     }
 
     /** Convenience wrapper — returns true only if SSE is actually usable (not just "disabled"). */
-    suspend fun isSessionSseSupported(baseUrl: String): Boolean {
-        val cap = detectSseCapability(baseUrl)
+    suspend fun isSessionSseSupported(baseUrl: String, sessionCookie: String? = null): Boolean {
+        val cap = detectSseCapability(baseUrl, sessionCookie)
         return cap == SseCapability.SESSION_SSE_ENABLED || cap == SseCapability.RECONNECT_STREAM_AVAILABLE
     }
 
@@ -603,8 +649,8 @@ object HermesApiClient {
      * Returns true when the lightweight reconnect SSE stream is reachable.
      * Android uses this stream for native reconnect detection when SSE transport is enabled.
      */
-    suspend fun isReconnectSseReachable(baseUrl: String): Boolean {
-        val probe = probeReconnectSseEndpoint(baseUrl)
+    suspend fun isReconnectSseReachable(baseUrl: String, sessionCookie: String? = null): Boolean {
+        val probe = probeReconnectSseEndpoint(baseUrl, sessionCookie)
         return probe?.httpStatus in 200..299 && isEventStreamContentType(probe?.contentType)
     }
 

@@ -56,7 +56,9 @@ jobs:
         run: |
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$sdkmanager" || { echo "Android SDK manager is unavailable"; exit 1; }
+          set +o pipefail
           yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
           "$sdkmanager" --install "platforms;android-37" "platform-tools"
 
       - name: Set up Gradle
@@ -95,7 +97,9 @@ jobs:
         run: |
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$sdkmanager" || { echo "Android SDK manager is unavailable"; exit 1; }
+          set +o pipefail
           yes | "$sdkmanager" --licenses > /dev/null
+          set -o pipefail
           "$sdkmanager" --install "platforms;android-37" "platform-tools"
 
       - name: Set up Gradle

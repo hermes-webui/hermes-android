@@ -78,6 +78,34 @@ object HermesWebUiScripts {
               (document.head || document.documentElement).appendChild(style);
             }
 
+            // Issue #44/#80: the approval and clarify prompt panels are absolutely
+            // anchored just above the composer (bottom:-24px inside the zero-height
+            // .composer-flyout) and cap their height with viewport units (vh/dvh) that
+            // Android WebView can evaluate as 0. Re-cap the expanded panel to the
+            // measured space between the app titlebar and the composer so it can never
+            // slide behind either one, and let oversized prompt content scroll inside
+            // the panel. The card bottom is anchor-invariant (it tracks the composer,
+            // not the panel height), so this measurement stays stable across scans and
+            // cannot oscillate.
+            var promptPanelMax = Math.min(420, Math.round(viewport.height * 0.68));
+            try {
+              var promptCard = document.querySelector('.approval-card.visible:not(.collapsed), .clarify-card.visible:not(.collapsed)');
+              if (promptCard && promptCard.getBoundingClientRect) {
+                var titlebar = document.querySelector('.app-titlebar');
+                var titlebarBottom = 0;
+                if (titlebar && titlebar.getBoundingClientRect) {
+                  titlebarBottom = titlebar.getBoundingClientRect().bottom;
+                }
+                var promptAvailable = promptCard.getBoundingClientRect().bottom - titlebarBottom - 8;
+                if (promptAvailable > 0) {
+                  promptPanelMax = Math.min(promptPanelMax, Math.floor(promptAvailable));
+                }
+              }
+            } catch (e) {}
+            // Keep the WebUI clamp's 180px floor so the panel stays usable and
+            // scrollable even when the measured space is tight.
+            var promptPanelMaxPx = Math.max(180, promptPanelMax) + 'px';
+
             style.textContent = [
               // Root sizing baseline
               'html, body { min-height: ' + px + ' !important; }',
@@ -87,7 +115,11 @@ object HermesWebUiScripts {
               // Settings page clip fix
               (viewport.width > 0 && viewport.width <= 600
                 ? '.main.showing-settings .main-view { max-height: none !important; overflow-y: auto !important; }'
-                : '')
+                : ''),
+              // Prompt panel (approval/clarify) measured geometry cap. !important beats
+              // both the WebUI viewport-unit clamp and any stale inline repair styles.
+              '.approval-card:not(.collapsed), .clarify-card:not(.collapsed) { max-height: ' + promptPanelMaxPx + ' !important; }',
+              '.approval-card:not(.collapsed) .approval-inner, .clarify-card:not(.collapsed) .clarify-inner { box-sizing: border-box !important; max-height: ' + promptPanelMaxPx + ' !important; overflow-y: auto !important; }'
             ].filter(Boolean).join('\n');
           }
 
@@ -98,6 +130,15 @@ object HermesWebUiScripts {
 
           function shouldSkipRepairForElement(el) {
             if (!el || !el.closest) return false;
+
+            // The approval/clarify prompt panels use the measured titlebar/composer-aware
+            // cap injected above, and the .composer-flyout anchor is intentionally
+            // zero-height. The generic viewport-derived repair would fight that cap and
+            // oscillate, so leave the prompt surface to the measured contract (#44/#80).
+            // Other flyout children (e.g. the composer terminal, which still sizes with
+            // vh units) remain eligible for generic repair.
+            if (el.closest('.approval-card, .clarify-card')) return true;
+            if (el.classList && el.classList.contains && el.classList.contains('composer-flyout')) return true;
 
             // Keep generic collapse repair off the primary conversation surface to
             // avoid chat-window flicker from repeated style churn while messages stream.

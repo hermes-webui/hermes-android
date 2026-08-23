@@ -85,6 +85,35 @@ class HermesWebUiScriptsTest {
     }
 
     @Test
+    fun `viewport fix script caps expanded clarify panel to measured titlebar-composer space`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        // Expanded clarify surface selector (#80) alongside the approval surface (#44)
+        assertThat(script).contains(".approval-card.visible:not(.collapsed), .clarify-card.visible:not(.collapsed)")
+        // Measured geometry: panel bottom (composer anchor) minus titlebar bottom
+        assertThat(script).contains("document.querySelector('.app-titlebar')")
+        assertThat(script).contains("promptCard.getBoundingClientRect().bottom - titlebarBottom - 8")
+        // The cap overrides the WebUI viewport-unit clamp on both the card and its
+        // scrolling inner region, with internal scroll for oversized content
+        assertThat(script).contains(".clarify-card:not(.collapsed) { max-height: ' + promptPanelMaxPx + ' !important; }")
+        assertThat(script).contains(".clarify-card:not(.collapsed) .clarify-inner")
+        assertThat(script).contains("overflow-y: auto !important; }")
+        // Usable floor matching the WebUI clamp minimum
+        assertThat(script).contains("Math.max(180, promptPanelMax)")
+    }
+
+    @Test
+    fun `viewport fix script leaves prompt surface to measured geometry instead of generic repair`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        // The approval/clarify cards and their zero-height flyout anchor are excluded
+        // from the generic viewport-derived repair so the two contracts cannot fight
+        // and oscillate (#80)
+        assertThat(script).contains("el.closest('.approval-card, .clarify-card')")
+        assertThat(script).contains("el.classList.contains('composer-flyout')")
+    }
+
+    @Test
     fun `viewport fix script includes baseline CSS for layout containers`() {
         val script = HermesWebUiScripts.viewportFixScript
 

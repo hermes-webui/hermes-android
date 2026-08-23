@@ -18,6 +18,27 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect Settings UI changes
+    runs-on: ubuntu-latest
+    outputs:
+      settings_ui: ${{ steps.filter.outputs.settings_ui }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect Settings UI changes
+        id: filter
+        uses: dorny/paths-filter@15192bc058cc28a13dbf6cde61f19e18988b7af6 # v3.0.2
+        with:
+          filters: |
+            settings_ui:
+              - 'app/src/main/java/com/hermeswebui/android/ui/settings/**'
+              - 'app/src/androidTest/java/com/hermeswebui/android/ui/settings/**'
+              - 'app/src/main/res/values/**'
+              - 'app/build.gradle.kts'
+              - 'gradle/libs.versions.toml'
+              - '.github/workflows/0-ci-build-and-test.yml'
+
   build:
     name: Unit tests + debug build
     runs-on: ubuntu-latest
@@ -52,6 +73,8 @@ jobs:
 
   settings-ui-smoke:
     name: Settings UI instrumentation smoke
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.settings_ui == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +92,7 @@ jobs:
         uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4.4.3
 
       - name: Run focused Settings screen instrumentation
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
         with:
           api-level: 36
           arch: x86_64

@@ -16,6 +16,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -491,6 +492,13 @@ class MainActivity : ComponentActivity() {
         stopVpnReconnectWaitLoop()
         runCatching { unregisterReceiver(appUpdateDownloadReceiver) }
         super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // The manifest handles keyboard|keyboardHidden without recreating the activity,
+        // so re-sync the hardware-keyboard flag here to cover attach/detach while open.
+        syncHardwareKeyboardState()
     }
 
     /** Handles Hermes app deep links.
@@ -1646,6 +1654,28 @@ class MainActivity : ComponentActivity() {
         if (EnableAppSettingsSidebarShim) {
             view.evaluateJavascript(HermesWebUiScripts.appSettingsEntryScript, null)
         }
+        syncHardwareKeyboardState(view)
+    }
+
+    private fun isHardwareKeyboardAttached(): Boolean {
+        val config = resources.configuration
+        return config.keyboard != Configuration.KEYBOARD_NOKEYS &&
+            config.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
+    }
+
+    /**
+     * Pushes the current hardware-keyboard state into the WebUI page so the document-start
+     * Enter-key shim can defer to WebUI's native Enter-to-submit handling (desktop
+     * convention) while a physical keyboard is attached, and keep forcing a newline on a
+     * soft keyboard. The flag is read at keydown time, so updates apply without a reload.
+     */
+    private fun syncHardwareKeyboardState(view: WebView? = null) {
+        val target = view ?: if (::webView.isInitialized) webView else null
+        if (target == null) return
+        target.evaluateJavascript(
+            "window.__hermesAndroidHardwareKeyboard = ${isHardwareKeyboardAttached()};",
+            null
+        )
     }
 
     private fun installHermesWebUiDocumentStartFixes(view: WebView, serverUrl: String) {

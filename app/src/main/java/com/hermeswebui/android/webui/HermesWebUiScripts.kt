@@ -426,6 +426,11 @@ object HermesWebUiScripts {
           // the default action and we insert the newline ourselves. Messages are still
           // sent with the on-screen send button (and Shift+Enter still inserts a newline
           // via the browser default, since it is left untouched here).
+          // Issue #83: this newline-forcing only applies while no hardware keyboard is
+          // attached. When one is attached, the handler below returns early so WebUI's
+          // native Enter-to-submit / Shift+Enter-newline handling runs (desktop
+          // convention). The native app keeps window.__hermesAndroidHardwareKeyboard in
+          // sync as keyboards attach and detach.
 
           var isComposer = function(el) {
             if (!el) return false;
@@ -435,6 +440,9 @@ object HermesWebUiScripts {
           document.addEventListener('keydown', function(e) {
             if (e.key !== 'Enter' && e.keyCode !== 13) return;
             if (e.shiftKey || e.isComposing) return;
+            // Hardware keyboard attached: defer to WebUI's native handling so a plain
+            // Enter submits and Shift+Enter inserts a newline (desktop convention).
+            if (window.__hermesAndroidHardwareKeyboard === true) return;
             var el = e.target;
             if (!isComposer(el)) return;
 

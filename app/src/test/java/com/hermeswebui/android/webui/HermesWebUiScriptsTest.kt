@@ -127,4 +127,17 @@ class HermesWebUiScriptsTest {
         // Settings page fix
         assertThat(script).contains(".main.showing-settings .main-view { max-height: none")
     }
+
+    @Test
+    fun `enter key script defers to native handling when a hardware keyboard is attached`() {
+        val script = HermesWebUiScripts.enterKeyNewlineScript
+
+        // Hardware keyboard attached: return early so WebUI's native Enter-to-submit
+        // and Shift+Enter-newline handling runs (desktop convention).
+        assertThat(script).contains("window.__hermesAndroidHardwareKeyboard === true")
+        // Soft keyboard: keep forcing a newline (Issue #34 behavior preserved).
+        assertThat(script).contains("e.preventDefault();")
+        assertThat(script).contains("e.stopImmediatePropagation();")
+        assertThat(script).contains("Issue #83")
+    }
 }

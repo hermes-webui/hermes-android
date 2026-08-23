@@ -119,6 +119,14 @@ jobs:
           echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
           echo "Release commit: $commit_sha"
 
+      - name: Run focused Settings UI smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          profile: pixel_6
+          script: ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hermeswebui.android.ui.settings.SettingsScreenTest
+
       - name: Build signed release artifacts
         shell: bash
         run: |

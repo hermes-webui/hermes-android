@@ -59,7 +59,6 @@ jobs:
           set +o pipefail
           yes | "$sdkmanager" --licenses > /dev/null
           set -o pipefail
-          "$sdkmanager" --install "platforms;android-37" "platform-tools"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
@@ -100,7 +99,6 @@ jobs:
           set +o pipefail
           yes | "$sdkmanager" --licenses > /dev/null
           set -o pipefail
-          "$sdkmanager" --install "platforms;android-37" "platform-tools"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0

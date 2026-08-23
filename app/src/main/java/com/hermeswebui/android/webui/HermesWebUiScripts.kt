@@ -119,7 +119,14 @@ object HermesWebUiScripts {
               // Prompt panel (approval/clarify) measured geometry cap. !important beats
               // both the WebUI viewport-unit clamp and any stale inline repair styles.
               '.approval-card:not(.collapsed), .clarify-card:not(.collapsed) { max-height: ' + promptPanelMaxPx + ' !important; }',
-              '.approval-card:not(.collapsed) .approval-inner, .clarify-card:not(.collapsed) .clarify-inner { box-sizing: border-box !important; max-height: ' + promptPanelMaxPx + ' !important; overflow-y: auto !important; }'
+              '.approval-card:not(.collapsed) .approval-inner, .clarify-card:not(.collapsed) .clarify-inner { box-sizing: border-box !important; max-height: ' + promptPanelMaxPx + ' !important; overflow-y: auto !important; }',
+              // The prompt cards float above the composer from inside the
+              // zero-height .composer-flyout, so neither the flyout nor the
+              // composer-wrap may ever become a scroll/clip container — that
+              // re-clips the card to a sliver behind the composer (#80 follow-up).
+              // Force overflow visible (re-applied every scan) so a stray inline
+              // repair or WebUI change can never re-clip the floating prompt surface.
+              '.composer-flyout, .composer-wrap { overflow: visible !important; }'
             ].filter(Boolean).join('\n');
           }
 
@@ -139,6 +146,13 @@ object HermesWebUiScripts {
             // vh units) remain eligible for generic repair.
             if (el.closest('.approval-card, .clarify-card')) return true;
             if (el.classList && el.classList.contains && el.classList.contains('composer-flyout')) return true;
+            // The composer-wrap is the floating prompt cards' clipping ancestor. A
+            // generic repair here (overflow-y:auto) turns it into a scroll container
+            // that re-clips the card to a sliver behind the composer, and the repair
+            // is retained while visible so it never recovers (#80 follow-up). The
+            // wrap is flex/content-sized (never vh-sized), so it never legitimately
+            // needs the collapse repair.
+            if (el.classList && el.classList.contains && el.classList.contains('composer-wrap')) return true;
 
             // Keep generic collapse repair off the primary conversation surface to
             // avoid chat-window flicker from repeated style churn while messages stream.

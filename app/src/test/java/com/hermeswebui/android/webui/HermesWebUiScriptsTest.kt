@@ -114,6 +114,21 @@ class HermesWebUiScriptsTest {
     }
 
     @Test
+    fun `viewport fix script never lets composer ancestors clip the floating prompt card`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        // The prompt cards float above the composer from inside the zero-height
+        // .composer-flyout, so the flyout and composer-wrap must never become a
+        // scroll/clip container — that re-clips the card to a sliver behind the
+        // composer (#80 follow-up). Force overflow visible on both, re-applied
+        // every scan so a stray inline repair cannot re-clip the card.
+        assertThat(script).contains(".composer-flyout, .composer-wrap { overflow: visible !important; }")
+        // Keep the composer-wrap out of the generic collapse repair so a transient
+        // repair cannot turn it into a scroll container in the first place.
+        assertThat(script).contains("el.classList.contains('composer-wrap')")
+    }
+
+    @Test
     fun `viewport fix script includes baseline CSS for layout containers`() {
         val script = HermesWebUiScripts.viewportFixScript
 

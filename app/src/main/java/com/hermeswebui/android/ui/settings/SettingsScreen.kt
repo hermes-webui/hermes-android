@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.hermeswebui.android.R
 import com.hermeswebui.android.data.ServerProfile
@@ -852,7 +853,7 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(
-                                text = stringResource(
+                                text = pluralStringResource(
                                     R.plurals.reconnect_settings_polling_interval,
                                     reconnectPollIntervalSeconds,
                                     reconnectPollIntervalSeconds

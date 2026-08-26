@@ -2,6 +2,7 @@ package com.hermeswebui.android.webui
 
 import android.annotation.SuppressLint
 import android.os.SystemClock
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.webkit.WebView
@@ -61,7 +62,7 @@ class HermesWebUiCompatibilityTest {
 
         evaluate("folderName.focus()")
         assertThat(awaitBoolean("document.activeElement === folderName", expected = true)).isTrue()
-        pressKeysInWebView(KeyEvent.KEYCODE_H, KeyEvent.KEYCODE_I)
+        typeTextInWebView("hi")
         assertThat(awaitBoolean("folderName.value === 'hi'", expected = true)).isTrue()
 
         evaluate(
@@ -427,6 +428,15 @@ class HermesWebUiCompatibilityTest {
           webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
           webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
         }
+      }
+    }
+
+    private fun typeTextInWebView(text: String) {
+      val events = checkNotNull(
+        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
+      )
+      composeTestRule.runOnIdle {
+        events.forEach(webView::dispatchKeyEvent)
         }
     }
 

@@ -6,7 +6,7 @@ name: 0 - CI Build & Test
 # signing secrets (debug build only).
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
 
 concurrency:

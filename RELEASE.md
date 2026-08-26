@@ -19,7 +19,7 @@ Use this checklist when publishing a new Hermes-Android build.
 python -m unittest discover -s tools/tests -p "test_*.py" -v
 ```
 
-CI runs the complete Android instrumentation suite on API 35 and 36 for every Android-changing push or pull request. Orchestration runs the same unfiltered suite on API 36 before signed artifacts are built.
+CI runs the complete Android instrumentation suite on API 35 and 36 for every Android-changing pull request and direct `main` push. Orchestration runs the same unfiltered suite on API 36 before signed artifacts are built.
 
 5. Confirm release docs are current when release behavior changed.
 

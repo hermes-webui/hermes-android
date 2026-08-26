@@ -210,7 +210,7 @@ and ends with:
 Keep `RELEASE.md` aligned with the workflow operator path whenever release
 automation changes.
 
-Separate from release publishing, CI uses `.github/workflows/0-ci-build-and-test.yml` to run release-tool tests plus `testDebugUnitTest` + `lintDebug` + `assembleDebug` on pushes/PRs without signing secrets. Every push or pull request that changes Android source or build inputs runs the complete unfiltered `connectedDebugAndroidTest` suite on Android API 35 and 36. Release builds run the full API 36 suite again, then verify APK and AAB signatures before upload. Keep contributor verification steps aligned with these gates when changing build/test flow.
+Separate from release publishing, CI uses `.github/workflows/0-ci-build-and-test.yml` to run release-tool tests plus `testDebugUnitTest` + `lintDebug` + `assembleDebug` on pull requests and direct `main` pushes without signing secrets. Pull requests and direct `main` pushes that change Android source or build inputs run the complete unfiltered `connectedDebugAndroidTest` suite on Android API 35 and 36. Release builds run the full API 36 suite again, then verify APK and AAB signatures before upload. Keep contributor verification steps aligned with these gates when changing build/test flow.
 
 ## Verification
 

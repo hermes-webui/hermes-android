@@ -73,7 +73,7 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - Release workflows use concurrency groups so duplicate runs for the same ref or target version do not publish over each other.
 - The build and publish workflows validate that exactly one matching APK or AAB exists before upload or publication.
 - The publish workflows also support manual dispatch with the build run ID and artifact metadata so a failed GitHub or Play publish can be retried without rebuilding both release artifacts.
-- CI runs release-tool tests, JVM unit tests, Android Lint, and a debug build for every push and pull request. Android source/build changes run the complete instrumentation suite on API 35 and 36 on every branch; release builds run the unfiltered API 36 suite again and verify APK/AAB signatures before artifacts are uploaded.
+- CI runs release-tool tests, JVM unit tests, Android Lint, and a debug build for every pull request and direct `main` push. Android source/build changes run the complete instrumentation suite on API 35 and 36 in those gates; release builds run the unfiltered API 36 suite again and verify APK/AAB signatures before artifacts are uploaded.
 
 ## Security model
 

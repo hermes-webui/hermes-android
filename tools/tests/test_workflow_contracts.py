@@ -39,11 +39,12 @@ class WorkflowContractTests(unittest.TestCase):
         workflow = read_workflow("0-ci-build-and-test.yml")
         self.assertIn("python3 -m unittest discover -s tools/tests", workflow)
         self.assertIn("testDebugUnitTest lintDebug assembleDebug", workflow)
+        self.assertIn('branches: ["main"]', workflow)
+        self.assertIn("pull_request:", workflow)
         self.assertRegex(workflow, r"api-level:\s*\[35, 36\]")
         self.assertIn("connectedDebugAndroidTest", workflow)
         self.assertNotIn("testInstrumentationRunnerArguments.class", workflow)
         self.assertIn("if: needs.changes.outputs.android_app == 'true'", workflow)
-        self.assertNotIn("github.event_name == 'pull_request'", workflow)
 
     def test_orchestrator_builds_reviewed_version_without_source_mutation(self) -> None:
         workflow = read_workflow("1-orchestration-release.yml")

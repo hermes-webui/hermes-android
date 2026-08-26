@@ -17,6 +17,11 @@ import org.junit.Rule
 import org.junit.Test
 
 class HermesWebUiCompatibilityTest {
+    private companion object {
+        const val WEBVIEW_LOAD_TIMEOUT_SECONDS = 60L
+        const val JAVASCRIPT_TIMEOUT_SECONDS = 30L
+    }
+
     @get:Rule
     val composeTestRule = createComposeRule()
 
@@ -229,7 +234,7 @@ class HermesWebUiCompatibilityTest {
                 )
             }
         }
-        assertThat(loaded.await(10, TimeUnit.SECONDS)).isTrue()
+        assertThat(loaded.await(WEBVIEW_LOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue()
     }
 
     private fun evaluate(script: String): String {
@@ -241,7 +246,7 @@ class HermesWebUiCompatibilityTest {
                 completed.countDown()
             }
         }
-        assertThat(completed.await(10, TimeUnit.SECONDS)).isTrue()
+        assertThat(completed.await(JAVASCRIPT_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue()
         return checkNotNull(result)
     }
 

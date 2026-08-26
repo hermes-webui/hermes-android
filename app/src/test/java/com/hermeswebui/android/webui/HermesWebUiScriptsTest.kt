@@ -155,4 +155,14 @@ class HermesWebUiScriptsTest {
         assertThat(script).contains("e.stopImmediatePropagation();")
         assertThat(script).contains("Issue #83")
     }
+
+    @Test
+    fun `dialog keyboard script preserves explicit input focus`() {
+        val script = HermesWebUiScripts.suppressKeyboardForDialogsScript
+
+        assertThat(script).contains("document.addEventListener('pointerdown', rememberExplicitInputFocus, true)")
+        assertThat(script).contains("document.addEventListener('touchstart', rememberExplicitInputFocus, true)")
+        assertThat(script).contains("if (target === explicitlyFocusedInput)")
+        assertThat(script).contains("Suppress programmatic dialog autofocus")
+    }
 }

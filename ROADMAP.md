@@ -126,6 +126,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-027 | 2026-08-26 | WebView | Fixed Issue #90 by narrowing dialog keyboard suppression to programmatic autofocus, allowing explicit taps to focus and type into editable modal fields such as the workspace new-folder name input. |
 | SSE-001 | 2026-08-09 | Background continuity | Clarified the native SSE settings and notification status: Android keeps its persistent authenticated `/api/session/stream` preference when optional gateway extras are unavailable, presents that distinction clearly, and logs the safe active transport state for diagnostics. |
 | A-001 | 2026-06-19 | Build | Fixed Java/Gradle setup and verified `test` plus `assembleDebug` |
 | A-002 | 2026-06-19 | Security | Added URL policy validation and tests |

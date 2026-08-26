@@ -868,9 +868,22 @@ object HermesWebUiScripts {
           window.__hermesAndroidSuppressKeyboardForDialogsInstalled = true;
 
           // Issue #65: When the agent calls the Clarify tool (multiple-choice prompt),
-          // the Android app automatically opens the on-screen keyboard, overlapping
-          // the option buttons. This script suppresses the keyboard for dialog/modal
-          // elements by preventing focus on input elements within dialogs.
+          // programmatic input focus can automatically open the on-screen keyboard and
+          // overlap the option buttons. Suppress that automatic focus without blocking
+          // an explicit tap on an editable dialog field (Issue #90).
+
+          var explicitlyFocusedInput = null;
+
+          var rememberExplicitInputFocus = function(event) {
+            var target = event.target;
+            if (!target) return;
+            var tag = (target.tagName || '').toLowerCase();
+            var isInput = tag === 'input' || tag === 'textarea' || target.isContentEditable;
+            explicitlyFocusedInput = isInput ? target : null;
+          };
+
+          document.addEventListener('pointerdown', rememberExplicitInputFocus, true);
+          document.addEventListener('touchstart', rememberExplicitInputFocus, true);
 
           var isDialogLike = function(el) {
             if (!el) return false;
@@ -921,7 +934,12 @@ object HermesWebUiScripts {
             var dialogContainer = getDialogContainer(target);
             if (!dialogContainer) return;
 
-            // If an input element in a dialog gains focus, suppress the keyboard
+            if (target === explicitlyFocusedInput) {
+              explicitlyFocusedInput = null;
+              return;
+            }
+
+            // Suppress programmatic dialog autofocus, but never an explicit user tap.
             suppressKeyboardForElement(target);
           }, true);
 

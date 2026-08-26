@@ -93,9 +93,7 @@ jobs:
   android-ui-smoke:
     name: Android instrumentation (API ${{ matrix.api-level }})
     needs: changes
-    if: >-
-      needs.changes.outputs.android_app == 'true' &&
-      (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+    if: needs.changes.outputs.android_app == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

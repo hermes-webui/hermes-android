@@ -42,7 +42,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertRegex(workflow, r"api-level:\s*\[35, 36\]")
         self.assertIn("connectedDebugAndroidTest", workflow)
         self.assertNotIn("testInstrumentationRunnerArguments.class", workflow)
-        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("if: needs.changes.outputs.android_app == 'true'", workflow)
+        self.assertNotIn("github.event_name == 'pull_request'", workflow)
 
     def test_orchestrator_builds_reviewed_version_without_source_mutation(self) -> None:
         workflow = read_workflow("1-orchestration-release.yml")

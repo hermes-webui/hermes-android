@@ -42,7 +42,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebStorage
-import android.webkit.WebViewDatabase
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -50,6 +49,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Box
@@ -100,6 +100,7 @@ import com.hermeswebui.android.background.HermesForegroundServiceCoordinator
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.core.security.UrlPolicy
+import com.hermeswebui.android.core.security.WebTrustPolicy
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
@@ -342,7 +343,9 @@ class MainActivity : ComponentActivity() {
                 }
             },
             requestNotificationPermissionLauncher = {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    launchPostNotificationsPermission()
+                }
             },
             runOnUiThread = { action -> runOnUiThread(action) }
         )
@@ -410,7 +413,6 @@ class MainActivity : ComponentActivity() {
                 onReload = { refreshConfiguredHermes() },
                 onOpenExternal = { openInExternalBrowser(viewModel.uiState.value.currentUrl) },
                 onSaveSettings = { serverUrl -> saveSettings(serverUrl) },
-                onResetSession = { resetWebSession() },
                 onRequestExit = { finish() }
             )
         }
@@ -539,7 +541,6 @@ class MainActivity : ComponentActivity() {
         onReload: () -> Unit,
         onOpenExternal: () -> Unit,
         onSaveSettings: (String) -> Unit,
-        onResetSession: () -> Unit,
         onRequestExit: () -> Unit
     ) {
         val uiState by viewModel.uiState.collectAsState()
@@ -695,7 +696,6 @@ class MainActivity : ComponentActivity() {
                     appVersionLabel = "Version ${appVersionName()}",
                     serverProfiles = serverProfiles,
                     onSave = onSaveSettings,
-                    onResetSession = onResetSession,
                     onDismiss = { viewModel.closeSettings() },
                     onSetBackgroundReconnect = { enabled ->
                         if (enabled) {
@@ -779,7 +779,6 @@ class MainActivity : ComponentActivity() {
                     onNewGithubIssue = { openInExternalBrowser(HermesGithubNewIssueUrl) },
                     onAddProfile = { name, url -> serverProfileCoordinator.handleAddServerProfile(name, url) },
                     onDeleteProfile = { profileId -> serverProfileCoordinator.handleDeleteServerProfile(profileId) },
-                    onRenameProfile = { profileId, newName -> viewModel.renameServerProfile(profileId, newName) },
                     onEditProfile = { profileId, newName, newUrl -> serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl) },
                     onSwitchProfile = { profileId -> serverProfileCoordinator.handleSwitchServerProfile(profileId) },
                     onReconnectCurrentServer = { refreshConfiguredHermes(closeSettings = true) },
@@ -803,7 +802,9 @@ class MainActivity : ComponentActivity() {
     } // end MaterialTheme
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    // This listener only restores WebView focus and returns false so WebView retains
+    // click handling and accessibility semantics.
+    @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun buildWebView(): WebView {
         return WebView(this).apply {
             HermesWebViewConfigurator.configureMainWebView(
@@ -1326,13 +1327,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isTrustedNotificationBridgeSource(sourceOrigin: Uri, isMainFrame: Boolean): Boolean {
-        if (!isMainFrame) return false
-        val normalizedOrigin = normalizePermissionOrigin(sourceOrigin) ?: sourceOrigin.toString()
-        return matchesConfiguredWebUiRoute(normalizedOrigin) && matchesConfiguredWebUiRoute(webView.url)
+        return currentWebTrustPolicy().isTrustedNotificationBridgeSource(
+            sourceOrigin = sourceOrigin.toString(),
+            isMainFrame = isMainFrame,
+            currentMainFrameUrl = webView.url
+        )
     }
 
     private fun requestNotificationPermissionIfNeeded() {
         notificationBridgeCoordinator.requestNotificationPermissionIfNeeded()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun launchPostNotificationsPermission() {
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun setSseTransportEnabled(enabled: Boolean) {
@@ -1542,7 +1550,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isTrustedNotificationTarget(url: String?): Boolean {
-        return !url.isNullOrBlank() && urlPolicy.isAllowed(url) && matchesConfiguredWebUiRoute(url)
+        return currentWebTrustPolicy().isTrustedNotificationTarget(url)
     }
 
     private fun updateWebNotificationPermissionState(permission: String = webNotificationPermissionState()) {
@@ -1562,38 +1570,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isTrustedPermissionOrigin(origin: Uri?): Boolean {
-        if (origin != null) {
-            val raw = origin.toString()
-            if (urlPolicy.isAllowed(raw)) {
-                return true
-            }
-
-            val normalized = normalizePermissionOrigin(origin)
-            if (normalized != null && urlPolicy.isAllowed(normalized)) {
-                return true
-            }
-
-            if (origin.host.isNullOrBlank() && matchesConfiguredWebUiRoute(webView.url)) {
-                // Some Android WebView builds surface opaque/null-like iframe origins for same-page mic requests.
-                return true
-            }
-
-            return false
-        }
-
-        return matchesConfiguredWebUiRoute(webView.url)
-    }
-
-    private fun normalizePermissionOrigin(origin: Uri): String? {
-        val scheme = origin.scheme?.lowercase()?.takeIf { it == "http" || it == "https" } ?: return null
-        val host = origin.host
-            ?.trim()
-            ?.trimEnd('.')
-            ?.lowercase()
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
-        val portSuffix = if (origin.port != -1) ":${origin.port}" else ""
-        return "$scheme://$host$portSuffix"
+        return currentWebTrustPolicy().isTrustedPermissionOrigin(
+            origin = origin?.toString(),
+            currentMainFrameUrl = webView.url
+        )
     }
 
     private fun disableWebViewDarkening(settings: WebSettings) {
@@ -1723,6 +1703,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun removeHermesWebUiDocumentStartFixes() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
         viewportFixScriptHandler?.remove()
         microphoneFallbackScriptHandler?.remove()
         notificationBridgeScriptHandler?.remove()
@@ -1730,6 +1711,13 @@ class MainActivity : ComponentActivity() {
         appSettingsEntryScriptHandler?.remove()
         enterKeyNewlineScriptHandler?.remove()
         suppressClarifyAutofocusScriptHandler?.remove()
+        viewportFixScriptHandler = null
+        microphoneFallbackScriptHandler = null
+        notificationBridgeScriptHandler = null
+        routeRecoveryScriptHandler = null
+        appSettingsEntryScriptHandler = null
+        enterKeyNewlineScriptHandler = null
+        suppressClarifyAutofocusScriptHandler = null
     }
 
     private fun addDocumentStartScript(
@@ -1737,6 +1725,7 @@ class MainActivity : ComponentActivity() {
         originRule: String,
         script: String
     ): ScriptHandler? {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return null
         return runCatching {
             WebViewCompat.addDocumentStartJavaScript(view, script, setOf(originRule))
         }.getOrNull()
@@ -1773,19 +1762,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun matchesConfiguredWebUiRoute(url: String?): Boolean {
-        val settings = viewModel.uiState.value.settings
-        return UrlOrigins.hasSameOrigin(url, settings.serverUrl) && !matchesConfiguredDashboardRoute(url)
+        return currentWebTrustPolicy().isConfiguredWebUiRoute(url)
     }
 
     private fun matchesConfiguredDashboardRoute(url: String?): Boolean {
-        val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
-        if (url.isNullOrBlank() || dashboardUrl.isBlank()) return false
-        if (!UrlOrigins.hasSameOrigin(url, dashboardUrl)) return false
+        return currentWebTrustPolicy().isConfiguredDashboardRoute(url)
+    }
 
-        val targetPath = UrlOrigins.normalizedPath(url)
-        val dashboardPath = UrlOrigins.normalizedPath(dashboardUrl)
-        if (dashboardPath.isBlank()) return true
-        return targetPath == dashboardPath || targetPath.startsWith("$dashboardPath/")
+    private fun currentWebTrustPolicy(): WebTrustPolicy {
+        val settings = viewModel.uiState.value.settings
+        return WebTrustPolicy(
+            urlPolicy = urlPolicy,
+            configuredWebUiUrl = settings.serverUrl,
+            configuredDashboardUrl = settings.dashboardUrl
+        )
     }
 
     private fun handleNewWindowUrl(url: String) {
@@ -1885,21 +1875,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun resetWebSession() {
-        oauthReturnNavigation.clear()
-        viewModel.resetSession()
-        CookieManager.getInstance().removeAllCookies(null)
-        CookieManager.getInstance().flush()
-        WebStorage.getInstance().deleteAllData()
-        webView.clearHistory()
-        webView.clearCache(true)
-        webView.clearFormData()
-        // Also drop stored HTTP Basic/Digest credentials — otherwise a "reset web session"
-        // (sign out & wipe) still leaves saved auth behind on a shared device.
-        runCatching { WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword() }
-        loadServerUrlWithVpnGuard(viewModel.uiState.value.settings.serverUrl)
-    }
-
     private fun preflightConfiguredStartupServer(serverUrl: String) {
         val lastLoadedUrl = settingsRepository.getLastLoadedUrl()
         val notificationUrl = notificationPresenter.notificationTargetUrl(intent)
@@ -1933,22 +1908,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         )
-    }
-
-    private fun handleAddServerProfile(name: String, url: String) {
-        serverProfileCoordinator.handleAddServerProfile(name, url)
-    }
-
-    private fun handleEditServerProfile(profileId: String, newName: String, newUrl: String) {
-        serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl)
-    }
-
-    private fun handleDeleteServerProfile(profileId: String) {
-        serverProfileCoordinator.handleDeleteServerProfile(profileId)
-    }
-
-    private fun handleSwitchServerProfile(profileId: String) {
-        serverProfileCoordinator.handleSwitchServerProfile(profileId)
     }
 
     private fun showServerValidationRecoveryDialog(

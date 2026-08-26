@@ -3,6 +3,7 @@
     <string name="default_server_url">https://hermes.example.com</string>
     <string name="default_dashboard_url"></string>
     <string name="action_edit_server_url">Edit server URL</string>
+    <string name="server_switch_do_not_ask_again">Don\'t ask again for this server</string>
     <string name="reconnect_notification_title">Hermes activity is running in the background</string>
     <string name="reconnect_notification_body_activity">Watching the current Hermes session for safe activity updates.</string>
     <string name="reconnect_notification_body_session_stream">Live session updates are active in the background.</string>

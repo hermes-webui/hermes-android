@@ -2,7 +2,7 @@ package com.hermeswebui.android.ui.settings
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -54,7 +54,6 @@ class SettingsScreenTest {
                 appVersionLabel = "Version 0.0.0",
                 serverProfiles = emptyList(),
                 onSave = {},
-                onResetSession = {},
                 onDismiss = {},
                 onSetBackgroundReconnect = {},
                 onSetBackgroundActivityFullTextEnabled = {},
@@ -79,7 +78,6 @@ class SettingsScreenTest {
                 onNewGithubIssue = {},
                 onAddProfile = { _, _ -> },
                 onDeleteProfile = {},
-                onRenameProfile = { _, _ -> },
                 onEditProfile = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = {},
@@ -124,7 +122,6 @@ class SettingsScreenTest {
                 appVersionLabel = "Version 0.0.0",
                 serverProfiles = emptyList(),
                 onSave = {},
-                onResetSession = {},
                 onDismiss = {},
                 onSetBackgroundReconnect = {},
                 onSetBackgroundActivityFullTextEnabled = {},
@@ -149,7 +146,6 @@ class SettingsScreenTest {
                 onNewGithubIssue = {},
                 onAddProfile = { _, _ -> },
                 onDeleteProfile = {},
-                onRenameProfile = { _, _ -> },
                 onEditProfile = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = {},
@@ -192,7 +188,6 @@ class SettingsScreenTest {
                 appVersionLabel = "Version 0.0.0",
                 serverProfiles = emptyList(),
                 onSave = {},
-                onResetSession = {},
                 onDismiss = {},
                 onSetBackgroundReconnect = {},
                 onSetBackgroundActivityFullTextEnabled = {},
@@ -217,7 +212,6 @@ class SettingsScreenTest {
                 onNewGithubIssue = {},
                 onAddProfile = { _, _ -> },
                 onDeleteProfile = {},
-                onRenameProfile = { _, _ -> },
                 onEditProfile = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = { reconnectCount++ },
@@ -240,7 +234,10 @@ class SettingsScreenTest {
         // resource ID, which throws Resources.NotFoundException during composition and
         // closed the settings screen instantly. Rendering must not crash and must show
         // the singular text for a 1-second interval.
-        renderSettingsWithPollInterval(1)
+        renderConfiguredSettings(1)
+        composeTestRule.onNodeWithText("Advanced connection options")
+            .performScrollTo()
+            .performClick()
         composeTestRule.onNodeWithText("1 second between reconnect checks")
             .performScrollTo()
             .assertIsDisplayed()
@@ -249,13 +246,79 @@ class SettingsScreenTest {
     @Test
     fun reconnectPollingInterval_rendersPluralDescription() {
         // Same regression as above, for the plural form at a 2-second interval.
-        renderSettingsWithPollInterval(2)
+        renderConfiguredSettings(2)
+        composeTestRule.onNodeWithText("Advanced connection options")
+            .performScrollTo()
+            .performClick()
         composeTestRule.onNodeWithText("2 seconds between reconnect checks")
             .performScrollTo()
             .assertIsDisplayed()
     }
 
-    private fun renderSettingsWithPollInterval(seconds: Int) {
+    @Test
+    fun configuredSettings_showsTaskBasedSectionsAndOmitsSessionReset() {
+        renderConfiguredSettings(1)
+
+        listOf(
+            "SERVERS",
+            "APPLICATION",
+            "UPDATES",
+            "CONNECTION",
+            "PRIVACY",
+            "TROUBLESHOOTING",
+            "ADVANCED",
+            "ABOUT"
+        ).forEach { heading ->
+            composeTestRule.onNodeWithText(heading).assertExists()
+        }
+
+        composeTestRule.onNodeWithText("Reset web session").assertDoesNotExist()
+        composeTestRule.onNodeWithText("SECURITY").assertDoesNotExist()
+    }
+
+    @Test
+    fun advancedConnectionOptions_areCollapsedByDefault() {
+        renderConfiguredSettings(1)
+
+        composeTestRule.onNodeWithText("1 second between reconnect checks").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Use SSE transport").assertDoesNotExist()
+
+        composeTestRule.onNodeWithText("Advanced connection options")
+            .performScrollTo()
+            .performClick()
+
+        composeTestRule.onNodeWithText("1 second between reconnect checks")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("Use SSE transport").assertExists()
+    }
+
+    @Test
+    fun clientCertificate_opensAdvancedDialogAndSavesExistingSelection() {
+        var savedConfig: Pair<String?, String?>? = null
+        renderConfiguredSettings(
+            seconds = 1,
+            clientCertificateUri = "content://certificates/hermes.p12",
+            clientCertificatePassword = " secret ",
+            onSetClientCertificateConfig = { uri, password -> savedConfig = uri to password }
+        )
+
+        composeTestRule.onNodeWithText("Client certificate")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.onNodeWithText("Choose another certificate").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Remove certificate").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Save").performClick()
+
+        assertThat(savedConfig).isEqualTo("content://certificates/hermes.p12" to " secret ")
+    }
+
+    private fun renderConfiguredSettings(
+        seconds: Int,
+        clientCertificateUri: String? = null,
+        clientCertificatePassword: String? = null,
+        onSetClientCertificateConfig: (String?, String?) -> Unit = { _, _ -> }
+    ) {
         composeTestRule.setContent {
             SettingsScreen(
                 initialServerUrl = "https://hermes.example.com",
@@ -278,13 +341,12 @@ class SettingsScreenTest {
                 appUpdateDownloadUrl = null,
                 appUpdateInstallReady = false,
                 appUpdateReleaseNotes = null,
-                clientCertificateUri = null,
-                clientCertificatePassword = null,
+                clientCertificateUri = clientCertificateUri,
+                clientCertificatePassword = clientCertificatePassword,
                 serverValidation = ServerValidationUiState(),
                 appVersionLabel = "Version 0.0.0",
                 serverProfiles = emptyList(),
                 onSave = {},
-                onResetSession = {},
                 onDismiss = {},
                 onSetBackgroundReconnect = {},
                 onSetBackgroundActivityFullTextEnabled = {},
@@ -298,7 +360,7 @@ class SettingsScreenTest {
                 onSetBlockScreenshotsEnabled = {},
                 onSetAppUpdateAlertsEnabled = {},
                 onSetAutomaticAppUpdateChecksEnabled = {},
-                onSetClientCertificateConfig = { _, _ -> },
+                onSetClientCertificateConfig = onSetClientCertificateConfig,
                 onClearClientCertificateConfig = {},
                 onCheckAppUpdates = {},
                 onDownloadAppUpdate = {},
@@ -309,7 +371,6 @@ class SettingsScreenTest {
                 onNewGithubIssue = {},
                 onAddProfile = { _, _ -> },
                 onDeleteProfile = {},
-                onRenameProfile = { _, _ -> },
                 onEditProfile = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = {},

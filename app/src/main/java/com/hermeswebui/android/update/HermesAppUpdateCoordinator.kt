@@ -16,6 +16,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import com.hermeswebui.android.MainActivity
 import com.hermeswebui.android.R
 import com.hermeswebui.android.data.SettingsRepository
@@ -342,7 +343,7 @@ class HermesAppUpdateCoordinator(
         val releaseNotesIntent = PendingIntent.getActivity(
             context,
             update.releaseUrl.hashCode(),
-            Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)),
+            Intent(Intent.ACTION_VIEW, update.releaseUrl.toUri()),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val downloadIntent = update.downloadUrl?.let { downloadUrl ->
@@ -410,7 +411,7 @@ class HermesAppUpdateCoordinator(
         }
         viewModel.setAppUpdateInstallReady(false)
         promptUnknownAppInstallPermissionForUpcomingUpdateInstall()
-        val parsed = Uri.parse(url)
+        val parsed = url.toUri()
 
         val safeFileName = fileName
             ?.trim()
@@ -438,7 +439,7 @@ class HermesAppUpdateCoordinator(
         if (canRequestUnknownAppInstalls()) return
         val settingsIntent = Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:${context.packageName}")
+            "package:${context.packageName}".toUri()
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { context.startActivity(settingsIntent) }
         Toast.makeText(
@@ -501,7 +502,7 @@ class HermesAppUpdateCoordinator(
             viewModel.setAppUpdateInstallReady(true)
             val settingsIntent = Intent(
                 Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")
+                "package:${context.packageName}".toUri()
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             runCatching { context.startActivity(settingsIntent) }
             Toast.makeText(
@@ -529,11 +530,7 @@ class HermesAppUpdateCoordinator(
     }
 
     private fun canRequestUnknownAppInstalls(): Boolean {
-        return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            true
-        } else {
-            context.packageManager.canRequestPackageInstalls()
-        }
+        return context.packageManager.canRequestPackageInstalls()
     }
 
     @SuppressLint("MissingPermission")

@@ -22,7 +22,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     fun getClientCertificateConfig(): ClientCertificateConfig {
         val uri = sharedPreferences.getString(KEY_CLIENT_CERT_URI, null)?.trim()
-        val password = sharedPreferences.getString(KEY_CLIENT_CERT_PASSWORD, null)?.trim()
+        val password = sharedPreferences.getString(KEY_CLIENT_CERT_PASSWORD, null)
         return ClientCertificateConfig(uri = uri, password = password)
     }
 
@@ -200,10 +200,6 @@ class SettingsRepository(context: Context) : SettingsStore {
             putString(KEY_ALLOWED_HOSTS, hosts.joinToString(","))
             putBoolean(KEY_IS_CONFIGURED, true)
         }
-    }
-
-    override fun clearWebSession() {
-        sharedPreferences.edit { remove(KEY_LAST_URL) }
     }
 
     fun hasRequestedNotificationPermission(): Boolean {
@@ -417,14 +413,6 @@ class SettingsRepository(context: Context) : SettingsStore {
         if (sharedPreferences.getString(KEY_ACTIVE_PROFILE_ID, null) == profileId) {
             sharedPreferences.edit { remove(KEY_ACTIVE_PROFILE_ID) }
         }
-    }
-
-    fun renameProfile(profileId: String, newName: String) {
-        val profiles = getProfiles().map { profile ->
-            if (profile.id == profileId) profile.copy(name = newName.trim().ifBlank { profile.url })
-            else profile
-        }
-        saveProfiles(profiles)
     }
 
     fun updateProfile(profileId: String, newName: String, newUrl: String) {

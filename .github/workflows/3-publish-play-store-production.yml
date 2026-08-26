@@ -1,159 +1,46 @@
 name: 3 - Publish Play Store Production
 
-# Manually publishes an existing orchestration AAB artifact to the Play
-# production track. Use this to retry Play production publishing without
-# rebuilding artifacts.
-# Inputs come from the "Manual Publish Retry Details" summary of the
-# 1 - Orchestration Release run that built the artifacts.
-
 on:
   workflow_dispatch:
     inputs:
       artifact_name:
-        description: 'Play AAB artifact name from the build run (e.g. hermes-webui-v1.0.0-play-aab)'
+        description: Play AAB artifact name from the orchestration build run.
         required: true
         type: string
       build_run_id:
-        description: 'GitHub Actions run ID that created the AAB artifact'
+        description: GitHub Actions run ID that created the AAB artifact.
         required: true
         type: string
       commit_sha:
-        description: 'Commit SHA used by the build run'
+        description: Commit SHA used by the build run.
         required: true
         type: string
       tag_name:
-        description: 'Release tag (e.g. v1.0.0)'
+        description: Release tag, such as v1.1.0.
         required: true
         type: string
       version_name:
-        description: 'Android versionName (e.g. 1.0.0)'
+        description: Android versionName, such as 1.1.0.
         required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
   actions: read
-
-concurrency:
-  group: publish-play-store-production-${{ inputs.version_name }}
-  cancel-in-progress: false
 
 jobs:
   publish-play-production:
     name: 3 - Publish Play Store Production
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Validate Play service account secret
-        shell: bash
-        run: |
-          test -n "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" || { echo "Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"; exit 1; }
-
-      - name: Download Play AAB artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: ${{ inputs.artifact_name }}
-          path: build/release
-          run-id: ${{ inputs.build_run_id }}
-          github-token: ${{ github.token }}
-
-      - name: Validate Play AAB artifact
-        shell: bash
-        run: |
-          aab_count="$(find build/release -maxdepth 1 -type f -name 'hermes-webui-v*.aab' | wc -l | tr -d ' ')"
-          if [ "$aab_count" != "1" ]; then
-            echo "Expected exactly one Play AAB artifact, found $aab_count."
-            find build/release -maxdepth 1 -type f -print
-            exit 1
-          fi
-
-      - name: Decode Google Play service account
-        shell: bash
-        run: |
-          mkdir -p signing
-          echo "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 --decode > signing/google-play-service-account.json
-          test -f signing/google-play-service-account.json || { echo "Google Play service account file was not created"; exit 1; }
-
-      - name: Build Play Store changelog
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag_name }}
-          RELEASE_COMMIT: ${{ inputs.commit_sha }}
-        run: |
-          mkdir -p build/play-whatsnew
-
-          generated_notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$RELEASE_TAG" \
-            -f target_commitish="$RELEASE_COMMIT" \
-            --jq '.body')"
-
-          export GENERATED_NOTES="$generated_notes"
-          python3 <<'PY' > build/play-whatsnew/whatsnew-en-US
-          import os
-          import re
-
-          max_chars = 480
-          report_line = "Report issues through the in-app bug report tool."
-          notes = os.environ.get("GENERATED_NOTES", "")
-          bullets = []
-
-          for raw_line in notes.splitlines():
-              line = raw_line.strip()
-              if not line:
-                  continue
-              if line.startswith("#"):
-                  continue
-              if "Full Changelog" in line or "compare/" in line:
-                  continue
-              if line.lower().startswith("new contributors"):
-                  continue
-              if line.startswith(("* ", "- ")):
-                  line = "- " + line[2:].strip()
-              else:
-                  continue
-              line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
-              line = re.sub(r"\s+by\s+@[A-Za-z0-9-]+(?:\s+in\s+#\d+)?$", "", line)
-              line = re.sub(r"\s+in\s+#\d+$", "", line)
-              line = re.sub(r"@[A-Za-z0-9-]+", "", line)
-              line = re.sub(r"#(\d+)", r"issue \1", line)
-              line = line.replace("`", "")
-              line = re.sub(r"\s+", " ", line).strip()
-              if line and line not in bullets:
-                  bullets.append(line)
-
-          if not bullets:
-              bullets = ["- Bug fixes and Android wrapper improvements."]
-
-          output_lines = []
-          for bullet in bullets:
-              candidate_lines = output_lines + [bullet, "", report_line]
-              candidate = "\n".join(candidate_lines)
-              if len(candidate) <= max_chars:
-                  output_lines.append(bullet)
-              if len(output_lines) >= 4:
-                  break
-
-          if not output_lines:
-              output_lines = [bullets[0][: max_chars - len(report_line) - 3].rstrip()]
-
-          text = "\n".join(output_lines + ["", report_line])
-          if len(text) > max_chars:
-              available = max_chars - len(report_line) - 2
-              trimmed = "\n".join(output_lines)
-              text = trimmed[:available].rstrip() + "\n\n" + report_line
-
-          print(text)
-          PY
-          cat build/play-whatsnew/whatsnew-en-US
-
-      - name: Upload AAB to Google Play production
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJson: signing/google-play-service-account.json
-          packageName: com.hermeswebui.android
-          releaseFiles: build/release/*.aab
-          tracks: production
-          status: completed
-          releaseName: Hermes WebUI Android v${{ inputs.version_name }}
-          whatsNewDirectory: build/play-whatsnew
+    uses: ./.github/workflows/_publish-play-store.yml
+    permissions:
+      contents: read
+      actions: read
+    secrets:
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+    with:
+      artifact_name: ${{ inputs.artifact_name }}
+      build_run_id: ${{ inputs.build_run_id }}
+      commit_sha: ${{ inputs.commit_sha }}
+      tag_name: ${{ inputs.tag_name }}
+      version_name: ${{ inputs.version_name }}
+      track: production

@@ -171,24 +171,6 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `reset session resets loaded content state`() {
-        val store = FakeSettingsStore()
-        val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
-
-        viewModel.onPageStarted(defaultServerUrl)
-        viewModel.onPageCommitVisible(defaultServerUrl)
-        viewModel.onPageFinished(defaultServerUrl)
-        viewModel.resetSession()
-
-        val state = viewModel.uiState.value
-        assertThat(state.currentUrl).isEqualTo(defaultServerUrl)
-        assertThat(state.hasLoadedContent).isFalse()
-        assertThat(state.isLoading).isTrue()
-        assertThat(state.errorMessage).isNull()
-        assertThat(store.clearSessionCalled).isTrue()
-    }
-
-    @Test
     fun `url visited persists last url for client-side navigation`() {
         val store = FakeSettingsStore()
         val viewModel = MainViewModel(store, null, defaultServerUrl, defaultDashboardUrl)
@@ -588,8 +570,6 @@ class MainViewModelTest {
 
         var lastLoadedUrl: String? = null
             private set
-        var clearSessionCalled: Boolean = false
-            private set
 
         override fun getSettings(defaultUrl: String, defaultDashboardUrl: String): AppSettings = settings
 
@@ -600,11 +580,6 @@ class MainViewModelTest {
                 allowedHosts = setOf("next.example.com"),
                 isConfigured = true
             )
-        }
-
-        override fun clearWebSession() {
-            clearSessionCalled = true
-            lastLoadedUrl = null
         }
 
         override fun saveLastLoadedUrl(url: String) {

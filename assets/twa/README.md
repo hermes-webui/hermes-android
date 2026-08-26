@@ -16,8 +16,6 @@ the native bridges this app is built around unless each is re-implemented:
 - file upload / download wiring
 - Android share-intent handling
 - hermes:// deep links
-- session reset (cookie/storage/cache clearing)
-- biometric lock
 Treat TWA as a **future spike / alternative variant**, not a swap. The WebView
 remains the integrated app.
 ## How verification works (and why the app cannot self-grant it)

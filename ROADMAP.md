@@ -73,7 +73,7 @@ workflow changes should be made in Hermes WebUI instead.
 
 - [x] Deep links and verified app links to Hermes routes
 - [x] Server health probing to refine offline/error states
-- [~] Server profile list for multiple Hermes hosts (Phase 1 complete: native entry point added; Phase 2-3 pending: encrypted storage + profile switching logic)
+- [x] Server profile list for multiple Hermes hosts with encrypted storage, profile CRUD, readiness validation, and session-clearing profile switches
 - [ ] Optional biometric app lock before showing WebView
 - [ ] FCM push notification plumbing
 - [x] Notification channel strategy
@@ -81,7 +81,7 @@ workflow changes should be made in Hermes WebUI instead.
 - [ ] Expanded native settings for theme, notifications, and profiles
 - [ ] Optional native sessions list (requires authenticated API access)
 - [ ] WebUI menu shortcuts for files, kanban, and status if needed
-- [ ] Instrumentation tests for WebView navigation and intent flows
+- [~] Instrumentation tests run in CI/releases and cover Settings, WebShell recovery, and WebView compatibility; deep-link and intent-routing coverage remains open
 - [ ] Evaluate a Trusted Web Activity (TWA) variant rendered in real Chrome, gated on Hermes WebUI serving `/.well-known/assetlinks.json` (draft + fingerprint in `assets/twa/`); accept loss of native bridges and HTTPS-only verification before pursuing
 - [x] Final package/application ID decision before first public release
 - [x] Release signing automation docs and snippets
@@ -92,15 +92,15 @@ workflow changes should be made in Hermes WebUI instead.
 Wishlist from a line-by-line committee review. Full rationale and implementation
 sketches are captured inline below.
 
-- [ ] Scope cleartext to the configured host via `network_security_config` (A1, security)
+- [ ] Decide and document the cleartext posture (A1, security): runtime-configured hosts cannot be injected into static `network_security_config`; retain global HTTP compatibility or add an explicit HTTPS-only mode
 - [ ] Optional TLS/certificate pinning for the configured host (A2, security)
-- [ ] Optional `FLAG_SECURE` + hide content in the app switcher (A3, privacy)
+- [x] Optional `FLAG_SECURE` + hide content in the app switcher (A3, privacy)
 - [ ] Biometric app-lock before `WebShell` with idle timeout (A4, security — concrete plan for the existing deferred idea)
-- [ ] Close the residual in-app OAuth phishing surface: trusted-IdP allowlist or in-flow host chip (A5, security — from the review)
-- [ ] Native "sign out & wipe" action for shared devices (A6)
-- [ ] Instrumentation tests (deep links, exported download host, allowlist) wired into CI (B1)
-- [ ] Unit tests covering the committee fixes: update-APK host allowlist, gateway `enabled` absent/false, profile `isActive` derivation (B2)
-- [ ] detekt/ktlint + Android Lint gate in CI (B3)
+- [~] Close the residual in-app OAuth phishing surface (A5, security): the in-flow host chip and HTTPS downgrade rejection are implemented; a configurable trusted-IdP allowlist remains a product decision
+- [ ] Native "sign out & wipe" action for shared devices (A6): the duplicate partial reset was removed from native Settings; WebUI owns normal sign-out, while Android system **Clear storage** remains the complete local wipe
+- [~] Instrumentation tests (deep links, exported download host, allowlist) wired into CI (B1): all current instrumentation classes now run for Android changes and releases; the listed navigation/security cases remain to be added
+- [x] Unit tests covering the committee fixes: update-APK host allowlist, gateway `enabled` absent/false, profile `isActive` derivation (B2)
+- [~] detekt/ktlint + Android Lint gate in CI (B3): Android Lint is required; detekt/ktlint remain open
 - [ ] App shortcuts for Settings + server switch (C1)
 - [ ] Direct Share targets to recent sessions (C2)
 - [ ] Predictive-back + per-app language polish (C3)
@@ -117,8 +117,8 @@ sketches are captured inline below.
 | M-004 | As needed | Open | Release | Keep signed release automation current | Maintain alignment between Gradle metadata, `keystore.properties.example`, and GitHub Actions secrets |
 | M-005 | High | In progress | Platform | Triage and stage Issue 10 background-execution work (A/B/C phases) | Part A is complete, Part B ongoing activity updates are implemented (with reconnect using `/api/sessions/events` plus polling fallback), and initial Part C tray approvals are implemented with queue-head validation through `/api/approval/pending` before `/api/approval/respond`; remaining scope is B4 lifecycle/manual validation plus broader cross-client payload/API contract hardening |
 | UX-002 | Medium | Done | Settings | Server health check before switching | Tapping a saved non-current server now probes readiness first, shows reachable/auth-required/setup/offline/non-Hermes status, asks for confirmation before switching, blocks unsafe switches by default, and records safe diagnostic breadcrumbs for the check result |
-| A-020-P2 | Medium | Open | Settings | Multi-server profile storage (Issue #20 Phase 2) | Add encrypted multi-server profile persistence in `SettingsRepository` with versioned migration; extend `SettingsBottomSheet` UI with profile list, add/edit/delete dialogs, and active server selector |
-| A-020-P3 | Medium | Open | Navigation | Multi-server profile switching (Issue #20 Phase 3) | Implement profile activation flow: reload WebView with new server, clear old session/cookies, validate new server against allowlist, update dashboard config, run comprehensive profile CRUD and switching tests |
+| A-020-P2 | Medium | Done | Settings | Multi-server profile storage (Issue #20 Phase 2) | Encrypted profile persistence, versioned migration, profile CRUD, and active-server selection are implemented. |
+| A-020-P3 | Medium | Done | Navigation | Multi-server profile switching (Issue #20 Phase 3) | Switching validates readiness, clears prior WebView session state, rebuilds the active allowlist, and reloads the selected server without changing WebUI-owned dashboard config; broader instrumentation coverage remains under B1. |
 
 ---
 
@@ -126,8 +126,15 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
-| BUG-028 | 2026-08-26 | WebView | Hardened Issue #92 dialog compatibility: initial autofocus is suppressed per Clarify request (including visible in-place replacements), validation refocus plus real touch/Tab input remain available, prompt geometry is shifted and capped inside the keyboard-constrained visual viewport, generic collapse repair preserves original overflow, and attached-WebView behavior tests now gate PRs and releases. |
-| BUG-027 | 2026-08-26 | WebView | Fixed Issue #90 by narrowing dialog keyboard suppression to programmatic autofocus, allowing explicit taps to focus and type into editable modal fields such as the workspace new-folder name input. |
+| REL-028 | 2026-08-26 | Release / CI | Reworked release orchestration to build immutable reviewed versions, pin external actions, generate linked GitHub/Play changelogs once, validate retry metadata against the originating run, and verify APK/AAB signatures before publishing. |
+| TEST-003 | 2026-08-26 | CI / Testing | Expanded QA with release-tool/workflow contract tests, Android API 35/36 instrumentation gates, share/deep-link/manifest/notification contracts, duplicate-profile rules, and deterministic GitHub update parsing. |
+| BUG-048 | 2026-08-26 | Settings | Prevented profile edits from creating duplicate server names or normalized URLs, matching the existing add-server invariant. |
+| CLEANUP-005 | 2026-08-26 | Settings / Maintenance | Reorganized native Settings into task-based Servers, Application, Updates, Connection, Privacy, Troubleshooting, Advanced, and About sections; moved PKCS#12 client certificates into an Advanced detail dialog; removed the duplicate partial session reset and its unreachable APIs; and deleted superseded Issue 43 planning files. |
+| BUG-047 | 2026-08-26 | Security | Made malformed or keyless PKCS#12 client-certificate files fail closed instead of throwing through the WebView callback, selected the first usable private-key entry, and removed the unsupported PEM claim from Settings. |
+| TEST-002 | 2026-08-26 | CI / Testing | Made Android Lint a required CI gate, expanded PR instrumentation triggers to every Android source/build change, and removed hand-maintained class filters so all current and future instrumentation tests run before merge and release. |
+| SEC-003 | 2026-08-26 | Security | Centralized WebView route/source/target/permission decisions in a unit-tested `WebTrustPolicy` and preserved public-IP OAuth scheme upgrades without allowing HTTPS callbacks to downgrade to HTTP. |
+| BUG-046 | 2026-08-26 | WebView | Hardened Issue #92 dialog compatibility: initial autofocus is suppressed per Clarify request (including visible in-place replacements), validation refocus plus real touch/Tab input remain available, prompt geometry is shifted and capped inside the keyboard-constrained visual viewport, generic collapse repair preserves original overflow, and attached-WebView behavior tests now gate PRs and releases. |
+| BUG-045 | 2026-08-26 | WebView | Fixed Issue #90 by narrowing dialog keyboard suppression to programmatic autofocus, allowing explicit taps to focus and type into editable modal fields such as the workspace new-folder name input. |
 | SSE-001 | 2026-08-09 | Background continuity | Clarified the native SSE settings and notification status: Android keeps its persistent authenticated `/api/session/stream` preference when optional gateway extras are unavailable, presents that distinction clearly, and logs the safe active transport state for diagnostics. |
 | A-001 | 2026-06-19 | Build | Fixed Java/Gradle setup and verified `test` plus `assembleDebug` |
 | A-002 | 2026-06-19 | Security | Added URL policy validation and tests |
@@ -196,7 +203,7 @@ sketches are captured inline below.
 | DOC-002 | 2026-06-23 | Docs | Added Issue 10 execution planning docs: `ISSUE_10_BACKGROUND_EXECUTION_WORKPLAN.md` for staged delivery and `ISSUE_10_STAGE0_DISCOVERY.md` for Stage 0 contract/guardrail tracking |
 | A-010-P1 | 2026-06-23 | Lifecycle | Completed Issue 10 Part A resume polish: quick background/resume disconnects now keep the last rendered WebView content visible briefly while bounded reconnect probing runs, fall back to the native error screen as soon as the grace window expires, and resume reconnect polling cleanly across app background/foreground transitions |
 | A-010-P2 | 2026-06-23 | Lifecycle | Extended Issue 10 Part A with a bounded background reconnect hold: if the app backgrounds while auto-reconnect is already running, Android starts a temporary `dataSync` foreground service and ongoing "Reconnecting to Hermes" notification so the 60 s retry loop is not canceled immediately on `onStop` |
-| A-010-P2 | 2026-06-23 | Troubleshooting | Added opt-in debug logging capture toggle in native settings that runs as a foreground service with persistent notification, one-tap Stop action, and app-private logcat file capture for troubleshooting while minimizing app-switch diagnostics gaps |
+| DBG-001 | 2026-06-23 | Troubleshooting | Added opt-in debug logging capture toggle in native settings that runs as a foreground service with persistent notification, one-tap Stop action, and app-private logcat file capture for troubleshooting while minimizing app-switch diagnostics gaps |
 | REL-019 | 2026-06-24 | Release | Manual orchestration releases now auto-bump `appVersionName` from the latest published tag before building, and Gradle derives `versionCode` from semantic version to keep release numbering monotonic without separate manual edits |
 | REL-020 | 2026-06-24 | Release | Bumped Android app version metadata to `0.1.11` with derived `versionCode` `111` for the next GitHub + Play Store release |
 | REL-021 | 2026-06-24 | Release | Bumped Android app version metadata to `0.1.12` with derived `versionCode` `112` for the next device test and GitHub + Play Store release |
@@ -204,7 +211,7 @@ sketches are captured inline below.
 | REL-023 | 2026-06-25 | Release | Enabled release native debug symbol table packaging so Play Console can symbolicate native crashes and ANRs from bundled native libraries |
 | REL-024 | 2026-06-25 | Release | Manual orchestration releases now commit the auto-bumped Android version and README release metadata back to `main`, then publish artifacts from that version-bump commit so local builds stay aligned with the latest published release |
 | REL-025 | 2026-06-25 | Release | Synced checked-in Android app version metadata to the published `0.1.16` / `versionCode` `116` release so local builds match the latest internal testing build until the next automated bump |
-| REL-026 | 2026-07-22 | Release | Updated orchestration fan-out to publish Play production by default (`1 -> 2 + 3`) and moved Play beta publishing into `play-store-beta-manual.yml` so it remains manual/optional for later testing |
+| REL-027 | 2026-07-22 | Release | Updated orchestration fan-out to publish Play production by default (`1 -> 2 + 3`) and moved Play beta publishing into `play-store-beta-manual.yml` so it remains manual/optional for later testing |
 | A-010-P3 | 2026-06-24 | Lifecycle | Enabled native SSE-backed reconnect transport for Issue 10: Android now probes lightweight Hermes WebUI `/api/sessions/events` for reconnect detection when the SSE toggle is on, falls back to `/api/status` polling when the stream is unavailable, and updates SSE support messaging to match current WebUI probe semantics |
 | A-010-P4 | 2026-06-24 | Notifications | Extended the reconnect foreground service to consume authenticated Hermes WebUI `/api/session/stream` events for the active session when available, updating the ongoing background notification with summary/progress text and trusted tap targets instead of leaving it static |
 | A-010-P5 | 2026-06-24 | Notifications | Broadened Issue 10 Part B into an opt-in ongoing background activity notification: the foreground service can now stay alive for trusted session routes while the app is backgrounded, reflects approval/failure/completion SSE events in addition to summaries, and exposes a user-controlled lock-screen redaction toggle for notification body text |
@@ -216,7 +223,7 @@ sketches are captured inline below.
 | BUG-021 | 2026-06-25 | Settings | Fixed Play tester startup recovery for auth-protected Hermes servers: `/api/status` `401`/`403` responses no longer masquerade as initialization failures when the root page fingerprints as Hermes, reconnect liveness treats authenticated status responses as reachable, and already configured servers can continue into WebView sign-in instead of being trapped by native startup validation |
 | BUG-022 | 2026-06-25 | Settings | Stopped the first-run / add-server / edit-server preflight from blocking auth-protected Hermes deployments: a 401/403 from `/api/status` on a reachable host is now treated as a healthy sign-in-required server and is saved immediately with a "sign in on the Hermes page to finish" toast, instead of trapping the user behind the readiness check. Also surfaces the full HTTP diagnostic block (status, content-type, server header, body snippet) under the readiness error and adds a recovery dialog with "Open in browser" + "Add/Save/Switch anyway" escape hatches for the remaining failure modes |
 | BUG-023 | 2026-06-25 | Settings | Added per-server "Don't ask again for this server" opt-out on the server-switch "Sign-in required" confirmation: once ticked, future switches to that URL skip the prompt and load straight into the Hermes sign-in page; the silenced URL is cleared automatically when the server profile is deleted |
-| DBG-001 | 2026-06-25 | Troubleshooting | Debug-build only: auto-start `logcat` capture in `MainActivity.onCreate` before any other startup work via a new `DebugLogBootstrap` so a crash or permission denial during launch is still captured to the same `debug-logs/` directory the foreground service manages; added a draggable floating "Save log" button overlay that one-tap shares the latest captured log via the Android share sheet. No-op on release builds |
+| DBG-002 | 2026-06-25 | Troubleshooting | Debug-build only: auto-start `logcat` capture in `MainActivity.onCreate` before any other startup work via a new `DebugLogBootstrap` so a crash or permission denial during launch is still captured to the same `debug-logs/` directory the foreground service manages; added a draggable floating "Save log" button overlay that one-tap shares the latest captured log via the Android share sheet. No-op on release builds |
 | BUG-024 | 2026-06-26 | Authentication | Hardened Issue 12 OIDC routing: trusted authorization code-flow redirects whose `redirect_uri` returns to the configured Hermes WebUI origin now stay in-app even when the provider opens top-level pages, and verified callbacks load back into the primary WebView before dashboard Custom Tab matching can externalize them |
 | BUG-025 | 2026-06-27 | Settings | Moved the injected WebUI "Application Settings" entry to anchor after the regular WebUI Settings item, with Help only as a fallback, and exported `hermes://app/settings` as a native recovery route for stuck WebView states |
 | REL-026 | 2026-06-28 | Release | Added native app update alerts for both release channels: Play builds check Google Play in-app update availability, GitHub APK builds check the latest GitHub Release with What's Changed text plus direct APK download, and both alert through the existing Hermes updates notification channel |

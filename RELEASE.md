@@ -5,23 +5,23 @@ Use this checklist when publishing a new Hermes-Android build.
 ## Before Release
 
 1. Merge the intended fix or release PR to `main`.
-2. Decide whether this is a manual or tag-triggered release:
-   - Manual run: no version edit needed. The workflow auto-bumps `appVersionName` from the latest published tag, updates README release metadata, commits those changes back to `main`, then builds from that version-bump commit.
-   - Tag run: update `appVersionName` in `app/build.gradle.kts` first, then push matching tag `v<versionName>`.
-3. Verify the change locally when code changed:
+2. Update `appVersionName` in `app/build.gradle.kts` and the matching README version metadata in the release PR. The orchestration workflow builds that reviewed version and never edits or pushes source.
+3. Choose the trigger after the release PR reaches `main`:
+  - Manual run: run `1 - Orchestration Release` from `main`; it rejects an already-published version.
+  - Tag run: push a tag that exactly matches Gradle, such as `v1.1.0`.
+4. Verify the change locally when code changed:
 
 ```powershell
 .\gradlew.bat test --no-daemon
+.\gradlew.bat lintDebug --no-daemon
 .\gradlew.bat assembleDebug --no-daemon
+.\gradlew.bat connectedDebugAndroidTest --no-daemon
+python -m unittest discover -s tools/tests -p "test_*.py" -v
 ```
 
-The orchestration release gate enables Linux KVM acceleration and runs the focused
-Settings and attached-WebView instrumentation classes on an Android emulator.
-WebView compatibility changes must keep `HermesWebUiCompatibilityTest` in that
-gate so prompt focus, geometry, and overflow behavior are executed before signed
-artifacts are built.
+CI runs the complete Android instrumentation suite on API 35 and 36 for Android-changing PRs and direct `main` pushes. Orchestration runs the same unfiltered suite on API 36 before signed artifacts are built.
 
-4. Confirm release docs are current when release behavior changed.
+5. Confirm release docs are current when release behavior changed.
 
 ## Normal Release
 
@@ -33,19 +33,21 @@ Run the GitHub Actions workflow:
 
 That workflow:
 
-1. For manual runs, commits the next app version to `main`.
-1. Builds and signs `hermes-webui-v<version>-github.apk`.
-1. Builds and signs `hermes-webui-v<version>.aab`.
-1. Uploads both files as workflow artifacts.
-1. Publishes the GitHub APK and Play production AAB in the same orchestration run.
+1. Validates the checked-in version and release secrets.
+2. Runs release-tool, unit, Lint, and API 36 instrumentation gates.
+3. Generates GitHub and Play release metadata once.
+4. Builds, signs, and verifies `hermes-webui-v<version>-github.apk` and `hermes-webui-v<version>.aab`.
+5. Uploads both files plus their release metadata as workflow artifacts.
+6. Publishes the GitHub APK and Play production AAB in the same orchestration run.
 
 The GitHub publish workflow attaches only the `-github.apk` to the GitHub
 Release and writes human-readable generated GitHub release notes grouped by
 `.github/release.yml`. Build diagnostics stay in the Actions job summary rather
 than the public release body. The Play publish workflow uploads only the `.aab`
 to Google Play production and writes a brief `en-US` What's New changelog
-generated from those same notes. The Play text is capped below the Play limit
-and ends with `Report issues through the in-app bug report tool.`
+generated from those same notes. GitHub keeps clickable PR links; Play keeps
+compact PR/issue URLs. The Play text is capped below the Play limit and ends
+with `Report issues through the in-app bug report tool.`
 
 ## Retry One Publish Target
 
@@ -78,8 +80,11 @@ target unless the build artifacts are missing or expired.
   the same release ref or target version.
 - Build and publish workflows fail if they find anything other than exactly one
   matching APK or AAB artifact.
+- Build orchestration verifies APK and AAB signatures before upload.
+- Retry publishers reject mismatched version, tag, commit, build run, artifact
+  name, or bundled release metadata.
 - GitHub Releases use human-readable generated GitHub release notes; Play Store
   releases use a shorter `en-US` What's New changelog generated from the same
   notes.
 - Tag-triggered releases must use a tag that matches the Gradle `versionName`,
-  such as `v0.1.8`.
+  such as `v1.1.0`.

@@ -72,6 +72,26 @@ class UrlPolicyTest {
     }
 
     @Test
+    fun `compatible web origin allows an https upgrade`() {
+        assertThat(
+            UrlOrigins.hasSameOrUpgradedWebOrigin(
+                "https://hermes.example.com/session",
+                "http://hermes.example.com"
+            )
+        ).isTrue()
+    }
+
+    @Test
+    fun `compatible web origin rejects an http downgrade`() {
+        assertThat(
+            UrlOrigins.hasSameOrUpgradedWebOrigin(
+                "http://hermes.example.com/session",
+                "https://hermes.example.com"
+            )
+        ).isFalse()
+    }
+
+    @Test
     fun `does not match invalid origin values`() {
         assertThat(UrlOrigins.hasSameOrigin("hermes.example.com", "other.example.com")).isFalse()
     }

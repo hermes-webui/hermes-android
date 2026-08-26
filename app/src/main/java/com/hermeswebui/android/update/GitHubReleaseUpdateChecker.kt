@@ -29,14 +29,40 @@ class GitHubReleaseUpdateChecker(
                 }
 
                 val payload = it.inputStream.bufferedReader().use { reader -> reader.readText() }
+                parseReleasePayload(
+                    payload = payload,
+                    currentVersion = currentVersion,
+                    fallbackReleaseUrl = fallbackReleaseUrl
+                )
+            }
+        }.getOrElse { error ->
+            AppUpdateCheckResult.Failed(error.message ?: "Could not check GitHub releases.")
+        }
+    }
+
+    private inline fun <T> HttpURLConnection.use(block: (HttpURLConnection) -> T): T {
+        return try {
+            block(this)
+        } finally {
+            disconnect()
+        }
+    }
+
+    companion object {
+        internal fun parseReleasePayload(
+            payload: String,
+            currentVersion: String,
+            fallbackReleaseUrl: String
+        ): AppUpdateCheckResult {
+            return runCatching {
                 val release = JSONObject(payload)
                 val tagName = release.optString("tag_name").trim()
                 if (tagName.isBlank()) {
-                    return@withContext AppUpdateCheckResult.Failed("GitHub release response did not include a tag.")
+                    return AppUpdateCheckResult.Failed("GitHub release response did not include a tag.")
                 }
 
                 if (!AppVersionComparator.isNewer(tagName, currentVersion)) {
-                    return@withContext AppUpdateCheckResult.Current
+                    return AppUpdateCheckResult.Current
                 }
 
                 val version = AppVersionComparator.normalize(tagName)
@@ -66,47 +92,39 @@ class GitHubReleaseUpdateChecker(
                         }
                     }
                 )
-            }
-        }.getOrElse { error ->
-            AppUpdateCheckResult.Failed(error.message ?: "Could not check GitHub releases.")
-        }
-    }
-
-    private inline fun <T> HttpURLConnection.use(block: (HttpURLConnection) -> T): T {
-        return try {
-            block(this)
-        } finally {
-            disconnect()
-        }
-    }
-
-    private data class GitHubAsset(val name: String, val downloadUrl: String)
-
-    private fun JSONArray.findGitHubApkAsset(): GitHubAsset? {
-        for (index in 0 until length()) {
-            val asset = optJSONObject(index) ?: continue
-            val name = asset.optString("name").trim()
-            val downloadUrl = asset.optString("browser_download_url").trim()
-            if (
-                name.endsWith("-github.apk", ignoreCase = true) &&
-                downloadUrl.startsWith("https://", ignoreCase = true)
-            ) {
-                return GitHubAsset(name = name, downloadUrl = downloadUrl)
+            }.getOrElse { error ->
+                AppUpdateCheckResult.Failed(error.message ?: "Could not parse GitHub release response.")
             }
         }
-        return null
-    }
 
-    private fun String.summarizeReleaseNotes(): String {
-        return lineSequence()
-            .map { line -> line.trim() }
-            .filter { line ->
-                line.isNotBlank() &&
-                    !line.startsWith("#") &&
-                    !line.startsWith("**Full Changelog", ignoreCase = true)
+        private data class GitHubAsset(val name: String, val downloadUrl: String)
+
+        private fun JSONArray.findGitHubApkAsset(): GitHubAsset? {
+            for (index in 0 until length()) {
+                val asset = optJSONObject(index) ?: continue
+                val name = asset.optString("name").trim()
+                val downloadUrl = asset.optString("browser_download_url").trim()
+                if (
+                    name.endsWith("-github.apk", ignoreCase = true) &&
+                    downloadUrl.startsWith("https://", ignoreCase = true)
+                ) {
+                    return GitHubAsset(name = name, downloadUrl = downloadUrl)
+                }
             }
-            .take(6)
-            .joinToString("\n")
-            .take(700)
+            return null
+        }
+
+        private fun String.summarizeReleaseNotes(): String {
+            return lineSequence()
+                .map { line -> line.trim() }
+                .filter { line ->
+                    line.isNotBlank() &&
+                        !line.startsWith("#") &&
+                        !line.startsWith("**Full Changelog", ignoreCase = true)
+                }
+                .take(6)
+                .joinToString("\n")
+                .take(700)
+        }
     }
 }

@@ -326,11 +326,6 @@ class MainViewModel(
          refreshProfiles()
      }
 
-     fun renameServerProfile(profileId: String, newName: String) {
-         settingsRepositoryImpl?.renameProfile(profileId, newName)
-         refreshProfiles()
-     }
-
      fun updateServerProfile(profileId: String, newName: String, newUrl: String) {
          settingsRepositoryImpl?.updateProfile(profileId, newName, newUrl)
          refreshProfiles()
@@ -559,20 +554,6 @@ class MainViewModel(
                 errorMessage = null,
                 isOffline = false,
                 serverValidation = ServerValidationUiState()
-            )
-        }
-    }
-
-    fun resetSession() {
-        cancelAutoRetry(clearDeferredPageError = true)
-        settingsRepository.clearWebSession()
-        _uiState.update {
-            it.copy(
-                isLoading = true,
-                hasLoadedContent = false,
-                errorMessage = null,
-                isOffline = false,
-                currentUrl = it.settings.serverUrl
             )
         }
     }

@@ -7,7 +7,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
@@ -34,14 +34,25 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
+
+      - name: Validate release source
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
+            echo "Manual production releases must run from main, not $GITHUB_REF."
+            exit 1
+          fi
 
       - name: Validate release secrets
         shell: bash
@@ -60,35 +71,6 @@ jobs:
           test -f "$ANDROID_KEYSTORE_FILE" || { echo "Keystore file was not created"; exit 1; }
           echo "Keystore file size: $(wc -c < "$ANDROID_KEYSTORE_FILE") bytes"
 
-      - name: Auto-bump app version for manual releases
-        id: auto_bump
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          chmod +x ./gradlew
-          latest_tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // ""')"
-          next_version="$(python3 tools/bump_gradle_version.py --gradle-file app/build.gradle.kts --readme-file README.md --latest-tag "$latest_tag")"
-          test -n "$next_version" || { echo "Failed to compute next app version"; exit 1; }
-          echo "version_name=$next_version" >> "$GITHUB_OUTPUT"
-          echo "Manual release auto-bumped appVersionName to $next_version (latest published tag: ${latest_tag:-none})"
-
-      - name: Commit auto-bumped app version
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          if git diff --quiet -- app/build.gradle.kts README.md; then
-            echo "No version metadata changes to commit."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/build.gradle.kts README.md
-          git commit -m "release: bump Android version to ${{ steps.auto_bump.outputs.version_name }}"
-          git push origin HEAD:${GITHUB_REF_NAME}
-
       - name: Read Android release version
         id: release_version
         shell: bash
@@ -99,6 +81,22 @@ jobs:
           echo "version_name=$version_name" >> "$GITHUB_OUTPUT"
           echo "tag_name=v$version_name" >> "$GITHUB_OUTPUT"
           echo "Android versionName: $version_name"
+
+      - name: Validate release version is unpublished
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_name="${{ steps.release_version.outputs.tag_name }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag_name" >/dev/null 2>&1; then
+            echo "Tag $tag_name already exists. Use the target-specific retry workflows instead."
+            exit 1
+          fi
+          if gh release view "$tag_name" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag_name already exists. Use the target-specific retry workflows instead."
+            exit 1
+          fi
 
       - name: Validate release tag matches app version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -119,24 +117,53 @@ jobs:
           echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
           echo "Release commit: $commit_sha"
 
+      - name: Test release tooling
+        run: python3 -m unittest discover -s tools/tests -p 'test_*.py' -v
+
+      - name: Generate release metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release_version.outputs.tag_name }}
+          RELEASE_COMMIT: ${{ steps.release_commit.outputs.commit_sha }}
+        run: |
+          mkdir -p build/release/play-whatsnew
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="$RELEASE_COMMIT" \
+            --jq '.body' > build/release/generated-notes.md
+          python3 tools/generate_release_metadata.py \
+            --input-file build/release/generated-notes.md \
+            --github-output build/release/release-notes.md \
+            --play-output build/release/play-whatsnew/whatsnew-en-US
+          test -s build/release/release-notes.md || { echo "GitHub release notes are empty"; exit 1; }
+          test -s build/release/play-whatsnew/whatsnew-en-US || { echo "Play What's New is empty"; exit 1; }
+          play_chars="$(python3 -c 'from pathlib import Path; print(len(Path("build/release/play-whatsnew/whatsnew-en-US").read_text(encoding="utf-8").rstrip("\n")))')"
+          test "$play_chars" -le 480 || { echo "Play What's New exceeds 480 characters"; exit 1; }
+          tail -n 1 build/release/play-whatsnew/whatsnew-en-US | \
+            grep -Fx 'Report issues through the in-app bug report tool.' >/dev/null || {
+              echo "Play What's New is missing the required support line"
+              exit 1
+            }
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run focused Settings and WebView smoke tests
+      - name: Run Android instrumentation tests
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
         with:
-          api-level: 35
+          api-level: 36
           arch: x86_64
           profile: pixel_6
-          script: ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hermeswebui.android.ui.settings.SettingsScreenTest,com.hermeswebui.android.webui.HermesWebUiCompatibilityTest
+          script: ./gradlew --no-daemon connectedDebugAndroidTest
 
       - name: Build signed release artifacts
         shell: bash
         run: |
-          ./gradlew test :app:stageGithubReleaseApk :app:bundleRelease --no-daemon
+          ./gradlew test lintDebug :app:stageGithubReleaseApk :app:bundleRelease --no-daemon
 
           src_aab="$(find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n 1)"
           test -n "$src_aab" || { echo "No release AAB found"; exit 1; }
@@ -148,8 +175,10 @@ jobs:
       - name: Validate staged release artifacts
         shell: bash
         run: |
-          apk_count="$(find build/release -maxdepth 1 -type f -name 'hermes-webui-v*-github.apk' | wc -l | tr -d ' ')"
-          aab_count="$(find build/release -maxdepth 1 -type f -name 'hermes-webui-v*.aab' | wc -l | tr -d ' ')"
+          expected_apk="build/release/hermes-webui-v${{ steps.release_version.outputs.version_name }}-github.apk"
+          expected_aab="build/release/hermes-webui-v${{ steps.release_version.outputs.version_name }}.aab"
+          apk_count="$(find build/release -maxdepth 1 -type f -name '*.apk' | wc -l | tr -d ' ')"
+          aab_count="$(find build/release -maxdepth 1 -type f -name '*.aab' | wc -l | tr -d ' ')"
 
           if [ "$apk_count" != "1" ]; then
             echo "Expected exactly one GitHub APK artifact, found $apk_count."
@@ -162,6 +191,23 @@ jobs:
             find build/release -maxdepth 1 -type f -name '*.aab' -print
             exit 1
           fi
+          test -f "$expected_apk" || { echo "Missing expected APK: $expected_apk"; exit 1; }
+          test -f "$expected_aab" || { echo "Missing expected AAB: $expected_aab"; exit 1; }
+
+      - name: Verify release artifact signatures
+        shell: bash
+        run: |
+          apk_path="build/release/hermes-webui-v${{ steps.release_version.outputs.version_name }}-github.apk"
+          aab_path="build/release/hermes-webui-v${{ steps.release_version.outputs.version_name }}.aab"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner" || { echo "Android apksigner is unavailable"; exit 1; }
+          "$apksigner" verify --verbose --print-certs "$apk_path"
+          jarsigner_output="$(jarsigner -verify "$aab_path" 2>&1)"
+          printf '%s\n' "$jarsigner_output"
+          printf '%s\n' "$jarsigner_output" | grep -F 'jar verified.' >/dev/null || {
+            echo "AAB signature verification failed"
+            exit 1
+          }
 
       - name: Set artifact names
         id: artifact_names
@@ -187,17 +233,21 @@ jobs:
           EOF
 
       - name: Upload signed GitHub APK artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ steps.artifact_names.outputs.github_apk_artifact_name }}
-          path: build/release/*-github.apk
+          path: |
+            build/release/*-github.apk
+            build/release/release-notes.md
           if-no-files-found: error
 
       - name: Upload Play AAB artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ steps.artifact_names.outputs.play_aab_artifact_name }}
-          path: build/release/*.aab
+          path: |
+            build/release/*.aab
+            build/release/play-whatsnew/whatsnew-en-US
           if-no-files-found: error
 
   publish-github-release:
@@ -217,122 +267,16 @@ jobs:
   publish-play-production:
     name: 3 - Publish Play Store Production
     needs: build-release-artifacts
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/_publish-play-store.yml
     permissions:
-      contents: write
+      contents: read
       actions: read
-
-    steps:
-      - name: Validate Play service account secret
-        shell: bash
-        run: |
-          test -n "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" || { echo "Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"; exit 1; }
-
-      - name: Download Play AAB artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: ${{ needs.build-release-artifacts.outputs.play_aab_artifact_name }}
-          path: build/release
-          run-id: ${{ github.run_id }}
-          github-token: ${{ github.token }}
-
-      - name: Validate Play AAB artifact
-        shell: bash
-        run: |
-          aab_count="$(find build/release -maxdepth 1 -type f -name 'hermes-webui-v*.aab' | wc -l | tr -d ' ')"
-          if [ "$aab_count" != "1" ]; then
-            echo "Expected exactly one Play AAB artifact, found $aab_count."
-            find build/release -maxdepth 1 -type f -print
-            exit 1
-          fi
-
-      - name: Decode Google Play service account
-        shell: bash
-        run: |
-          mkdir -p signing
-          echo "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 --decode > signing/google-play-service-account.json
-          test -f signing/google-play-service-account.json || { echo "Google Play service account file was not created"; exit 1; }
-
-      - name: Build Play Store changelog
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.build-release-artifacts.outputs.tag_name }}
-          RELEASE_COMMIT: ${{ needs.build-release-artifacts.outputs.commit_sha }}
-        run: |
-          mkdir -p build/play-whatsnew
-
-          generated_notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$RELEASE_TAG" \
-            -f target_commitish="$RELEASE_COMMIT" \
-            --jq '.body')"
-
-          export GENERATED_NOTES="$generated_notes"
-          python3 <<'PY' > build/play-whatsnew/whatsnew-en-US
-          import os
-          import re
-
-          max_chars = 480
-          report_line = "Report issues through the in-app bug report tool."
-          notes = os.environ.get("GENERATED_NOTES", "")
-          bullets = []
-
-          for raw_line in notes.splitlines():
-              line = raw_line.strip()
-              if not line:
-                  continue
-              if line.startswith("#"):
-                  continue
-              if "Full Changelog" in line or "compare/" in line:
-                  continue
-              if line.lower().startswith("new contributors"):
-                  continue
-              if line.startswith(("* ", "- ")):
-                  line = "- " + line[2:].strip()
-              else:
-                  continue
-              line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", line)
-              line = re.sub(r"\s+by\s+@[A-Za-z0-9-]+(?:\s+in\s+#\d+)?$", "", line)
-              line = re.sub(r"\s+in\s+#\d+$", "", line)
-              line = re.sub(r"@[A-Za-z0-9-]+", "", line)
-              line = re.sub(r"#(\d+)", r"issue \1", line)
-              line = line.replace("`", "")
-              line = re.sub(r"\s+", " ", line).strip()
-              if line and line not in bullets:
-                  bullets.append(line)
-
-          if not bullets:
-              bullets = ["- Bug fixes and Android wrapper improvements."]
-
-          output_lines = []
-          for bullet in bullets:
-              candidate_lines = output_lines + [bullet, "", report_line]
-              candidate = "\n".join(candidate_lines)
-              if len(candidate) <= max_chars:
-                  output_lines.append(bullet)
-              if len(output_lines) >= 4:
-                  break
-
-          if not output_lines:
-              output_lines = [bullets[0][: max_chars - len(report_line) - 3].rstrip()]
-
-          text = "\n".join(output_lines + ["", report_line])
-          if len(text) > max_chars:
-              available = max_chars - len(report_line) - 2
-              trimmed = "\n".join(output_lines)
-              text = trimmed[:available].rstrip() + "\n\n" + report_line
-
-          print(text)
-          PY
-          cat build/play-whatsnew/whatsnew-en-US
-
-      - name: Upload AAB to Google Play production
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJson: signing/google-play-service-account.json
-          packageName: com.hermeswebui.android
-          releaseFiles: build/release/*.aab
-          tracks: production
-          status: completed
-          releaseName: Hermes WebUI Android v${{ needs.build-release-artifacts.outputs.version_name }}
-          whatsNewDirectory: build/play-whatsnew
+    secrets:
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+    with:
+      artifact_name: ${{ needs.build-release-artifacts.outputs.play_aab_artifact_name }}
+      build_run_id: ${{ github.run_id }}
+      commit_sha: ${{ needs.build-release-artifacts.outputs.commit_sha }}
+      tag_name: ${{ needs.build-release-artifacts.outputs.tag_name }}
+      version_name: ${{ needs.build-release-artifacts.outputs.version_name }}
+      track: production

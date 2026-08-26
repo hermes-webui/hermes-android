@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,8 +63,8 @@ fun DebugLogFloatingOverlay(
         val defaultX = maxXPx
         val defaultY = with(density) { (maxHeight - buttonSizeDp - 96.dp).toPx() }
 
-        var offsetX by remember { mutableStateOf(defaultX) }
-        var offsetY by remember { mutableStateOf(defaultY) }
+        var offsetX by remember { mutableFloatStateOf(defaultX) }
+        var offsetY by remember { mutableFloatStateOf(defaultY) }
 
         // Re-clamp when the available bounds change (rotation/resize). Without this, a position
         // saved in a larger layout can leave the button (and its hint label) partly or fully

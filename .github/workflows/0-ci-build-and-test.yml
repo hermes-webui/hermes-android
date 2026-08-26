@@ -19,34 +19,30 @@ permissions:
 
 jobs:
   changes:
-    name: Detect instrumented UI changes
+    name: Detect Android app changes
     runs-on: ubuntu-latest
     outputs:
-      settings_ui: ${{ steps.filter.outputs.settings_ui }}
-      webview_compatibility: ${{ steps.filter.outputs.webview_compatibility }}
+      android_app: ${{ steps.filter.outputs.android_app }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Detect instrumented UI changes
+      - name: Detect Android app changes
         id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
-            settings_ui:
-              - 'app/src/main/java/com/hermeswebui/android/ui/settings/**'
-              - 'app/src/androidTest/java/com/hermeswebui/android/ui/settings/**'
-              - 'app/src/main/res/values/**'
+            android_app:
+              - 'app/src/**'
               - 'app/build.gradle.kts'
+              - 'build.gradle.kts'
+              - 'settings.gradle.kts'
+              - 'gradle.properties'
+              - 'gradle/**'
               - 'gradle/libs.versions.toml'
-              - '.github/workflows/0-ci-build-and-test.yml'
-            webview_compatibility:
-              - 'app/src/main/java/com/hermeswebui/android/MainActivity.kt'
-              - 'app/src/main/java/com/hermeswebui/android/webui/**'
-              - 'app/src/androidTest/java/com/hermeswebui/android/webui/**'
               - '.github/workflows/0-ci-build-and-test.yml'
 
   build:
-    name: Unit tests + debug build
+    name: Quality gates + debug build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,28 +65,42 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
 
-      - name: Unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+      - name: Test release tooling
+        run: python3 -m unittest discover -s tools/tests -p 'test_*.py' -v
 
-      - name: Assemble debug APK
-        run: ./gradlew --no-daemon assembleDebug
+      - name: Unit tests, Android Lint, and debug APK
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+
+      - name: Upload QA reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hermes-debug-qa-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
 
       - name: Upload debug APK
         if: success()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hermes-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
 
   android-ui-smoke:
-    name: Settings + WebView instrumentation smoke
+    name: Android instrumentation (API ${{ matrix.api-level }})
     needs: changes
     if: >-
-      github.event_name == 'pull_request' &&
-      (needs.changes.outputs.settings_ui == 'true' ||
-      needs.changes.outputs.webview_compatibility == 'true')
+      needs.changes.outputs.android_app == 'true' &&
+      (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [35, 36]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -118,10 +128,20 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run focused Settings and WebView instrumentation
+      - name: Run Android instrumentation tests
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
         with:
-          api-level: 35
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
-          script: ./gradlew --no-daemon connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.hermeswebui.android.ui.settings.SettingsScreenTest,com.hermeswebui.android.webui.HermesWebUiCompatibilityTest
+          script: ./gradlew --no-daemon connectedDebugAndroidTest
+
+      - name: Upload instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hermes-android-tests-api-${{ matrix.api-level }}
+          path: |
+            app/build/reports/androidTests/connected/
+            app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn

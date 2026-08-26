@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import java.util.concurrent.CountDownLatch
@@ -61,6 +61,8 @@ class HermesWebUiCompatibilityTest {
 
         evaluate("folderName.focus()")
         assertThat(awaitBoolean("document.activeElement === folderName", expected = true)).isTrue()
+        pressKeysInWebView(KeyEvent.KEYCODE_H, KeyEvent.KEYCODE_I)
+        assertThat(awaitBoolean("folderName.value === 'hi'", expected = true)).isTrue()
 
         evaluate(
             """
@@ -127,6 +129,56 @@ class HermesWebUiCompatibilityTest {
         evaluate("clarifyQuestion.textContent = 'Third question'; folderName.focus()")
         pressTabInWebView()
         assertThat(awaitBoolean("document.activeElement === clarifyInput", expected = true)).isTrue()
+    }
+
+    @Test
+    fun viewportFix_repairsCollapsedShellAndMessagesContainerOnly() {
+        loadFixture(
+            """
+            <style>
+              html, body { width: 100%; height: 100%; margin: 0; }
+              #appShell {
+                width: 100%;
+                max-height: 0;
+                overflow: hidden;
+              }
+              #shellContent { height: 800px; }
+              .messages {
+                width: 100%;
+                max-height: 0;
+                overflow: visible;
+              }
+              #messageBody {
+                width: 100%;
+                max-height: 0;
+                overflow: visible;
+              }
+              #messageBody > div { height: 500px; }
+            </style>
+            <main id="appShell">
+              <div id="shellContent">
+                <button>Shell action</button>
+                <section id="messages" class="messages">
+                  <div id="messageBody"><div><button>Message action</button></div></div>
+                </section>
+              </div>
+            </main>
+            """.trimIndent()
+        )
+        evaluate(HermesWebUiScripts.viewportFixScript)
+        evaluate("window.__hermesAndroidApplyViewportFix();")
+
+        assertThat(
+            evaluateBoolean(
+                """
+                appShell.hasAttribute('data-hermes-android-vh-repaired') &&
+                  messages.hasAttribute('data-hermes-android-vh-repaired') &&
+                  !messageBody.hasAttribute('data-hermes-android-vh-repaired') &&
+                  parseFloat(appShell.style.maxHeight) > 0 &&
+                  parseFloat(messages.style.maxHeight) > 0
+                """.trimIndent()
+            )
+        ).isTrue()
     }
 
     @Test
@@ -366,9 +418,15 @@ class HermesWebUiCompatibilityTest {
     }
 
     private fun pressTabInWebView() {
+      pressKeysInWebView(KeyEvent.KEYCODE_TAB)
+    }
+
+    private fun pressKeysInWebView(vararg keyCodes: Int) {
         composeTestRule.runOnIdle {
-            webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB))
-            webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_TAB))
+        keyCodes.forEach { keyCode ->
+          webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+          webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+        }
         }
     }
 

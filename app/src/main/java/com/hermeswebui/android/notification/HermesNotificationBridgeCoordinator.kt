@@ -3,6 +3,7 @@ package com.hermeswebui.android.notification
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.webkit.JavaScriptReplyProxy
@@ -184,6 +185,7 @@ class HermesNotificationBridgeCoordinator(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun hasRuntimePostNotificationsPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             context,

@@ -3,6 +3,7 @@ package com.hermeswebui.android.server
 import android.app.AlertDialog
 import android.content.Context
 import android.widget.Toast
+import com.hermeswebui.android.R
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
@@ -62,13 +63,16 @@ class HermesServerProfileCoordinator(
         }
 
         val existingProfiles = settingsRepository.getProfiles()
-        if (existingProfiles.any { normalizeServerProfileUrl(it.url) == normalizeServerProfileUrl(trimmedUrl) }) {
-            Toast.makeText(context, "A server with this URL already exists", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (trimmedName.isNotBlank() && existingProfiles.any { it.name.trim().equals(trimmedName, ignoreCase = true) }) {
-            Toast.makeText(context, "A server with this name already exists", Toast.LENGTH_LONG).show()
-            return
+        when (ServerProfileRules.findConflict(existingProfiles, trimmedName, trimmedUrl)) {
+            ServerProfileConflict.URL -> {
+                Toast.makeText(context, "A server with this URL already exists", Toast.LENGTH_LONG).show()
+                return
+            }
+            ServerProfileConflict.NAME -> {
+                Toast.makeText(context, "A server with this name already exists", Toast.LENGTH_LONG).show()
+                return
+            }
+            null -> Unit
         }
 
         validateServerBeforePersist(
@@ -100,20 +104,40 @@ class HermesServerProfileCoordinator(
     }
 
     fun handleEditServerProfile(profileId: String, newName: String, newUrl: String) {
-        if (!serverUrlValidator.isValid(newUrl)) {
+        val trimmedName = newName.trim()
+        val trimmedUrl = newUrl.trim()
+        if (!serverUrlValidator.isValid(trimmedUrl)) {
             Toast.makeText(context, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
+        when (
+            ServerProfileRules.findConflict(
+                existingProfiles = settingsRepository.getProfiles(),
+                candidateName = trimmedName,
+                candidateUrl = trimmedUrl,
+                excludedProfileId = profileId
+            )
+        ) {
+            ServerProfileConflict.URL -> {
+                Toast.makeText(context, "A server with this URL already exists", Toast.LENGTH_LONG).show()
+                return
+            }
+            ServerProfileConflict.NAME -> {
+                Toast.makeText(context, "A server with this name already exists", Toast.LENGTH_LONG).show()
+                return
+            }
+            null -> Unit
+        }
         validateServerBeforePersist(
-            newUrl,
+            trimmedUrl,
             onFailure = { result ->
-                showServerValidationRecoveryDialog(newUrl, result, "Save changes") {
-                    viewModel.updateServerProfile(profileId, newName, newUrl)
+                showServerValidationRecoveryDialog(trimmedUrl, result, "Save changes") {
+                    viewModel.updateServerProfile(profileId, trimmedName, trimmedUrl)
                     Toast.makeText(context, "Profile updated (readiness check skipped)", Toast.LENGTH_LONG).show()
                 }
             }
         ) {
-            viewModel.updateServerProfile(profileId, newName, newUrl)
+            viewModel.updateServerProfile(profileId, trimmedName, trimmedUrl)
             Toast.makeText(context, "Profile updated", Toast.LENGTH_SHORT).show()
         }
     }
@@ -247,7 +271,7 @@ class HermesServerProfileCoordinator(
     private fun showAuthRequiredSwitchConfirmation(profile: ServerProfile, message: String) {
         val padding = (16 * context.resources.displayMetrics.density).toInt()
         val checkBox = android.widget.CheckBox(context).apply {
-            text = "Don't ask again for this server"
+            text = context.getString(R.string.server_switch_do_not_ask_again)
         }
         val messageView = android.widget.TextView(context).apply {
             text = message
@@ -430,7 +454,4 @@ class HermesServerProfileCoordinator(
         }
     }
 
-    private fun normalizeServerProfileUrl(url: String): String {
-        return url.trim().trimEnd('/').lowercase()
-    }
 }

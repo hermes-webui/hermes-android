@@ -33,11 +33,11 @@ on:
         required: true
         type: string
       tag_name:
-        description: Release tag, such as v0.1.8.
+        description: Release tag, such as v1.1.0.
         required: true
         type: string
       version_name:
-        description: Android versionName, such as 0.1.8.
+        description: Android versionName, such as 1.1.0.
         required: true
         type: string
 
@@ -55,8 +55,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate release metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $VERSION_NAME"; exit 1; }
+          [ "$TAG_NAME" = "v$VERSION_NAME" ] || { echo "Tag/version mismatch: $TAG_NAME vs $VERSION_NAME"; exit 1; }
+          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid commit SHA: $COMMIT_SHA"; exit 1; }
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid build run ID: $BUILD_RUN_ID"; exit 1; }
+          [ "$ARTIFACT_NAME" = "hermes-webui-v$VERSION_NAME-github-apk" ] || {
+            echo "Unexpected GitHub artifact name: $ARTIFACT_NAME"
+            exit 1
+          }
+          gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT_SHA" >/dev/null
+          run_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" --jq '.head_sha')"
+          [ "$run_sha" = "$COMMIT_SHA" ] || {
+            echo "Build run $BUILD_RUN_ID used $run_sha, not $COMMIT_SHA"
+            exit 1
+          }
+
       - name: Download GitHub APK artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ${{ inputs.artifact_name }}
           path: build/release
@@ -66,17 +97,27 @@ jobs:
       - name: Validate GitHub APK artifact
         shell: bash
         run: |
-          apk_count="$(find build/release -maxdepth 1 -type f -name 'hermes-webui-v*-github.apk' | wc -l | tr -d ' ')"
+          expected_apk="build/release/hermes-webui-v${{ inputs.version_name }}-github.apk"
+          apk_count="$(find build/release -maxdepth 1 -type f -name '*.apk' | wc -l | tr -d ' ')"
           if [ "$apk_count" != "1" ]; then
             echo "Expected exactly one GitHub APK artifact, found $apk_count."
             find build/release -maxdepth 1 -type f -print
             exit 1
           fi
+          test -f "$expected_apk" || { echo "Missing expected APK: $expected_apk"; exit 1; }
+          test -s build/release/release-notes.md || { echo "GitHub release notes are missing"; exit 1; }
 
-      - name: Build release notes body
+      - name: Verify downloaded APK signature
+        shell: bash
+        run: |
+          apk_path="build/release/hermes-webui-v${{ inputs.version_name }}-github.apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner" || { echo "Android apksigner is unavailable"; exit 1; }
+          "$apksigner" verify --verbose --print-certs "$apk_path"
+
+      - name: Write release diagnostics
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag_name }}
           RELEASE_COMMIT: ${{ inputs.commit_sha }}
           VERSION_NAME: ${{ inputs.version_name }}
@@ -86,18 +127,6 @@ jobs:
           apk_name="$(basename "$apk_path")"
           apk_sha256="$(sha256sum "$apk_path" | awk '{print $1}')"
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${{ inputs.build_run_id }}"
-
-          generated_notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$RELEASE_TAG" \
-            -f target_commitish="$RELEASE_COMMIT" \
-            --jq '.body')"
-
-          release_notes="$(printf '%s\n' "$generated_notes" | sed "1s/^## What's Changed/## What's New/")"
-          if ! printf '%s\n' "$release_notes" | grep -q '^## '; then
-            release_notes="$(printf "## What's New\n\n%s" "$release_notes")"
-          fi
-
-          printf '%s\n' "$release_notes" > build/release/release-notes.md
 
           {
             echo "## Release diagnostics"

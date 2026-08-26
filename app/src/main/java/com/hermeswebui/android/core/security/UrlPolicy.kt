@@ -72,6 +72,30 @@ object UrlOrigins {
             portsMatch
     }
 
+    fun hasSameOrUpgradedWebOrigin(url: String?, baseUrl: String): Boolean {
+        if (url.isNullOrBlank() || baseUrl.isBlank()) return false
+        val target = url.toUriOrNull() ?: return false
+        val base = baseUrl.toUriOrNull() ?: return false
+        val targetScheme = target.scheme?.lowercase(Locale.US) ?: return false
+        val baseScheme = base.scheme?.lowercase(Locale.US) ?: return false
+        if (targetScheme !in setOf("http", "https") || baseScheme !in setOf("http", "https")) {
+            return false
+        }
+
+        val schemesMatchOrUpgrade = targetScheme == baseScheme ||
+            (baseScheme == "http" && targetScheme == "https")
+        if (!schemesMatchOrUpgrade) return false
+
+        val targetHost = target.normalizedHost() ?: return false
+        val baseHost = base.normalizedHost() ?: return false
+        val targetPort = target.effectivePort()
+        val basePort = base.effectivePort()
+        val portsMatch = targetPort == basePort ||
+            (targetScheme != baseScheme && isStandardWebPort(targetPort) && isStandardWebPort(basePort))
+
+        return targetHost == baseHost && portsMatch
+    }
+
     private fun isStandardWebPort(port: Int): Boolean = port == 80 || port == 443
 
     fun documentStartOriginRule(url: String): String? {

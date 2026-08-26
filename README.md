@@ -165,8 +165,8 @@ Hermes-Android currently publishes through two release channels:
 
 Current checked-in release metadata:
 
-- Version name: `1.0.29`
-- Version code: `10029`
+- Version name: `1.1.0`
+- Version code: `10100`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - Compile SDK / target SDK: `37`
@@ -237,15 +237,15 @@ Useful commands:
 
 ```powershell
 .\gradlew.bat test --no-daemon
+.\gradlew.bat lintDebug --no-daemon
 .\gradlew.bat assembleDebug --no-daemon
 .\gradlew.bat stageGithubReleaseApk --no-daemon
 .\gradlew.bat printReleaseVersionName --no-daemon
 ```
 
-Optional checks:
+Device check:
 
 ```powershell
-.\gradlew.bat lint --no-daemon
 .\gradlew.bat connectedDebugAndroidTest --no-daemon
 ```
 
@@ -264,10 +264,10 @@ That flow builds:
 - `hermes-webui-v<version>-github.apk` for GitHub/device installs
 - `hermes-webui-v<version>.aab` for Google Play production
 
-Manual orchestration runs auto-bump `appVersionName` from the latest published
-`vX.Y.Z` tag, sync the checked-in README release metadata, commit the bump back
-to `main`, and build from that version-bump commit. `versionCode` is derived
-from semantic version as `major*10000 + minor*100 + patch`.
+Release orchestration builds the reviewed `appVersionName` already checked into
+Git and never commits or pushes source changes. `versionCode` is derived from
+semantic version as `major*10000 + minor*100 + patch`; update the Gradle and
+README metadata together before starting a release.
 
 See [RELEASE.md](./RELEASE.md) for the operator workflow.
 
@@ -295,7 +295,6 @@ security model.
 - [RELEASE.md](./RELEASE.md) - release operator workflow and retry path
 - [AI_USE.md](./AI_USE.md) - AI-assisted development approach, review, validation, and accountability
 - [AGENTS.md](./AGENTS.md) - repository instructions for AI assistants
-- [projects/](./projects/) - active project notes and implementation plans
 - [assets/](./assets/) - README images, branding assets, icons, and TWA handoff files
 
 ## AI-assisted Development

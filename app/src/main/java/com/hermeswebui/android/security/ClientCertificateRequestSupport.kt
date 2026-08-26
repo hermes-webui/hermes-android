@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.net.Uri
 import androidx.core.net.toUri
 import com.hermeswebui.android.data.ClientCertificateConfig
+import java.io.InputStream
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
@@ -44,23 +45,35 @@ object ClientCertificateRequestSupport {
         if (!isAllowedHost(host, allowedHosts)) return null
 
         val parsedUri = runCatching { certUri.toUri() }.getOrNull() ?: return null
-        val password = config.password?.trim().orEmpty()
+        val password = config.password.orEmpty()
 
-        val keyStore = KeyStore.getInstance("PKCS12")
-        contentResolver.openInputStream(parsedUri)?.use { stream ->
-            keyStore.load(stream, password.toCharArray())
-        } ?: return null
+        return runCatching {
+            contentResolver.openInputStream(parsedUri)?.use { stream ->
+                loadPkcs12(stream, password.toCharArray())
+            }
+        }.getOrNull()
+    }
 
-        val aliases = keyStore.aliases()
-        if (!aliases.hasMoreElements()) return null
+    internal fun loadPkcs12(stream: InputStream, password: CharArray): ClientCertificate? {
+        return runCatching {
+            val keyStore = KeyStore.getInstance("PKCS12").apply {
+                load(stream, password)
+            }
+            val aliases = keyStore.aliases()
+            var resolved: ClientCertificate? = null
 
-        val alias = aliases.nextElement()
-        val privateKey = keyStore.getKey(alias, password.toCharArray()) as? PrivateKey ?: return null
-        val chain = keyStore.getCertificateChain(alias)
-            ?.mapNotNull { it as? X509Certificate }
-            ?.toTypedArray()
-            ?: return null
+            while (aliases.hasMoreElements() && resolved == null) {
+                val alias = aliases.nextElement()
+                val privateKey = keyStore.getKey(alias, password) as? PrivateKey ?: continue
+                val chain = keyStore.getCertificateChain(alias)
+                    ?.mapNotNull { it as? X509Certificate }
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.toTypedArray()
+                    ?: continue
+                resolved = ClientCertificate(privateKey = privateKey, certChain = chain)
+            }
 
-        return ClientCertificate(privateKey = privateKey, certChain = chain)
+            resolved
+        }.getOrNull()
     }
 }

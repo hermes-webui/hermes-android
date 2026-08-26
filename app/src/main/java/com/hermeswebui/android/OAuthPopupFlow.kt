@@ -32,16 +32,16 @@ data class OAuthPopupFlow(
 
     fun isRedirectOriginUrl(url: String): Boolean {
         val origin = redirectOrigin ?: return false
-        return UrlOrigins.hasSameOrigin(url, origin, ignoreScheme = true)
+        return UrlOrigins.hasSameOrUpgradedWebOrigin(url, origin)
     }
 
     fun redirectsToOrigin(baseUrl: String): Boolean {
-        return UrlOrigins.hasSameOrigin(redirectUri, baseUrl, ignoreScheme = true)
+        return UrlOrigins.hasSameOrUpgradedWebOrigin(redirectUri, baseUrl)
     }
 
     private fun matchesEndpoint(target: URI, url: String): Boolean {
         if (redirectOrigin != null) {
-            if (!UrlOrigins.hasSameOrigin(url, redirectOrigin, ignoreScheme = true)) return false
+            if (!UrlOrigins.hasSameOrUpgradedWebOrigin(url, redirectOrigin)) return false
         } else {
             val targetHost = target.host?.lowercase(Locale.US)
             if (targetHost != redirectHost) return false

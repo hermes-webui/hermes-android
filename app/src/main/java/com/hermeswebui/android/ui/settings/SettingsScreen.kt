@@ -1,6 +1,9 @@
 package com.hermeswebui.android.ui.settings
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,7 +26,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,12 +63,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.pluralStringResource
@@ -103,7 +118,6 @@ fun SettingsScreen(
     appVersionLabel: String,
     serverProfiles: List<ServerProfile>,
     onSave: (String) -> Unit,
-    onResetSession: () -> Unit,
     onDismiss: () -> Unit,
     onSetBackgroundReconnect: (Boolean) -> Unit,
     onSetBackgroundActivityFullTextEnabled: (Boolean) -> Unit,
@@ -128,7 +142,6 @@ fun SettingsScreen(
     onNewGithubIssue: () -> Unit,
     onAddProfile: (String, String) -> Unit,
     onDeleteProfile: (String) -> Unit,
-    onRenameProfile: (String, String) -> Unit,
     onEditProfile: (String, String, String) -> Unit,
     onSwitchProfile: (String) -> Unit,
     onReconnectCurrentServer: () -> Unit,
@@ -141,12 +154,40 @@ fun SettingsScreen(
     var profileToDelete by remember { mutableStateOf<ServerProfile?>(null) }
     var profileToEdit by remember { mutableStateOf<ServerProfile?>(null) }
     var editCurrentServerWithoutProfile by remember { mutableStateOf(false) }
-    var showResetSessionConfirm by remember { mutableStateOf(false) }
     var showVpnAppPickerDialog by remember { mutableStateOf(false) }
+    var showClientCertificateDialog by remember { mutableStateOf(false) }
+    var showAdvancedConnectionOptions by rememberSaveable { mutableStateOf(false) }
     var clientCertificateUri by remember(clientCertificateUri, isConfigured) { mutableStateOf(clientCertificateUri ?: "") }
     var clientCertificatePassword by remember(clientCertificatePassword) { mutableStateOf(clientCertificatePassword ?: "") }
+    var clientCertificatePickerError by remember { mutableStateOf<String?>(null) }
     var serverUrl by remember(initialServerUrl, isConfigured) {
         mutableStateOf(if (isConfigured) initialServerUrl else "")
+    }
+    val context = LocalContext.current
+    val clientCertificatePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val hasPersistentReadAccess = runCatching {
+                val alreadyPersisted = context.contentResolver.persistedUriPermissions.any { permission ->
+                    permission.uri == uri && permission.isReadPermission
+                }
+                if (!alreadyPersisted) {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+                true
+            }.getOrDefault(false)
+            if (hasPersistentReadAccess) {
+                clientCertificateUri = uri.toString()
+                clientCertificatePickerError = null
+            } else {
+                clientCertificatePickerError =
+                    "This document provider cannot grant lasting access. Choose the certificate from another provider."
+            }
+        }
     }
 
     // Derived theme colors kept local for readability
@@ -204,26 +245,6 @@ fun SettingsScreen(
             }
         )
     }
-    if (showResetSessionConfirm) {
-        AlertDialog(
-            onDismissRequest = { showResetSessionConfirm = false },
-            title = { Text("Reset web session?") },
-            text = {
-                Text("This clears all cookies, local storage, and cached data. You will be signed out of Hermes.")
-            },
-            dismissButton = {
-                TextButton(onClick = { showResetSessionConfirm = false }) { Text("Cancel") }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { onResetSession(); showResetSessionConfirm = false },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) { Text("Reset") }
-            }
-        )
-    }
     if (showVpnAppPickerDialog) {
         VpnAppPickerDialog(
             apps = vpnLaunchAppOptions,
@@ -233,6 +254,32 @@ fun SettingsScreen(
                 showVpnAppPickerDialog = false
             },
             onDismiss = { showVpnAppPickerDialog = false }
+        )
+    }
+    if (showClientCertificateDialog) {
+        ClientCertificateDialog(
+            certificateUri = clientCertificateUri,
+            certificatePassword = clientCertificatePassword,
+            pickerError = clientCertificatePickerError,
+            onCertificatePasswordChange = { clientCertificatePassword = it },
+            onChooseCertificate = {
+                clientCertificatePickerError = null
+                clientCertificatePicker.launch(arrayOf("*/*"))
+            },
+            onSave = {
+                onSetClientCertificateConfig(
+                    clientCertificateUri.trim().ifBlank { null },
+                    clientCertificatePassword.ifBlank { null }
+                )
+                showClientCertificateDialog = false
+            },
+            onClear = {
+                clientCertificateUri = ""
+                clientCertificatePassword = ""
+                onClearClientCertificateConfig()
+                showClientCertificateDialog = false
+            },
+            onDismiss = { showClientCertificateDialog = false }
         )
     }
 
@@ -447,78 +494,6 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // ── Security ───────────────────────────────────────────────
-                SectionHeader("Security")
-
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(surfaceColor)
-                        .fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = "Client certificate for mTLS",
-                            color = onSurface,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Import a PKCS#12 (.pfx/.p12) or PEM certificate bundle for self-hosted Hermes instances protected by mutual TLS.",
-                            color = onSurfaceVar,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        OutlinedTextField(
-                            value = clientCertificateUri,
-                            onValueChange = { clientCertificateUri = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            label = { Text("Certificate file URI") },
-                            placeholder = { Text("content://... or file:///...") }
-                        )
-                        OutlinedTextField(
-                            value = clientCertificatePassword,
-                            onValueChange = { clientCertificatePassword = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            label = { Text("Certificate password") },
-                            placeholder = { Text("Optional for unlocked certs") }
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    onSetClientCertificateConfig(clientCertificateUri.trim().ifBlank { null }, clientCertificatePassword.trim().ifBlank { null })
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = primaryColor,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                )
-                            ) {
-                                Text("Save certificate")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    clientCertificateUri = ""
-                                    clientCertificatePassword = ""
-                                    onClearClientCertificateConfig()
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Clear")
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // ── Application ───────────────────────────────────────────
                 SectionHeader("Application")
 
@@ -584,6 +559,7 @@ fun SettingsScreen(
                                 Switch(
                                     checked = backgroundActivityFullTextEnabled,
                                     onCheckedChange = onSetBackgroundActivityFullTextEnabled,
+                                    enabled = backgroundReconnectEnabled,
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
                                         checkedTrackColor = primaryColor,
@@ -593,12 +569,47 @@ fun SettingsScreen(
                                 )
                             },
                             colors = ListItemDefaults.colors(containerColor = surfaceColor),
-                            modifier = Modifier.clickable {
-                                onSetBackgroundActivityFullTextEnabled(!backgroundActivityFullTextEnabled)
-                            }
+                            modifier = Modifier
+                                .alpha(if (backgroundReconnectEnabled) 1f else 0.55f)
+                                .clickable(enabled = backgroundReconnectEnabled) {
+                                    onSetBackgroundActivityFullTextEnabled(!backgroundActivityFullTextEnabled)
+                                }
                         )
 
-                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                UpdatesSettingsSection(
+                    appUpdateAlertsEnabled = appUpdateAlertsEnabled,
+                    automaticAppUpdateChecksEnabled = automaticAppUpdateChecksEnabled,
+                    appUpdateChannelLabel = appUpdateChannelLabel,
+                    appUpdateStatus = appUpdateStatus,
+                    appUpdateReleaseUrl = appUpdateReleaseUrl,
+                    appUpdateDownloadUrl = appUpdateDownloadUrl,
+                    appUpdateInstallReady = appUpdateInstallReady,
+                    appUpdateReleaseNotes = appUpdateReleaseNotes,
+                    onSetAppUpdateAlertsEnabled = onSetAppUpdateAlertsEnabled,
+                    onSetAutomaticAppUpdateChecksEnabled = onSetAutomaticAppUpdateChecksEnabled,
+                    onCheckAppUpdates = onCheckAppUpdates,
+                    onDownloadAppUpdate = onDownloadAppUpdate,
+                    onOpenAppUpdateRelease = onOpenAppUpdateRelease
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // ── Connection ────────────────────────────────────────────
+                SectionHeader("Connection")
+
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(surfaceColor)
+                        .fillMaxWidth()
+                ) {
+                    Column {
 
                         ListItem(
                             headlineContent = {
@@ -633,214 +644,91 @@ fun SettingsScreen(
                             }
                         )
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val selectedVpnApp = vpnLaunchAppOptions.firstOrNull {
-                                it.packageName.equals(vpnLaunchPackageName, ignoreCase = true)
-                            }
-                            Text(
-                                text = "VPN app package (optional)",
-                                color = onSurface,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Medium
-                            )
-                            OutlinedTextField(
-                                value = vpnLaunchPackageName,
-                                onValueChange = onSetVpnLaunchPackageName,
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                label = { Text("Package name (for example com.wireguard.android)") }
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        if (requireVpnForTailscaleEnabled) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                OutlinedButton(
-                                    onClick = { showVpnAppPickerDialog = true },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Search installed apps")
+                                val selectedVpnApp = vpnLaunchAppOptions.firstOrNull {
+                                    it.packageName.equals(vpnLaunchPackageName, ignoreCase = true)
                                 }
-                                TextButton(
-                                    onClick = { onSetVpnLaunchPackageName(DefaultTailscalePackage) },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Use Tailscale default")
-                                }
-                            }
-                            if (selectedVpnApp != null) {
                                 Text(
-                                    text = "Selected app: ${selectedVpnApp.displayName}",
-                                    color = onSurfaceVar.copy(alpha = 0.88f),
-                                    style = MaterialTheme.typography.labelSmall
+                                    text = "Preferred VPN app",
+                                    color = onSurface,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Medium
                                 )
+                                OutlinedTextField(
+                                    value = vpnLaunchPackageName,
+                                    onValueChange = onSetVpnLaunchPackageName,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    label = { Text("Package name") }
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { showVpnAppPickerDialog = true },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Choose app")
+                                    }
+                                    TextButton(
+                                        onClick = { onSetVpnLaunchPackageName(DefaultTailscalePackage) },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Use Tailscale")
+                                    }
+                                }
+                                if (selectedVpnApp != null) {
+                                    Text(
+                                        text = "Selected: ${selectedVpnApp.displayName}",
+                                        color = onSurfaceVar.copy(alpha = 0.88f),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
                             }
-                            Text(
-                                text = "If set, Hermes tries this app before opening Android VPN settings when VPN is required.",
-                                color = onSurfaceVar,
-                                style = MaterialTheme.typography.bodySmall
-                            )
                         }
 
                         HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
 
                         ListItem(
                             headlineContent = {
-                                Text(
-                                    "App update alerts",
-                                    color = onSurface,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Text("Advanced connection options", fontWeight = FontWeight.Medium)
                             },
                             supportingContent = {
                                 Text(
-                                    "Checks $appUpdateChannelLabel and alerts through Hermes updates.",
+                                    "SSE transport, capability checks, and reconnect timing",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             },
                             trailingContent = {
-                                Switch(
-                                    checked = appUpdateAlertsEnabled,
-                                    onCheckedChange = onSetAppUpdateAlertsEnabled,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                        checkedTrackColor = primaryColor,
-                                        uncheckedThumbColor = onSurfaceVar,
-                                        uncheckedTrackColor = surfaceVariant
-                                    )
+                                Icon(
+                                    imageVector = if (showAdvancedConnectionOptions) {
+                                        Icons.Default.ExpandLess
+                                    } else {
+                                        Icons.Default.ExpandMore
+                                    },
+                                    contentDescription = if (showAdvancedConnectionOptions) {
+                                        "Collapse advanced connection options"
+                                    } else {
+                                        "Expand advanced connection options"
+                                    },
+                                    tint = onSurfaceVar
                                 )
                             },
                             colors = ListItemDefaults.colors(containerColor = surfaceColor),
                             modifier = Modifier.clickable {
-                                onSetAppUpdateAlertsEnabled(!appUpdateAlertsEnabled)
+                                showAdvancedConnectionOptions = !showAdvancedConnectionOptions
                             }
                         )
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val isPlayUpdateReady = appUpdateReleaseUrl?.startsWith("play://") == true
-                            val primaryUpdateActionLabel = when {
-                                appUpdateInstallReady -> "Install APK"
-                                !appUpdateDownloadUrl.isNullOrBlank() -> "Download APK"
-                                isPlayUpdateReady -> "Update now"
-                                else -> "Check for app update now"
-                            }
-                            val primaryUpdateAction: () -> Unit = when {
-                                appUpdateInstallReady || !appUpdateDownloadUrl.isNullOrBlank() -> onDownloadAppUpdate
-                                isPlayUpdateReady -> onOpenAppUpdateRelease
-                                else -> onCheckAppUpdates
-                            }
-                            val primaryUpdateActionColors = if (
-                                appUpdateInstallReady ||
-                                !appUpdateDownloadUrl.isNullOrBlank() ||
-                                isPlayUpdateReady
-                            ) {
-                                ButtonDefaults.buttonColors(
-                                    containerColor = if (appUpdateInstallReady) Color(0xFFC62828) else Color(0xFF2E7D32),
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                )
-                            } else {
-                                ButtonDefaults.outlinedButtonColors()
-                            }
-                            if (
-                                appUpdateInstallReady ||
-                                !appUpdateDownloadUrl.isNullOrBlank() ||
-                                isPlayUpdateReady
-                            ) {
-                                Button(
-                                    onClick = primaryUpdateAction,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = primaryUpdateActionColors
-                                ) {
-                                    Text(primaryUpdateActionLabel)
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = primaryUpdateAction,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(primaryUpdateActionLabel)
-                                }
-                            }
-                            ListItem(
-                                headlineContent = {
-                                    Text(
-                                        "Automatic checks on app open",
-                                        color = onSurface,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                },
-                                supportingContent = {
-                                    Text(
-                                        "Checks each time Hermes opens while this toggle is enabled.",
-                                        color = onSurfaceVar,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                },
-                                trailingContent = {
-                                    Switch(
-                                        checked = automaticAppUpdateChecksEnabled,
-                                        onCheckedChange = onSetAutomaticAppUpdateChecksEnabled,
-                                        colors = SwitchDefaults.colors(
-                                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                            checkedTrackColor = primaryColor,
-                                            uncheckedThumbColor = onSurfaceVar,
-                                            uncheckedTrackColor = surfaceVariant
-                                        )
-                                    )
-                                },
-                                colors = ListItemDefaults.colors(containerColor = surfaceColor),
-                                modifier = Modifier.clickable {
-                                    onSetAutomaticAppUpdateChecksEnabled(!automaticAppUpdateChecksEnabled)
-                                }
-                            )
-                            if (!appUpdateStatus.isNullOrBlank()) {
-                                Text(
-                                    text = appUpdateStatus,
-                                    color = onSurfaceVar.copy(alpha = 0.82f),
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                            if (!appUpdateReleaseNotes.isNullOrBlank()) {
-                                Text(
-                                    text = "What's changed",
-                                    color = onSurface,
-                                    fontWeight = FontWeight.Medium,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Text(
-                                    text = appUpdateReleaseNotes,
-                                    color = onSurfaceVar.copy(alpha = 0.82f),
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                            if (!appUpdateReleaseUrl.isNullOrBlank() && !appUpdateReleaseUrl.startsWith("play://")) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = onOpenAppUpdateRelease,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("Release notes")
-                                    }
-                                }
-                            }
-                        }
-
-                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
-
-                        Column(
+                        if (showAdvancedConnectionOptions) Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -977,38 +865,6 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // ── Session ───────────────────────────────────────────────
-                SectionHeader("Session")
-
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(surfaceColor)
-                        .fillMaxWidth()
-                ) {
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                "Reset web session",
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.Medium
-                            )
-                        },
-                        supportingContent = {
-                            Text(
-                                "Clear cookies, local storage, cached data, and saved credentials. Signs you out.",
-                                color = onSurfaceVar,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        },
-                        colors = ListItemDefaults.colors(containerColor = surfaceColor),
-                        modifier = Modifier.clickable { showResetSessionConfirm = true }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // ── Privacy ───────────────────────────────────────────────
                 SectionHeader("Privacy")
 
@@ -1065,10 +921,9 @@ fun SettingsScreen(
                         ListItem(
                             headlineContent = {
                                 Text(
-                                    "CAPTURE DEBUG LOGS",
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleMedium
+                                    "Capture debug logs",
+                                    color = onSurface,
+                                    fontWeight = FontWeight.Medium
                                 )
                             },
                             supportingContent = {
@@ -1084,7 +939,7 @@ fun SettingsScreen(
                                     onCheckedChange = onSetDebugLoggingEnabled,
                                     colors = SwitchDefaults.colors(
                                         checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                        checkedTrackColor = MaterialTheme.colorScheme.error,
+                                        checkedTrackColor = primaryColor,
                                         uncheckedThumbColor = onSurfaceVar,
                                         uncheckedTrackColor = surfaceVariant
                                     )
@@ -1102,64 +957,159 @@ fun SettingsScreen(
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = "Troubleshooting actions",
-                                color = onSurfaceVar,
-                                style = MaterialTheme.typography.labelSmall
-                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                TextButton(
+                                OutlinedButton(
                                     onClick = onShareDebugLog,
-                                    modifier = Modifier.weight(1f),
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp, onSurfaceVar.copy(alpha = 0.4f)
-                                    )
-                                ) { Text("Share/email log") }
-                                TextButton(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Share, contentDescription = null)
+                                    Text("Share log", modifier = Modifier.padding(start = 8.dp))
+                                }
+                                OutlinedButton(
                                     onClick = onDownloadDebugLog,
-                                    modifier = Modifier.weight(1f),
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp, onSurfaceVar.copy(alpha = 0.4f)
-                                    )
-                                ) { Text("Download log") }
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Save, contentDescription = null)
+                                    Text("Save log", modifier = Modifier.padding(start = 8.dp))
+                                }
                             }
-                            androidx.compose.material3.OutlinedButton(
+                            OutlinedButton(
                                 onClick = onViewGithubIssues,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("🔍  View existing issues  — is anyone else seeing this?")
+                                Icon(Icons.Default.Search, contentDescription = null)
+                                Text("View existing issues", modifier = Modifier.padding(start = 8.dp))
                             }
                             Button(
                                 onClick = onNewGithubIssue,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error
-                                )
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("🏆  New Achievement!  You found a bug!  Report it →")
+                                Icon(Icons.Default.BugReport, contentDescription = null)
+                                Text("Report an issue", modifier = Modifier.padding(start = 8.dp))
                             }
                         }
                     }
                 }
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                AdvancedSettingsSection(
+                    clientCertificateConfigured = clientCertificateUri.isNotBlank(),
+                    onOpenClientCertificate = { showClientCertificateDialog = true }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                AboutSettingsSection(
+                    appVersionLabel = appVersionLabel,
+                    appUpdateChannelLabel = appUpdateChannelLabel
+                )
+
                 Spacer(modifier = Modifier.height(32.dp))
             }
 
-            Text(
-                text = appVersionLabel,
-                style = MaterialTheme.typography.labelMedium,
-                color = onSurfaceVar.copy(alpha = 0.75f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-            )
+            if (!isConfigured) {
+                Text(
+                    text = appVersionLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = onSurfaceVar.copy(alpha = 0.75f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+}
+
+@Composable
+private fun ClientCertificateDialog(
+    certificateUri: String,
+    certificatePassword: String,
+    pickerError: String?,
+    onCertificatePasswordChange: (String) -> Unit,
+    onChooseCertificate: () -> Unit,
+    onSave: () -> Unit,
+    onClear: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Client certificate") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Use a PKCS#12 (.pfx/.p12) certificate for Hermes servers protected by mutual TLS.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = certificateUri,
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    readOnly = true,
+                    singleLine = true,
+                    label = { Text("Certificate file") },
+                    placeholder = { Text("No certificate selected") }
+                )
+                OutlinedButton(onClick = onChooseCertificate, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (certificateUri.isBlank()) "Choose certificate" else "Choose another certificate")
+                }
+                if (!pickerError.isNullOrBlank()) {
+                    Text(
+                        text = pickerError,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                OutlinedTextField(
+                    value = certificatePassword,
+                    onValueChange = onCertificatePasswordChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Certificate password") },
+                    placeholder = { Text("Optional") },
+                    visualTransformation = if (passwordVisible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) {
+                                    Icons.Default.VisibilityOff
+                                } else {
+                                    Icons.Default.Visibility
+                                },
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                            )
+                        }
+                    }
+                )
+                if (certificateUri.isNotBlank()) {
+                    OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+                        Text("Remove certificate", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+        confirmButton = {
+            Button(onClick = onSave, enabled = certificateUri.isNotBlank()) {
+                Text("Save")
+            }
+        }
+    )
 }
 
 @Composable
@@ -1309,7 +1259,7 @@ private fun ServerValidationStatus(
 }
 
 @Composable
-private fun SectionHeader(title: String) {
+internal fun SectionHeader(title: String) {
     Text(
         text = title.uppercase(),
         style = MaterialTheme.typography.labelMedium,

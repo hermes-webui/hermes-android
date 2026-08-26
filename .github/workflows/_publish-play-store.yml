@@ -1,0 +1,144 @@
+name: Publish Play Store Artifact
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        required: true
+        type: string
+      build_run_id:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+      tag_name:
+        required: true
+        type: string
+      version_name:
+        required: true
+        type: string
+      track:
+        required: true
+        type: string
+    secrets:
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64:
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-play-${{ inputs.track }}-${{ inputs.version_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish-play:
+    name: Publish Play Store ${{ inputs.track }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate release metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          TAG_NAME: ${{ inputs.tag_name }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version: $VERSION_NAME"; exit 1; }
+          [ "$TAG_NAME" = "v$VERSION_NAME" ] || { echo "Tag/version mismatch: $TAG_NAME vs $VERSION_NAME"; exit 1; }
+          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid commit SHA: $COMMIT_SHA"; exit 1; }
+          [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid build run ID: $BUILD_RUN_ID"; exit 1; }
+          [ "$ARTIFACT_NAME" = "hermes-webui-v$VERSION_NAME-play-aab" ] || {
+            echo "Unexpected Play artifact name: $ARTIFACT_NAME"
+            exit 1
+          }
+          [ "$TRACK" = "production" ] || [ "$TRACK" = "beta" ] || {
+            echo "Unsupported Play track: $TRACK"
+            exit 1
+          }
+          gh api "repos/$GITHUB_REPOSITORY/commits/$COMMIT_SHA" >/dev/null
+          run_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" --jq '.head_sha')"
+          [ "$run_sha" = "$COMMIT_SHA" ] || {
+            echo "Build run $BUILD_RUN_ID used $run_sha, not $COMMIT_SHA"
+            exit 1
+          }
+
+      - name: Validate Play service account secret
+        shell: bash
+        run: |
+          test -n "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" || {
+            echo "Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"
+            exit 1
+          }
+
+      - name: Download Play AAB artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: build/release
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Validate Play AAB artifact
+        shell: bash
+        run: |
+          expected_aab="build/release/hermes-webui-v${{ inputs.version_name }}.aab"
+          aab_count="$(find build/release -maxdepth 1 -type f -name '*.aab' | wc -l | tr -d ' ')"
+          if [ "$aab_count" != "1" ]; then
+            echo "Expected exactly one Play AAB artifact, found $aab_count."
+            find build/release -maxdepth 1 -type f -print
+            exit 1
+          fi
+          test -f "$expected_aab" || { echo "Missing expected AAB: $expected_aab"; exit 1; }
+          test -s build/release/play-whatsnew/whatsnew-en-US || { echo "Play What's New is missing"; exit 1; }
+          play_chars="$(python3 -c 'from pathlib import Path; print(len(Path("build/release/play-whatsnew/whatsnew-en-US").read_text(encoding="utf-8").rstrip("\n")))')"
+          test "$play_chars" -le 480 || { echo "Play What's New exceeds 480 characters"; exit 1; }
+          tail -n 1 build/release/play-whatsnew/whatsnew-en-US | \
+            grep -Fx 'Report issues through the in-app bug report tool.' >/dev/null || {
+              echo "Play What's New is missing the required support line"
+              exit 1
+            }
+
+      - name: Verify downloaded AAB signature
+        shell: bash
+        run: |
+          aab_path="build/release/hermes-webui-v${{ inputs.version_name }}.aab"
+          jarsigner_output="$(jarsigner -verify "$aab_path" 2>&1)"
+          printf '%s\n' "$jarsigner_output"
+          printf '%s\n' "$jarsigner_output" | grep -F 'jar verified.' >/dev/null || {
+            echo "AAB signature verification failed"
+            exit 1
+          }
+
+      - name: Decode Google Play service account
+        shell: bash
+        run: |
+          mkdir -p signing
+          echo "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}" | base64 --decode > signing/google-play-service-account.json
+          test -s signing/google-play-service-account.json || {
+            echo "Google Play service account file was not created"
+            exit 1
+          }
+
+      - name: Upload AAB to Google Play
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1
+        with:
+          serviceAccountJson: signing/google-play-service-account.json
+          packageName: com.hermeswebui.android
+          releaseFiles: build/release/hermes-webui-v${{ inputs.version_name }}.aab
+          tracks: ${{ inputs.track }}
+          status: completed
+          releaseName: Hermes WebUI Android v${{ inputs.version_name }}
+          whatsNewDirectory: build/release/play-whatsnew

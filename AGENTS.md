@@ -21,12 +21,13 @@ Useful entry points:
 
 - `MainActivity.kt` - Android platform boundary, WebView, intents, downloads, dashboard Custom Tab launch
 - `core/security/UrlPolicy.kt` - URL and navigation decisions; also contains the top-level `UrlOrigins` object with origin/URL normalization utilities (`hostFrom`, `hasSameOrigin`, `documentStartOriginRule`, `normalizeOriginUrl`, `normalizedPath`) — use these helpers rather than ad-hoc URI parsing
+- `core/security/WebTrustPolicy.kt` - context-specific WebView trust decisions for configured WebUI/dashboard routes, notification bridge sources/targets, and permission origins; keep parsing and trust rules here rather than duplicating them in `MainActivity`
 - `data/SettingsRepository.kt` - encrypted settings persistence; implements `SettingsStore` interface. Uses a versioned `runMigration()` pattern (`KEY_LAST_MIGRATION_VERSION`): when adding new data schema changes, increment `currentMigrationVersion` and add a corresponding migration block. Non-interface methods (`hasRequestedNotificationPermission`, `markNotificationPermissionRequested`, `getLastLoadedUrl`) are called directly by `MainActivity`.
 - `domain/ServerUrlValidator.kt` - server URL validation rules
 - `domain/ShareIntentParser.kt` - Android share-sheet parsing
 - `ui/MainViewModel.kt` - app state orchestration (paired with `ui/MainViewModelFactory.kt`)
 - `ui/web/WebShell.kt` - Compose WebView host and refresh/error UX
-- `ui/settings/SettingsScreen.kt` / `ui/settings/SettingsBottomSheet.kt` - native settings surfaces (opened via `hermes://app/settings` and the injected WebUI sidebar entry)
+- `ui/settings/SettingsScreen.kt` + `ui/settings/SettingsSections.kt` - native settings surface and task-based section components (opened via `hermes://app/settings` and the injected WebUI sidebar entry)
 - `ui/DebugLogFloatingButton.kt` - draggable overlay shown while debug logging is active
 - `OAuthPopupFlow.kt` - parses authorization requests and verifies OAuth/OIDC callbacks before allowing in-app provider navigation
 - `notification/HermesNotificationBridgeCoordinator.kt` - scoped WebUI Notification API bridge and Android permission reply handling
@@ -46,7 +47,7 @@ Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 
 - The Compose root applies `WindowInsets.safeDrawing` so the WebView shell and native snackbar do not overlap the Android status or navigation bars.
 - Forced/algorithmic WebView darkening is disabled so Hermes WebUI keeps its own colors.
-- WebView uses default browser-managed HTTP/service-worker caching and DOM storage for Hermes WebUI assets. Do not add a parallel native stale-site mirror for authenticated WebUI HTML/API responses; reset-session behavior must keep clearing cookies, WebStorage, and WebView cache.
+- WebView uses default browser-managed HTTP/service-worker caching and DOM storage for Hermes WebUI assets. Do not add a parallel native stale-site mirror for authenticated WebUI HTML/API responses; server-profile switches must keep clearing cookies, WebStorage, WebView cache, form data, and history before loading the new host.
 - A hybrid viewport polyfill is installed at document start for the configured WebUI origin because Android WebView computes CSS viewport units (`vh`, `dvh`, etc.) as `0px`. The early install is required so WebUI boot code never measures a collapsed root after OAuth or a cold load; the runtime application remains as a fallback. The polyfill injects stable layout-viewport CSS custom properties (`--vh`, `--dvh`) plus separate visual-viewport height/top values for keyboard-constrained prompts, applies baseline CSS for root/layout containers, and uses generic collapse detection to find and repair ANY element that appears collapsed—without needing explicit selectors for each WebUI component. Collapse detection must also repair fully collapsed (`rect.height <= 0`) shell containers when they hide substantial page-level content (e.g. a `100vh` root collapsing to 0px), otherwise entire pages render blank. Generic repair changes only height constraints: preserve every element's existing overflow value and priority, never create a new scroll/clipping container, and never remove an existing inline overflow declaration when the repair clears.
 - The approval and clarify prompt panels (`.approval-card`, `.clarify-card`) are absolutely anchored just above the composer (`bottom:-24px` inside the zero-height `.composer-flyout`) and cap their height with viewport units that Android WebView can evaluate as 0. If the anchor falls below the visual viewport (for example behind an overlay keyboard), the polyfill first shifts the expanded card upward by that overlap using a per-card CSS property, then re-caps it to the measured visible space between the greater of the `.app-titlebar`/visual-viewport top and the shifted anchor, minus an 8px gap. The previous shift is included when measuring the invariant anchor so repeated scans cannot oscillate. The cap must be allowed below WebUI's preferred 180px floor when the keyboard or a short viewport leaves less room; internal scrolling preserves access without placing the panel behind the IME or titlebar. Keep these panels and the `.composer-flyout` anchor excluded from generic collapse repair so the measured contract cannot oscillate; other flyout children (e.g. the composer terminal) still size with vh units and remain eligible for generic repair. The `.composer-wrap` is the floating cards' clipping ancestor: a generic repair there (`overflow-y:auto`) turns it into a scroll container that re-clips the card to a sliver behind the composer, and a retained repair never recovers (#80 follow-up). Keep `.composer-wrap` excluded from generic repair too, and keep the injected `.composer-flyout, .composer-wrap { overflow: visible !important; }` rule so neither ancestor can ever clip the floating prompt surface.
 - Android no longer writes WebUI `/api/dashboard/config`. WebUI owns the Official Hermes Dashboard setting, including Auto-detect and persistence. Android may normalize an explicitly configured local dashboard URL to its origin for Custom Tab matching and does not persist dashboard-origin pages as the app startup URL. OAuth/OIDC callback URLs for the configured Hermes WebUI origin must bypass dashboard Custom Tab matching and return to the primary WebView.
@@ -58,11 +59,12 @@ Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 - `hermes://app/settings` is exported as a native recovery deep link and opens `SettingsScreen` without relying on the current WebView route.
 - WebUI browser notifications are handled through `HermesNotificationBridgeCoordinator` + `HermesNotificationPresenter`, with `MainActivity.kt` wiring Android `POST_NOTIFICATIONS`, the native notification channel, the document-start `Notification`/`ServiceWorkerRegistration.showNotification` compatibility facade, and trusted notification tap routing. Keep the bridge scoped to the configured Hermes WebUI route, reject subframes/non-WebUI origins, and validate notification tap URLs through the host allowlist before loading.
 - Native app update alerts share the existing `Hermes updates` notification channel but are selected by build channel. Automatic checks should run each time the app opens (while automatic checks are enabled), and manual Settings checks still run immediately. Keep the shared settings/notification UX common, with `BuildConfig.UPDATE_CHANNEL = "play"` using Google Play Core in-app updates, `"github"` checking GitHub Releases plus the `*-github.apk` asset for direct downloads and release-note excerpts, and `"none"` avoiding production update prompts in debug builds.
-- Hermes WebUI implements its own conversation long-press menus from a touch timer (e.g. `static/sessions.js`, ~400ms) and renders them as `position:fixed` elements capped with `max-height: calc(100vh - 16px)`. Two Android WebView facts matter: (1) keep `isLongClickable = false` + `setOnLongClickListener { true }` so the native long-press does not preempt WebUI's timer — do NOT add `contextmenu` synthesis, `touchcancel` guards, or a `startActionMode` override; the touch path already works. (2) Android WebView computes CSS `100vh` as `0`, so the hybrid viewport polyfill's generic collapse detection automatically finds and repairs any element (menus, dialogs, panels) that appears collapsed. If menus ever render tiny/clipped again, check the polyfill's collapse detection heuristics, not z-index/opacity/stacking (all verified fine via on-device DevTools inspection).
+- Hermes WebUI implements its own conversation long-press menus from a touch timer (e.g. `static/sessions.js`, ~400ms) and renders them as `position:fixed` elements capped with `max-height: calc(100vh - 16px)`. Keep `isLongClickable = true` without a consuming long-click listener so Android text-selection handles remain available (Issue #35); do not add `contextmenu` synthesis, `touchcancel` guards, or a `startActionMode` override. Issue #6 ultimately proved the WebUI touch timer already works and the invisible menu was a viewport-unit collapse. If menus render tiny/clipped again, check the hybrid viewport repair, not gesture interception, z-index, opacity, or stacking.
+- Client-certificate settings support PKCS#12 (`.pfx`/`.p12`) files only. Keep certificate requests scoped to allowlisted hosts, select a usable private-key entry, and fail closed on unreadable, malformed, password-mismatched, or keyless stores; never let certificate parsing throw through `WebViewClient.onReceivedClientCertRequest`.
 - The `hermes-android-viewport-fix` style must not lock vertical page scrolling. Keep body overflow override scoped to horizontal overflow only; forcing `body { overflow: hidden }` clips expandable WebUI content such as generated update summaries inside Android WebView. The generic collapse detection handles update-summary panels and other viewport-unit-based elements automatically without explicit selectors; the approval/clarify prompt panels are the one exception, using the measured titlebar/composer-aware cap described above instead of generic repair.
 - Do not reintroduce a parallel native drawer or custom Android Terminal/menu button for the dashboard link.
 - Hermes WebUI DOM/CSS compatibility shims must stay scoped to the configured WebUI route. Do not inject the viewport polyfill into the official dashboard origin; dashboard links should use Chrome Custom Tabs unless a future task explicitly reopens the app-WebView approach. The one exception is OAuth/OIDC provider pages: while a main-frame OAuth flow is active, inject only the viewport polyfill (never the other WebUI shims) into those HTTP/HTTPS pages, because provider login roots that use viewport units (e.g. `h-screen`) otherwise collapse to 0px and render blank (issue #66).
-- OAuth/OIDC code-flow navigations may temporarily load non-allowlisted HTTP/HTTPS provider pages in-app only after Android has parsed an authorization URL whose `redirect_uri` returns to the configured Hermes WebUI origin. After a verified callback, keep the callback and its bounded same-origin redirect chain in the primary WebView until a page with explicit Hermes WebUI runtime/DOM markers finishes; do not use a one-navigation dashboard bypass or clear on an arbitrary same-origin page because WebView callback ordering, redirect counts, and interstitial pages vary. Do not broaden this to arbitrary external links or non-web schemes. OAuth provider and callback URLs must never be persisted as `lastLoadedUrl` or restored as the cold-start URL; only final configured WebUI routes may be remembered.
+- OAuth/OIDC code-flow navigations may temporarily load non-allowlisted HTTP/HTTPS provider pages in-app only after Android has parsed an authorization URL whose `redirect_uri` returns to the configured Hermes WebUI origin. Scheme compatibility may upgrade HTTP to HTTPS for public-IP/proxy deployments, but must never downgrade an HTTPS configured origin or declared callback to HTTP. After a verified callback, keep the callback and its bounded same-origin redirect chain in the primary WebView until a page with explicit Hermes WebUI runtime/DOM markers finishes; do not use a one-navigation dashboard bypass or clear on an arbitrary same-origin page because WebView callback ordering, redirect counts, and interstitial pages vary. Do not broaden this to arbitrary external links or non-web schemes. OAuth provider and callback URLs must never be persisted as `lastLoadedUrl` or restored as the cold-start URL; only final configured WebUI routes may be remembered.
 - Android 16/17 local-network permission handling is best-effort for obvious LAN hosts (`localhost`, `.local`, private/link-local IPs): request `ACCESS_LOCAL_NETWORK` before first load, but continue startup/save/switch flows when that preflight prompt is denied on OEM builds that expose no grant toggle. Keep the hard-fail recovery path keyed to real WebView `ERR_LOCAL_NETWORK_PERMISSION_MISSING` failures.
 - SSE capability (`HermesApiClient.detectSseCapability`) and reconnect-liveness (`isReconnectSseReachable`) probes must attach the WebView session cookie for the configured origin (explicit parameter, guarded `CookieManager` fallback) so password/OIDC-protected servers authenticate like `/api/session/stream`. HTTP 401/403 probe responses classify as `SseCapability.AUTH_REQUIRED` (capability unverified, transport preserved) — never as feature-unavailable — so sign-in walls cannot silently disable SSE transport (issue #75).
 
@@ -196,20 +198,19 @@ submit only the `hermes-webui-v<version>.aab` AAB to the production track,
 tag-triggered releases should match the Gradle `versionName`, and the public
 GitHub release body should contain human-readable What's New notes rather than
 build metadata.
-Manual orchestration runs auto-bump `appVersionName` from the latest published
-`vX.Y.Z` tag, update README release metadata, commit those changes back to
-`main`, and then build from that version-bump commit; Gradle derives
-`versionCode` from semantic version (`major*10000 + minor*100 + patch`) so
-release numbering remains monotonic.
-GitHub releases should use generated GitHub release notes configured by
-`.github/release.yml`. Play Store uploads should include a brief `en-US` What's
-New changelog generated from the same notes through `whatsNewDirectory`, capped
-below the Play text limit, and ending with:
+Release orchestration builds the reviewed `appVersionName` and README metadata
+already checked into Git; it must never edit, commit, or push source. Gradle
+derives `versionCode` from semantic version (`major*10000 + minor*100 + patch`).
+GitHub releases should use generated notes configured by `.github/release.yml`.
+Generate release metadata once in the build job and bundle it with both signed
+artifacts: GitHub notes retain clickable PR links, while Play Store `en-US`
+What's New text keeps compact PR/issue URLs, stays below the Play text limit,
+and ends with:
 `Report issues through the in-app bug report tool.`
 Keep `RELEASE.md` aligned with the workflow operator path whenever release
 automation changes.
 
-Separate from release publishing, CI uses `.github/workflows/0-ci-build-and-test.yml` to run `testDebugUnitTest` + `assembleDebug` on pushes/PRs without signing secrets. Keep contributor verification steps aligned with this gate when changing build/test flow.
+Separate from release publishing, CI uses `.github/workflows/0-ci-build-and-test.yml` to run release-tool tests plus `testDebugUnitTest` + `lintDebug` + `assembleDebug` on pushes/PRs without signing secrets. Pull requests and direct `main` pushes that change Android source or build inputs run the complete unfiltered `connectedDebugAndroidTest` suite on Android API 35 and 36. Release builds run the full API 36 suite again, then verify APK and AAB signatures before upload. Keep contributor verification steps aligned with these gates when changing build/test flow.
 
 ## Verification
 
@@ -218,6 +219,7 @@ Run from the repository root:
 ```powershell
 .\gradlew.bat test --no-daemon
 .\gradlew.bat testDebugUnitTest --no-daemon
+.\gradlew.bat lintDebug --no-daemon
 .\gradlew.bat assembleDebug --no-daemon
 ```
 
@@ -231,10 +233,9 @@ For a local signed release build:
 For docs-only changes, Gradle verification may be skipped if the final response
 states that no code was changed.
 
-Optional checks:
+Optional device check:
 
 ```powershell
-.\gradlew.bat lint --no-daemon
 .\gradlew.bat connectedDebugAndroidTest --no-daemon
 ```
 

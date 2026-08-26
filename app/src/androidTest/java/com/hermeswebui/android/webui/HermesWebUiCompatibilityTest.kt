@@ -193,7 +193,29 @@ class HermesWebUiCompatibilityTest {
                 """.trimIndent()
             )
         ).isTrue()
-        assertThat(
+        val interactionMetrics = evaluate(
+            """
+            (function() {
+              var card = document.querySelector('.clarify-card');
+              var titlebar = document.querySelector('.app-titlebar');
+              var rect = card.getBoundingClientRect();
+              var visualBottom = window.visualViewport && window.visualViewport.height > 0
+                ? window.visualViewport.offsetTop + window.visualViewport.height
+                : window.innerHeight;
+              return JSON.stringify({
+                composerOverflowY: getComputedStyle(document.querySelector('.composer-wrap')).overflowY,
+                repaired: card.hasAttribute('data-hermes-android-vh-repaired'),
+                pointerEvents: getComputedStyle(card).pointerEvents,
+                cardTop: rect.top,
+                cardBottom: rect.bottom,
+                cardHeight: rect.height,
+                titlebarBottom: titlebar.getBoundingClientRect().bottom,
+                visualBottom: visualBottom
+              });
+            })()
+            """.trimIndent()
+        )
+        assertWithMessage(interactionMetrics).that(
             evaluateBoolean(
                 """
                 (function() {

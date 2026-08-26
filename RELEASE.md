@@ -15,6 +15,11 @@ Use this checklist when publishing a new Hermes-Android build.
 .\gradlew.bat assembleDebug --no-daemon
 ```
 
+The orchestration release gate also runs the focused Settings and attached-WebView
+instrumentation classes on an Android emulator. WebView compatibility changes must
+keep `HermesWebUiCompatibilityTest` in that gate so prompt focus, geometry, and
+overflow behavior are executed before signed artifacts are built.
+
 4. Confirm release docs are current when release behavior changed.
 
 ## Normal Release

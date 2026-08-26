@@ -120,7 +120,9 @@ class HermesWebUiCompatibilityTest {
                 bottom: 160px;
                 max-height: 0;
                 overflow: hidden;
+                pointer-events: none;
               }
+              .clarify-card.visible { pointer-events: auto; }
               .clarify-inner { height: 700px; }
               #genericPanel {
                 position: absolute;
@@ -196,14 +198,17 @@ class HermesWebUiCompatibilityTest {
                 """
                 (function() {
                   var card = document.querySelector('.clarify-card');
+                  var titlebar = document.querySelector('.app-titlebar');
                   var rect = card.getBoundingClientRect();
-                  var hit = document.elementFromPoint(
-                    rect.right - Math.min(20, rect.width / 2),
-                    rect.top + Math.min(20, rect.height / 2)
-                  );
+                  var visualBottom = window.visualViewport && window.visualViewport.height > 0
+                    ? window.visualViewport.offsetTop + window.visualViewport.height
+                    : window.innerHeight;
                   return getComputedStyle(document.querySelector('.composer-wrap')).overflowY === 'visible' &&
                     !card.hasAttribute('data-hermes-android-vh-repaired') &&
-                    !!(hit && hit.closest('.clarify-card'));
+                    getComputedStyle(card).pointerEvents === 'auto' &&
+                    rect.height > 0 &&
+                    rect.top >= titlebar.getBoundingClientRect().bottom &&
+                    rect.bottom <= visualBottom + 1;
                 })()
                 """.trimIndent()
             )

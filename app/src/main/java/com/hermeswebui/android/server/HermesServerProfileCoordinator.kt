@@ -13,6 +13,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+internal enum class ServerValidationFlow {
+    CONFIGURED_STARTUP,
+    PERSISTENCE
+}
+
+internal fun shouldShowAuthRequiredToast(flow: ServerValidationFlow): Boolean =
+    flow == ServerValidationFlow.PERSISTENCE
+
 class HermesServerProfileCoordinator(
     private val context: Context,
     private val activityScope: CoroutineScope,
@@ -32,6 +40,7 @@ class HermesServerProfileCoordinator(
         validateServerBeforePersist(
             serverUrl = serverUrl,
             openSettingsOnFailure = true,
+            validationFlow = ServerValidationFlow.CONFIGURED_STARTUP,
             onFailure = null
         ) {
             onContinueToWebView(startUrl)
@@ -362,6 +371,7 @@ class HermesServerProfileCoordinator(
     private fun validateServerBeforePersist(
         serverUrl: String,
         openSettingsOnFailure: Boolean = false,
+        validationFlow: ServerValidationFlow = ServerValidationFlow.PERSISTENCE,
         onFailure: ((HermesApiClient.ServerReadinessResult) -> Unit)? = null,
         onSuccess: () -> Unit
     ) {
@@ -398,11 +408,13 @@ class HermesServerProfileCoordinator(
                     mapOf("origin" to DiagnosticsLogger.originOnly(serverUrl))
                 )
                 viewModel.clearServerValidationState()
-                Toast.makeText(
-                    context,
-                    "Server reachable — sign in on the Hermes page to finish.",
-                    Toast.LENGTH_LONG
-                ).show()
+                if (shouldShowAuthRequiredToast(validationFlow)) {
+                    Toast.makeText(
+                        context,
+                        "Server reachable — sign in on the Hermes page to finish.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
                 onSuccess()
                 return@launch
             }

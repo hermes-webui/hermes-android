@@ -118,8 +118,8 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 
 ### Android-specific compatibility work that matters
 
-- Measured layout/visual-viewport repair for Android WebView builds that collapse Hermes layout or place prompt surfaces behind the software keyboard
-- Clarify-specific autofocus handling that keeps multiple-choice options visible without blocking editable WebUI dialogs
+- Measured layout/visual-viewport repair for Android WebView builds that collapse Hermes layout, including shifting prompt surfaces fully above the software keyboard
+- Clarify-specific initial-autofocus handling that keeps multiple-choice options visible without blocking editable WebUI dialogs or later validation focus
 - System-bar safe inset handling so Hermes content does not sit under Android status and navigation bars
 - Forced WebView darkening disabled so Hermes controls its own visual presentation
 - Local network permission handling for Android 16+ so LAN-hosted Hermes WebUI instances can load inside the WebView

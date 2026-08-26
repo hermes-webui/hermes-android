@@ -95,11 +95,13 @@ class HermesWebUiScriptsTest {
         // Measured geometry: visible panel bottom minus the greater of the
         // titlebar and visual-viewport top boundaries.
         assertThat(script).contains("document.querySelector('.app-titlebar')")
-        assertThat(script).contains("promptCard.getBoundingClientRect().bottom,")
+        assertThat(script).contains("promptCard.getBoundingClientRect().bottom + previousShift")
         assertThat(script).contains("viewport.visualBottom")
+        assertThat(script).contains("anchorBottom - viewport.visualBottom")
+        assertThat(script).contains("translateY(calc(-1 * var(")
         // The cap overrides the WebUI viewport-unit clamp on both the card and its
         // scrolling inner region, with internal scroll for oversized content
-        assertThat(script).contains(".clarify-card:not(.collapsed) { max-height: ' + promptPanelMaxPx + ' !important; }")
+        assertThat(script).contains(".clarify-card:not(.collapsed) { max-height: ' + promptPanelMaxPx + ' !important; transform:")
         assertThat(script).contains(".clarify-card:not(.collapsed) .clarify-inner")
         assertThat(script).contains("overflow-y: auto !important; }")
         // A preferred WebUI floor must not exceed the actually visible space
@@ -138,10 +140,10 @@ class HermesWebUiScriptsTest {
     fun `generic viewport repair preserves original overflow contract`() {
         val script = HermesWebUiScripts.viewportFixScript
 
-        assertThat(script).contains("data-hermes-android-vh-scrollable")
-        assertThat(script).contains("style.overflowY === 'auto' || style.overflowY === 'scroll'")
-        assertThat(script).contains("Never turn a normal layout ancestor into a new scroll/clipping")
-        assertThat(script).contains("el.style.removeProperty('overflow-y')")
+        assertThat(script).contains("Preserve the element's existing overflow contract")
+        assertThat(script).doesNotContain("data-hermes-android-vh-scrollable")
+        assertThat(script).doesNotContain("el.style.overflowY = 'auto'")
+        assertThat(script).doesNotContain("el.style.removeProperty('overflow-y')")
     }
 
     @Test
@@ -180,8 +182,12 @@ class HermesWebUiScriptsTest {
         assertThat(script).contains("target.closest('.clarify-card')")
         assertThat(script).contains("target.closest('.clarify-choice.other')")
         assertThat(script).contains("event.key === 'Tab'")
+        assertThat(script).contains("data-hermes-android-clarify-focus-handled")
+        assertThat(script).contains("getClarifyPresentationKey")
+        assertThat(script).contains("typeof _clarifyId !== 'undefined'")
+        assertThat(script).contains("focusIntentPresentationKey === presentationKey")
+        assertThat(script).contains("card.getAttribute(PRESENTATION_HANDLED_ATTR) === presentationKey")
         assertThat(script).contains("document.addEventListener('focusin', suppressAutomaticClarifyFocus, true)")
-        assertThat(script).doesNotContain("MutationObserver")
         assertThat(script).doesNotContain("role === 'dialog'")
         assertThat(script).doesNotContain("querySelectorAll('input")
     }

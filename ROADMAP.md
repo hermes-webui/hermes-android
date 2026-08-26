@@ -126,7 +126,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
-| BUG-028 | 2026-08-26 | WebView | Hardened Issue #92 dialog compatibility: Clarify-only autofocus suppression preserves explicit input/Other/keyboard navigation, prompt geometry fits the keyboard-constrained visual viewport, generic collapse repair no longer creates scroll containers, and attached-WebView behavior tests now gate PRs and releases. |
+| BUG-028 | 2026-08-26 | WebView | Hardened Issue #92 dialog compatibility: initial autofocus is suppressed per Clarify request (including visible in-place replacements), validation refocus plus real touch/Tab input remain available, prompt geometry is shifted and capped inside the keyboard-constrained visual viewport, generic collapse repair preserves original overflow, and attached-WebView behavior tests now gate PRs and releases. |
 | BUG-027 | 2026-08-26 | WebView | Fixed Issue #90 by narrowing dialog keyboard suppression to programmatic autofocus, allowing explicit taps to focus and type into editable modal fields such as the workspace new-folder name input. |
 | SSE-001 | 2026-08-09 | Background continuity | Clarified the native SSE settings and notification status: Android keeps its persistent authenticated `/api/session/stream` preference when optional gateway extras are unavailable, presents that distinction clearly, and logs the safe active transport state for diagnostics. |
 | A-001 | 2026-06-19 | Build | Fixed Java/Gradle setup and verified `test` plus `assembleDebug` |

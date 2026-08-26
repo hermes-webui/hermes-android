@@ -25,7 +25,7 @@ object HermesWebUiScripts {
 
           var STYLE_ID = 'hermes-android-viewport-fix';
           var REPAIRED_ATTR = 'data-hermes-android-vh-repaired';
-          var REPAIR_SCROLL_ATTR = 'data-hermes-android-vh-scrollable';
+          var PROMPT_SHIFT_PROPERTY = '--hermes-android-prompt-shift';
           var MAX_REPAIRS_PER_SCAN = 50;
           var MIN_SCAN_INTERVAL_MS = 100;
 
@@ -104,24 +104,43 @@ object HermesWebUiScripts {
             // not the panel height), so this measurement stays stable across scans and
             // cannot oscillate.
             var promptPanelMax = Math.min(420, Math.round(viewport.visualHeight * 0.68));
+            var promptCard = null;
             try {
-              var promptCard = document.querySelector('.approval-card.visible:not(.collapsed), .clarify-card.visible:not(.collapsed)');
+              promptCard = document.querySelector('.approval-card.visible:not(.collapsed), .clarify-card.visible:not(.collapsed)');
               if (promptCard && promptCard.getBoundingClientRect) {
                 var titlebar = document.querySelector('.app-titlebar');
                 var titlebarBottom = 0;
                 if (titlebar && titlebar.getBoundingClientRect) {
                   titlebarBottom = titlebar.getBoundingClientRect().bottom;
                 }
-                var promptBottom = Math.min(
-                  promptCard.getBoundingClientRect().bottom,
-                  viewport.visualBottom
-                );
+                var previousShift = parseFloat(
+                  promptCard.style.getPropertyValue(PROMPT_SHIFT_PROPERTY)
+                ) || 0;
+                var anchorBottom = promptCard.getBoundingClientRect().bottom + previousShift;
+                var promptShift = Math.max(0, Math.ceil(anchorBottom - viewport.visualBottom));
+                var promptShiftPx = promptShift + 'px';
+                if (promptCard.style.getPropertyValue(PROMPT_SHIFT_PROPERTY) !== promptShiftPx) {
+                  promptCard.style.setProperty(PROMPT_SHIFT_PROPERTY, promptShiftPx);
+                }
+                var promptBottom = Math.min(anchorBottom, viewport.visualBottom);
                 var promptTop = Math.max(titlebarBottom, viewport.visualTop);
                 var promptAvailable = promptBottom - promptTop - 8;
                 promptPanelMax = Math.min(
                   promptPanelMax,
                   Math.max(1, Math.floor(promptAvailable))
                 );
+              }
+            } catch (e) {}
+            try {
+              var inactivePromptCards = document.querySelectorAll('.approval-card, .clarify-card');
+              for (var promptIndex = 0; promptIndex < inactivePromptCards.length; promptIndex++) {
+                var inactivePromptCard = inactivePromptCards[promptIndex];
+                if (
+                  inactivePromptCard !== promptCard &&
+                  inactivePromptCard.style.getPropertyValue(PROMPT_SHIFT_PROPERTY)
+                ) {
+                  inactivePromptCard.style.removeProperty(PROMPT_SHIFT_PROPERTY);
+                }
               }
             } catch (e) {}
             // The WebUI uses a 180px preferred floor, but enforcing that floor when
@@ -141,7 +160,7 @@ object HermesWebUiScripts {
                 : ''),
               // Prompt panel (approval/clarify) measured geometry cap. !important beats
               // both the WebUI viewport-unit clamp and any stale inline repair styles.
-              '.approval-card:not(.collapsed), .clarify-card:not(.collapsed) { max-height: ' + promptPanelMaxPx + ' !important; }',
+              '.approval-card:not(.collapsed), .clarify-card:not(.collapsed) { max-height: ' + promptPanelMaxPx + ' !important; transform: translateY(calc(-1 * var(' + PROMPT_SHIFT_PROPERTY + ', 0px))) !important; }',
               '.approval-card:not(.collapsed) .approval-inner, .clarify-card:not(.collapsed) .clarify-inner { box-sizing: border-box !important; max-height: ' + promptPanelMaxPx + ' !important; overflow-y: auto !important; }',
               // The prompt cards float above the composer from inside the
               // zero-height .composer-flyout, so neither the flyout nor the
@@ -203,9 +222,7 @@ object HermesWebUiScripts {
             el.style.removeProperty('height');
             el.style.removeProperty('min-height');
             el.style.removeProperty('max-height');
-            el.style.removeProperty('overflow-y');
             el.removeAttribute(REPAIRED_ATTR);
-            el.removeAttribute(REPAIR_SCROLL_ATTR);
           }
 
           function isCollapsedElement(el, viewport) {
@@ -265,24 +282,14 @@ object HermesWebUiScripts {
             el.style.height = 'auto';
             el.style.minHeight = minPanel;
             el.style.maxHeight = maxPanel;
-            if (el.getAttribute(REPAIR_SCROLL_ATTR) === 'true') {
-              el.style.overflowY = 'auto';
-            } else {
-              // Never turn a normal layout ancestor into a new scroll/clipping
-              // container. That was the mechanism behind the #80 regression.
-              el.style.removeProperty('overflow-y');
-            }
+            // Preserve the element's existing overflow contract. Creating a new
+            // scroll container caused #80, while rewriting an existing inline
+            // overflow value would corrupt the layout when the repair clears.
           }
 
           function repairElement(el, viewport) {
             if (el.getAttribute(REPAIRED_ATTR)) return false;
 
-            try {
-              var style = window.getComputedStyle(el);
-              if (style && (style.overflowY === 'auto' || style.overflowY === 'scroll')) {
-                el.setAttribute(REPAIR_SCROLL_ATTR, 'true');
-              }
-            } catch (e) {}
             updateRepair(el, viewport);
             el.setAttribute(REPAIRED_ATTR, 'true');
 
@@ -384,7 +391,6 @@ object HermesWebUiScripts {
                 // Skip mutations that are just our own repairs
                 var dominated = mutations.every(function(m) {
                   return m.attributeName === REPAIRED_ATTR ||
-                    m.attributeName === REPAIR_SCROLL_ATTR ||
                     (m.attributeName === 'style' && m.target.getAttribute && m.target.getAttribute(REPAIRED_ATTR));
                 });
                 if (!dominated) schedulePolyfill();
@@ -393,7 +399,7 @@ object HermesWebUiScripts {
                 childList: true,
                 subtree: true,
                 attributes: true,
-                attributeFilter: ['style', 'class', REPAIRED_ATTR, REPAIR_SCROLL_ATTR]
+                attributeFilter: ['style', 'class', REPAIRED_ATTR]
               });
             } catch (e) {}
           }
@@ -906,9 +912,12 @@ object HermesWebUiScripts {
 
           // Issue #65: WebUI focuses #clarifyInput when a multiple-choice prompt
           // appears, opening the IME over the choices. Suppress only that automatic
-          // focus. Never inspect or mutate unrelated dialogs (#90).
+          // focus once per prompt presentation. Validation/error refocus after the
+          // user interacts remains available. Never inspect unrelated dialogs (#90).
           var focusIntentUntil = 0;
+          var focusIntentPresentationKey = null;
           var FOCUS_INTENT_WINDOW_MS = 1000;
+          var PRESENTATION_HANDLED_ATTR = 'data-hermes-android-clarify-focus-handled';
 
           var isClarifyInput = function(target) {
             return !!(
@@ -919,10 +928,32 @@ object HermesWebUiScripts {
             );
           };
 
+          var getClarifyPresentationKey = function(card) {
+            try {
+              if (typeof _clarifyId !== 'undefined' && _clarifyId) {
+                return 'id:' + String(_clarifyId);
+              }
+              if (typeof _clarifySignature !== 'undefined' && _clarifySignature) {
+                return 'signature:' + String(_clarifySignature);
+              }
+            } catch (_) {}
+
+            var question = card.querySelector('#clarifyQuestion, .clarify-question');
+            var choices = card.querySelector('#clarifyChoices, .clarify-choices');
+            return 'dom:' +
+              String(question && question.textContent || '') + '\u001f' +
+              String(choices && choices.textContent || '');
+          };
+
           var rememberClarifyFocusIntent = function(event) {
             var target = event.target;
             if (!target || !target.closest) return;
+            var card = target.closest('.clarify-card.visible');
+            if (!card) return;
+            var presentationKey = getClarifyPresentationKey(card);
+            card.setAttribute(PRESENTATION_HANDLED_ATTR, presentationKey);
             if (isClarifyInput(target) || target.closest('.clarify-choice.other')) {
+              focusIntentPresentationKey = presentationKey;
               focusIntentUntil = Date.now() + FOCUS_INTENT_WINDOW_MS;
             }
           };
@@ -932,6 +963,11 @@ object HermesWebUiScripts {
           document.addEventListener('click', rememberClarifyFocusIntent, true);
           document.addEventListener('keydown', function(event) {
             if (event.key === 'Tab') {
+              var card = document.querySelector('.clarify-card.visible');
+              if (card) {
+                focusIntentPresentationKey = getClarifyPresentationKey(card);
+                card.setAttribute(PRESENTATION_HANDLED_ATTR, focusIntentPresentationKey);
+              }
               focusIntentUntil = Date.now() + FOCUS_INTENT_WINDOW_MS;
             } else {
               rememberClarifyFocusIntent(event);
@@ -941,7 +977,14 @@ object HermesWebUiScripts {
           var suppressAutomaticClarifyFocus = function(event) {
             var target = event.target;
             if (!isClarifyInput(target)) return;
-            if (Date.now() <= focusIntentUntil) return;
+            var card = target.closest('.clarify-card');
+            var presentationKey = getClarifyPresentationKey(card);
+            if (
+              Date.now() <= focusIntentUntil &&
+              focusIntentPresentationKey === presentationKey
+            ) return;
+            if (card.getAttribute(PRESENTATION_HANDLED_ATTR) === presentationKey) return;
+            card.setAttribute(PRESENTATION_HANDLED_ATTR, presentationKey);
 
             try {
               target.blur();
@@ -949,7 +992,11 @@ object HermesWebUiScripts {
             // Some WebView builds finalize focus after dispatching focusin. Re-check
             // on the next task so the IME cannot survive that delayed focus commit.
             window.setTimeout(function() {
-              if (document.activeElement !== target || Date.now() <= focusIntentUntil) return;
+              if (document.activeElement !== target) return;
+              if (
+                Date.now() <= focusIntentUntil &&
+                focusIntentPresentationKey === presentationKey
+              ) return;
               try {
                 target.blur();
               } catch (_) {}
@@ -957,6 +1004,29 @@ object HermesWebUiScripts {
           };
 
           document.addEventListener('focusin', suppressAutomaticClarifyFocus, true);
+
+          if (window.MutationObserver) {
+            var resetCompletedPresentation = function() {
+              var cards = document.querySelectorAll('.clarify-card[' + PRESENTATION_HANDLED_ATTR + ']');
+              for (var i = 0; i < cards.length; i++) {
+                var card = cards[i];
+                if (
+                  !card.classList.contains('visible') ||
+                  card.hidden ||
+                  card.getAttribute('aria-hidden') === 'true'
+                ) {
+                  card.removeAttribute(PRESENTATION_HANDLED_ATTR);
+                }
+              }
+            };
+            var observer = new MutationObserver(resetCompletedPresentation);
+            observer.observe(document, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ['class', 'hidden', 'aria-hidden']
+            });
+          }
         })();
     """.trimIndent()
 

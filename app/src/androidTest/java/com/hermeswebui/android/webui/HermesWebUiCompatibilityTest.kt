@@ -1,6 +1,9 @@
 package com.hermeswebui.android.webui
 
 import android.annotation.SuppressLint
+import android.os.SystemClock
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +15,7 @@ import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import org.json.JSONArray
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
@@ -41,10 +45,16 @@ class HermesWebUiCompatibilityTest {
         loadFixture(
             """
             <div class="clarify-card visible">
-              <input id="clarifyInput">
-              <button class="clarify-choice other"><span>Other</span></button>
+              <div id="clarifyQuestion">First question</div>
+              <div id="clarifyChoices">
+                <button class="clarify-choice other" tabindex="3"
+                  onclick="window.__otherClicks = (window.__otherClicks || 0) + 1; clarifyInput.focus()">
+                  <span>Other</span>
+                </button>
+              </div>
+              <input id="clarifyInput" tabindex="2">
             </div>
-            <div role="dialog"><input id="folderName"></div>
+            <div role="dialog"><input id="folderName" tabindex="1"></div>
             """.trimIndent()
         )
         evaluate(HermesWebUiScripts.suppressClarifyAutofocusScript)
@@ -82,24 +92,40 @@ class HermesWebUiCompatibilityTest {
         )
         assertWithMessage(focusMetrics).that(automaticFocusSuppressed).isTrue()
 
+        // Subsequent programmatic focus in the same presentation is validation/error
+        // recovery and must not be mistaken for the initial prompt autofocus.
         evaluate(
             """
-            clarifyInput.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
             clarifyInput.focus();
             clarifyInput.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
             """.trimIndent()
         )
         assertThat(awaitBoolean("document.activeElement === clarifyInput", expected = true)).isTrue()
 
+        evaluate("clarifyInput.blur()")
+        tapElement("#clarifyInput")
+        assertThat(awaitBoolean("document.activeElement === clarifyInput", expected = true)).isTrue()
+
+        evaluate("clarifyInput.blur(); window.__otherClicks = 0")
+        tapElement(".clarify-choice.other")
+        assertThat(awaitBoolean("document.activeElement === clarifyInput", expected = true)).isTrue()
+        assertThat(awaitBoolean("window.__otherClicks === 1", expected = true)).isTrue()
+
+        // A new prompt may replace the visible card without a hidden transition.
+        // Its first automatic focus must be suppressed independently.
         evaluate(
             """
             clarifyInput.blur();
-            document.querySelector('.clarify-choice.other span')
-              .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+            clarifyQuestion.textContent = 'Second question';
             clarifyInput.focus();
             clarifyInput.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
             """.trimIndent()
         )
+        assertThat(awaitBoolean("document.activeElement === clarifyInput", expected = false)).isTrue()
+
+        // Hardware Tab navigation is intentional input focus for the replacement prompt.
+        evaluate("clarifyQuestion.textContent = 'Third question'; folderName.focus()")
+        pressTabInWebView()
         assertThat(awaitBoolean("document.activeElement === clarifyInput", expected = true)).isTrue()
     }
 
@@ -117,28 +143,36 @@ class HermesWebUiCompatibilityTest {
                 position: absolute;
                 left: 20px;
                 right: 20px;
-                bottom: 160px;
+                bottom: -80px;
                 max-height: 0;
                 overflow: hidden;
                 pointer-events: none;
+                z-index: 10;
               }
               .clarify-card.visible { pointer-events: auto; }
               .clarify-inner { height: 700px; }
-              #genericPanel {
+              .generic-panel {
                 position: absolute;
                 top: 120px;
                 left: 20px;
                 width: 400px;
                 max-height: 0;
                 overflow-y: visible;
+                z-index: 1;
               }
-              #genericPanel > div { height: 600px; }
+              .generic-panel > div { height: 600px; }
+              #scrollPanel { top: 220px; }
             </style>
             <div id="fixture">
               <div class="app-titlebar"></div>
               <div class="composer-wrap"><div class="composer-flyout"></div></div>
-              <div class="clarify-card visible"><div class="clarify-inner"></div></div>
-              <div id="genericPanel"><div><button>Action</button></div></div>
+              <div class="clarify-card visible">
+                <div class="clarify-inner">
+                  <button id="promptChoice" onclick="window.__promptChoiceClicks = (window.__promptChoiceClicks || 0) + 1">Choose</button>
+                </div>
+              </div>
+              <div id="genericPanel" class="generic-panel"><div><button>Action</button></div></div>
+              <div id="scrollPanel" class="generic-panel" style="overflow-y: scroll"><div><button>Scrollable action</button></div></div>
             </div>
             """.trimIndent()
         )
@@ -189,7 +223,9 @@ class HermesWebUiCompatibilityTest {
             evaluateBoolean(
                 """
                 genericPanel.hasAttribute('data-hermes-android-vh-repaired') &&
-                  genericPanel.style.overflowY !== 'auto'
+                  genericPanel.style.overflowY !== 'auto' &&
+                  scrollPanel.hasAttribute('data-hermes-android-vh-repaired') &&
+                  scrollPanel.style.overflowY === 'scroll'
                 """.trimIndent()
             )
         ).isTrue()
@@ -206,6 +242,7 @@ class HermesWebUiCompatibilityTest {
                 composerOverflowY: getComputedStyle(document.querySelector('.composer-wrap')).overflowY,
                 repaired: card.hasAttribute('data-hermes-android-vh-repaired'),
                 pointerEvents: getComputedStyle(card).pointerEvents,
+                promptShift: card.style.getPropertyValue('--hermes-android-prompt-shift'),
                 cardTop: rect.top,
                 cardBottom: rect.bottom,
                 cardHeight: rect.height,
@@ -228,10 +265,27 @@ class HermesWebUiCompatibilityTest {
                   return getComputedStyle(document.querySelector('.composer-wrap')).overflowY === 'visible' &&
                     !card.hasAttribute('data-hermes-android-vh-repaired') &&
                     getComputedStyle(card).pointerEvents === 'auto' &&
+                    parseFloat(card.style.getPropertyValue('--hermes-android-prompt-shift')) > 0 &&
                     rect.height > 0 &&
                     rect.top >= titlebar.getBoundingClientRect().bottom &&
                     rect.bottom <= visualBottom + 1;
                 })()
+                """.trimIndent()
+            )
+        ).isTrue()
+
+        evaluate("window.__promptChoiceClicks = 0")
+        tapElement("#promptChoice")
+        assertThat(awaitBoolean("window.__promptChoiceClicks === 1", expected = true)).isTrue()
+
+        evaluate("scrollPanel.style.display = 'none'")
+        Thread.sleep(150)
+        evaluate("window.__hermesAndroidApplyViewportFix();")
+        assertThat(
+            evaluateBoolean(
+                """
+                !scrollPanel.hasAttribute('data-hermes-android-vh-repaired') &&
+                  scrollPanel.style.overflowY === 'scroll'
                 """.trimIndent()
             )
         ).isTrue()
@@ -278,6 +332,45 @@ class HermesWebUiCompatibilityTest {
     }
 
     private fun evaluateBoolean(script: String): Boolean = evaluate(script) == "true"
+
+    private fun tapElement(selector: String) {
+        val coordinates = JSONArray(
+            evaluate(
+                """
+                (function() {
+                  var element = document.querySelector(${org.json.JSONObject.quote(selector)});
+                  var rect = element.getBoundingClientRect();
+                  return [rect.left + rect.width / 2, rect.top + rect.height / 2, window.innerWidth];
+                })()
+                """.trimIndent()
+            )
+        )
+        val cssX = coordinates.getDouble(0).toFloat()
+        val cssY = coordinates.getDouble(1).toFloat()
+        val cssViewportWidth = coordinates.getDouble(2).toFloat()
+        composeTestRule.runOnIdle {
+            val scale = webView.width / cssViewportWidth
+            val x = cssX * scale
+            val y = cssY * scale
+            val downTime = SystemClock.uptimeMillis()
+            val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
+            val up = MotionEvent.obtain(downTime, downTime + 80, MotionEvent.ACTION_UP, x, y, 0)
+            try {
+                webView.dispatchTouchEvent(down)
+                webView.dispatchTouchEvent(up)
+            } finally {
+                down.recycle()
+                up.recycle()
+            }
+        }
+    }
+
+    private fun pressTabInWebView() {
+        composeTestRule.runOnIdle {
+            webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB))
+            webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_TAB))
+        }
+    }
 
     private fun awaitBoolean(script: String, expected: Boolean): Boolean {
         repeat(20) {

@@ -68,6 +68,39 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertTrue((ROOT / "tools" / "extract_webui_scripts.py").exists())
         self.assertTrue((ROOT / "eslint.runtime-guard.config.mjs").exists())
 
+    def test_ci_checks_documentation_when_markdown_changes(self) -> None:
+        workflow = read_workflow("0-ci-build-and-test.yml")
+        self.assertIn("\n  docs-render:\n", workflow)
+        self.assertIn("\n  docs-links:\n", workflow)
+        self.assertIn("python3 tools/check_markdown.py", workflow)
+        self.assertIn("needs.changes.outputs.docs == 'true'", workflow)
+        self.assertTrue((ROOT / "tools" / "check_markdown.py").exists())
+        # The external link check must never block a merge on network flake.
+        docs_links = workflow.split("\n  docs-links:\n", 1)[1].split("\n  release-", 1)[0]
+        self.assertIn("continue-on-error: true", docs_links)
+
+    def test_docs_only_change_sets_skip_the_gradle_gates_but_fail_safe(self) -> None:
+        workflow = read_workflow("0-ci-build-and-test.yml")
+        jobs_section = workflow.split("\njobs:\n", 1)[1]
+        blocks = dict(
+            zip(
+                re.findall(r"^  ([a-z0-9-]+):$", jobs_section, re.MULTILINE),
+                re.split(r"^  [a-z0-9-]+:$", jobs_section, flags=re.MULTILINE)[1:],
+            )
+        )
+        for job in ("unit-tests", "android-lint", "debug-build"):
+            self.assertIn(
+                "if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}",
+                blocks[job],
+                msg=f"{job} must skip docs-only runs while defaulting to running",
+            )
+        # Release tooling tests assert README release metadata, so a docs-only
+        # change is exactly when they matter most.
+        self.assertNotIn("docs_only", blocks["release-tooling-tests"])
+        # The detector must default to running everything.
+        self.assertIn('docs_only="false"', blocks["changes"])
+        self.assertIn("trap emit EXIT", blocks["changes"])
+
     def test_every_ci_job_declares_a_timeout(self) -> None:
         workflow = read_workflow("0-ci-build-and-test.yml")
         jobs_section = workflow.split("\njobs:\n", 1)[1]

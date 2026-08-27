@@ -3,6 +3,10 @@ name: 0 - CI Build & Test
 # Build + quality gate for pushes and PRs. Every check runs as its own job so a
 # red X names the thing that broke (unit tests vs. Android Lint vs. injected-JS
 # syntax) instead of collapsing several gates into one opaque failure.
+#
+# A documentation-only change set skips the three Gradle jobs, which have nothing
+# to compile. Release tooling tests still run because they assert the README
+# release metadata matches Gradle.
 on:
   push:
     branches: ["main"]
@@ -18,13 +22,18 @@ permissions:
 
 jobs:
   changes:
-    name: Detect Android app changes
+    name: Detect changed areas
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       android_app: ${{ steps.filter.outputs.android_app }}
+      docs: ${{ steps.filter.outputs.docs }}
+      docs_only: ${{ steps.detect.outputs.docs_only }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history so the docs-only detector can diff against the base.
+          fetch-depth: 0
 
       - name: Detect Android app changes
         id: filter
@@ -40,6 +49,96 @@ jobs:
               - 'gradle/**'
               - 'gradle/libs.versions.toml'
               - '.github/workflows/0-ci-build-and-test.yml'
+            docs:
+              - '**/*.md'
+
+      - name: Detect docs-only change set
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Fail-safe by construction: this step always exits 0 and always emits
+          # docs_only, defaulting to 'false' (= run the full suite). Any
+          # uncertainty - no base to diff, an unreadable diff, a single non-doc
+          # path - runs everything. It can over-run CI; it can never skip a
+          # Gradle gate on a change that touches real code.
+          docs_only="false"
+          emit() { echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"; }
+          trap emit EXIT
+          set -uo pipefail
+
+          # Strict allowlist. A path is docs only if it carries a Markdown
+          # extension. Deliberately NOT docs: *.txt (requirements.txt controls
+          # dependencies), and any code file merely named README/CHANGELOG.
+          if [ -n "${BASE_SHA:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
+            RANGE="$BASE_SHA...$HEAD_SHA"
+          else
+            RANGE="${{ github.event.before }}...${{ github.sha }}"
+          fi
+
+          # --no-renames so `git mv MainActivity.kt notes.md` still reveals the
+          # source-file deletion instead of collapsing to a docs destination.
+          if ! FILES="$(git diff --name-only --no-renames "$RANGE" 2>/dev/null)"; then
+            echo "Could not diff $RANGE - running the full suite."; exit 0
+          fi
+          if [ -z "$FILES" ]; then
+            echo "Empty diff - running the full suite."; exit 0
+          fi
+
+          echo "Changed files:"; echo "$FILES"
+          result="true"
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$(printf '%s' "$file" | tr '[:upper:]' '[:lower:]')" in
+              *.md) ;;
+              *) echo "Non-docs path -> full suite required: $file"; result="false"; break ;;
+            esac
+          done <<< "$FILES"
+          docs_only="$result"
+          echo "docs_only=$docs_only"
+
+  # Not a Markdown style linter. `docs-render` blocks only on breaks that render
+  # as literal garbage or point at a file that does not exist; `docs-links`
+  # checks external URLs and stays informational because the network is not a
+  # build dependency.
+  docs-render:
+    name: Docs - Markdown rendering and in-repo links
+    needs: changes
+    if: ${{ needs.changes.outputs.docs == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check Markdown rendering and in-repo links
+        run: python3 tools/check_markdown.py
+
+  docs-links:
+    name: Docs - external links (informational)
+    needs: changes
+    if: ${{ needs.changes.outputs.docs == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Handed a fixed glob rather than a list built from changed filenames, so
+      # no attacker-controlled name from a fork PR reaches the action's shell.
+      - name: Broken-link check
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2
+        continue-on-error: true
+        with:
+          args: >-
+            --no-progress
+            --max-concurrency 4
+            --accept 200,206,301,302,303,307,308,401,403,429
+            --timeout 20
+            --max-retries 2
+            --exclude-path build
+            --exclude-path node_modules
+            "**/*.md"
+          fail: true
 
   release-tooling-tests:
     name: Release tooling tests
@@ -105,6 +204,10 @@ jobs:
 
   unit-tests:
     name: Unit tests
+    needs: changes
+    # always() so a detector failure degrades to running this gate rather than
+    # silently skipping it; an empty docs_only is treated as "not docs-only".
+    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -134,6 +237,8 @@ jobs:
 
   android-lint:
     name: Android Lint
+    needs: changes
+    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -161,6 +266,8 @@ jobs:
 
   debug-build:
     name: Debug APK build
+    needs: changes
+    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

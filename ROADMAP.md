@@ -126,6 +126,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| TEST-005 | 2026-08-26 | CI / Documentation | Added documentation checks for Markdown rendering breaks, dead in-repo links, and external URLs, and gave documentation-only pull requests a fail-safe fast path that skips the Gradle jobs while keeping README release-metadata assertions running. |
 | TEST-004 | 2026-08-26 | CI / Testing | Split PR CI into per-check jobs (release tooling, unit tests, Android Lint, debug APK) so a failure names the gate that broke, added job timeouts, and introduced syntax plus ESLint runtime-error gates for the JavaScript Android injects into the WebUI WebView. |
 | REL-028 | 2026-08-26 | Release / CI | Reworked release orchestration to build immutable reviewed versions, pin external actions, generate linked GitHub/Play changelogs once, validate retry metadata against the originating run, and verify APK/AAB signatures before publishing. |
 | TEST-003 | 2026-08-26 | CI / Testing | Expanded QA with release-tool/workflow contract tests, Android API 35/36 instrumentation gates, share/deep-link/manifest/notification contracts, duplicate-profile rules, and deterministic GitHub update parsing. |

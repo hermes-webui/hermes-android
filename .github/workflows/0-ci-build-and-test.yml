@@ -1,9 +1,8 @@
 name: 0 - CI Build & Test
 
-# Build + unit-test gate for pushes and PRs. The repo previously had only the
-# signed-release workflows (1/2/3-*), so nothing compiled or tested changes on a
-# PR before merge. This adds that missing feedback loop without needing any
-# signing secrets (debug build only).
+# Build + quality gate for pushes and PRs. Every check runs as its own job so a
+# red X names the thing that broke (unit tests vs. Android Lint vs. injected-JS
+# syntax) instead of collapsing several gates into one opaque failure.
 on:
   push:
     branches: ["main"]
@@ -21,6 +20,7 @@ jobs:
   changes:
     name: Detect Android app changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       android_app: ${{ steps.filter.outputs.android_app }}
     steps:
@@ -41,9 +41,128 @@ jobs:
               - 'gradle/libs.versions.toml'
               - '.github/workflows/0-ci-build-and-test.yml'
 
-  build:
-    name: Quality gates + debug build
+  release-tooling-tests:
+    name: Release tooling tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run release tooling unit tests
+        run: python3 -m unittest discover -s tools/tests -p 'test_*.py' -v
+
+  # The WebUI shims live inside Kotlin raw strings, so kotlinc and Android Lint
+  # never parse them. A syntax error or a runtime-only mistake there ships a
+  # green build that bricks WebUI rendering on device. These two jobs extract the
+  # scripts and check them as real JavaScript.
+  webui-script-syntax:
+    name: Injected WebUI JS - syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Extract injected WebUI scripts
+        run: python3 tools/extract_webui_scripts.py
+
+      - name: Syntax-check each injected script
+        run: |
+          set -uo pipefail
+          failed=0
+          for script in build/webui-scripts/*.js; do
+            if node --check "$script"; then
+              echo "ok: $script"
+            else
+              echo "::error file=$script::Injected WebUI script failed to parse"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      - name: Upload extracted scripts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hermes-webui-extracted-scripts
+          path: build/webui-scripts/
+          if-no-files-found: warn
+
+  webui-script-lint:
+    name: Injected WebUI JS - runtime guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Extract injected WebUI scripts
+        run: python3 tools/extract_webui_scripts.py
+
+      - name: Install ESLint
+        run: npm install --no-save --no-audit --no-fund eslint@^10
+
+      - name: ESLint runtime-error gate
+        run: npx eslint --no-config-lookup -c eslint.runtime-guard.config.mjs "build/webui-scripts/**/*.js"
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
+
+      - name: Run unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hermes-unit-test-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+
+  android-lint:
+    name: Android Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
+
+      - name: Run Android Lint
+        run: ./gradlew --no-daemon lintDebug
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: hermes-lint-report
+          path: app/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+
+  debug-build:
+    name: Debug APK build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -65,22 +184,8 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
 
-      - name: Test release tooling
-        run: python3 -m unittest discover -s tools/tests -p 'test_*.py' -v
-
-      - name: Unit tests, Android Lint, and debug APK
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
-
-      - name: Upload QA reports
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: hermes-debug-qa-reports
-          path: |
-            app/build/reports/tests/testDebugUnitTest/
-            app/build/test-results/testDebugUnitTest/
-            app/build/reports/lint-results-debug.*
-          if-no-files-found: warn
+      - name: Assemble debug APK
+        run: ./gradlew --no-daemon assembleDebug
 
       - name: Upload debug APK
         if: success()
@@ -95,6 +200,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.android_app == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

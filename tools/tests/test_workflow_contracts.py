@@ -38,13 +38,46 @@ class WorkflowContractTests(unittest.TestCase):
     def test_ci_runs_tooling_quality_and_android_15_16_contracts(self) -> None:
         workflow = read_workflow("0-ci-build-and-test.yml")
         self.assertIn("python3 -m unittest discover -s tools/tests", workflow)
-        self.assertIn("testDebugUnitTest lintDebug assembleDebug", workflow)
         self.assertIn('branches: ["main"]', workflow)
         self.assertIn("pull_request:", workflow)
         self.assertRegex(workflow, r"api-level:\s*\[35, 36\]")
         self.assertIn("connectedDebugAndroidTest", workflow)
         self.assertNotIn("testInstrumentationRunnerArguments.class", workflow)
         self.assertIn("if: needs.changes.outputs.android_app == 'true'", workflow)
+
+    def test_ci_reports_each_quality_gate_as_its_own_job(self) -> None:
+        workflow = read_workflow("0-ci-build-and-test.yml")
+        for job, command in (
+            ("release-tooling-tests:", "python3 -m unittest discover -s tools/tests"),
+            ("unit-tests:", "./gradlew --no-daemon testDebugUnitTest"),
+            ("android-lint:", "./gradlew --no-daemon lintDebug"),
+            ("debug-build:", "./gradlew --no-daemon assembleDebug"),
+        ):
+            self.assertIn(f"\n  {job}\n", workflow)
+            self.assertIn(command, workflow)
+        # A combined invocation hides which gate failed.
+        self.assertNotIn("testDebugUnitTest lintDebug assembleDebug", workflow)
+
+    def test_ci_guards_the_javascript_android_injects_into_the_webview(self) -> None:
+        workflow = read_workflow("0-ci-build-and-test.yml")
+        self.assertIn("\n  webui-script-syntax:\n", workflow)
+        self.assertIn("\n  webui-script-lint:\n", workflow)
+        self.assertIn("python3 tools/extract_webui_scripts.py", workflow)
+        self.assertIn("node --check", workflow)
+        self.assertIn("eslint.runtime-guard.config.mjs", workflow)
+        self.assertTrue((ROOT / "tools" / "extract_webui_scripts.py").exists())
+        self.assertTrue((ROOT / "eslint.runtime-guard.config.mjs").exists())
+
+    def test_every_ci_job_declares_a_timeout(self) -> None:
+        workflow = read_workflow("0-ci-build-and-test.yml")
+        jobs_section = workflow.split("\njobs:\n", 1)[1]
+        jobs = re.findall(r"^  ([a-z0-9-]+):$", jobs_section, re.MULTILINE)
+        self.assertGreater(len(jobs), 1)
+        blocks = re.split(r"^  [a-z0-9-]+:$", jobs_section, flags=re.MULTILINE)[1:]
+        missing = [
+            job for job, block in zip(jobs, blocks) if "timeout-minutes:" not in block
+        ]
+        self.assertEqual(missing, [])
 
     def test_orchestrator_builds_reviewed_version_without_source_mutation(self) -> None:
         workflow = read_workflow("1-orchestration-release.yml")

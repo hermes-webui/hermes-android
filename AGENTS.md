@@ -210,7 +210,18 @@ and ends with:
 Keep `RELEASE.md` aligned with the workflow operator path whenever release
 automation changes.
 
-Separate from release publishing, CI uses `.github/workflows/0-ci-build-and-test.yml` to run release-tool tests plus `testDebugUnitTest` + `lintDebug` + `assembleDebug` on pull requests and direct `main` pushes without signing secrets. Pull requests and direct `main` pushes that change Android source or build inputs run the complete unfiltered `connectedDebugAndroidTest` suite on Android API 35 and 36. Release builds run the full API 36 suite again, then verify APK and AAB signatures before upload. Keep contributor verification steps aligned with these gates when changing build/test flow.
+Separate from release publishing, CI uses `.github/workflows/0-ci-build-and-test.yml` to gate pull requests and direct `main` pushes without signing secrets. Each check runs as its own job so a failure names the gate that broke: `release-tooling-tests`, `webui-script-syntax`, `webui-script-lint`, `unit-tests`, `android-lint`, and `debug-build`. Keep every job's `timeout-minutes` set; an untimed job can burn the six-hour runner default. Pull requests and direct `main` pushes that change Android source or build inputs also run the complete unfiltered `connectedDebugAndroidTest` suite on Android API 35 and 36. Release builds run the full API 36 suite again, then verify APK and AAB signatures before upload. Keep contributor verification steps aligned with these gates when changing build/test flow.
+
+The injected WebUI JavaScript in `webui/HermesWebUiScripts.kt` (and the raw-string block in `MainActivity.kt`) is invisible to kotlinc and Android Lint, so a syntax error or runtime-only mistake there ships green and bricks WebUI rendering on device. `tools/extract_webui_scripts.py` pulls each Kotlin raw string out into a standalone `.js` file — padded so JavaScript line numbers match the Kotlin source, with Kotlin string templates replaced by a placeholder literal — and CI runs `node --check` plus `eslint.runtime-guard.config.mjs` over the result. That ESLint config is deliberately not a style linter: it enables only rules that catch code which parses but throws at runtime. Add a Kotlin file to `SOURCE_FILES` in the extractor when it starts carrying injected script text, and add genuinely WebUI-owned page globals to `webUiPageGlobals` rather than disabling `no-undef`.
+
+Run the same guards locally with:
+
+```powershell
+python tools/extract_webui_scripts.py
+Get-ChildItem build/webui-scripts/*.js | ForEach-Object { node --check $_.FullName }
+npm install --no-save eslint@^10
+npx eslint --no-config-lookup -c eslint.runtime-guard.config.mjs "build/webui-scripts/**/*.js"
+```
 
 ## Verification
 

@@ -15,3 +15,8 @@ app/release/
 /keystore.properties
 /signing/
 /gradle-*.log
+
+# ESLint runtime guard for injected WebUI scripts installs on demand.
+/node_modules/
+/package-lock.json
+.eslintcache

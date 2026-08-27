@@ -1,28 +1,22 @@
 changelog:
+  # Every label listed here must actually exist in the repository. GitHub silently
+  # ignores unknown labels, so a category keyed to one nobody can apply simply
+  # never renders. tools/tests/test_workflow_contracts.py keeps this file in sync
+  # with the label set documented in AGENTS.md.
   exclude:
     labels:
       - skip-changelog
-      - internal-only
   categories:
     - title: Features and Improvements
       labels:
-        - feature
         - enhancement
         - user-facing
     - title: Fixes
       labels:
         - bug
-        - bugfix
-        - fix
-    - title: Testing Notes
+    - title: Documentation
       labels:
-        - testing-notes
-        - needs-testing
-    - title: Maintenance
-      labels:
-        - maintenance
-        - release
-        - docs
+        - documentation
     - title: Other Changes
       labels:
         - "*"

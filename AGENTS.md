@@ -109,11 +109,21 @@ When a user references GitHub issues (e.g., by URL or issue number), agents shou
 - When a PR completes an issue, use GitHub closing keywords such as
   `Fixes #123` or `Closes #123`. Use `Related #123` when it only contributes to
   the issue.
-- Apply labels that help generated release notes group the change:
-  `feature`, `enhancement`, `user-facing`, `bug`, `bugfix`, `fix`,
-  `testing-notes`, `needs-testing`, `maintenance`, `release`, or `docs`.
-- Use `skip-changelog` only for changes that should not appear in user-facing
+- Apply labels that help generated release notes group the change. The
+  repository label set is deliberately small, and these are the only labels
+  `.github/release.yml` reacts to:
+  - `enhancement` or `user-facing` - grouped under "Features and Improvements"
+  - `bug` - grouped under "Fixes"
+  - `documentation` - grouped under "Documentation"
+  - `skip-changelog` - omitted from user-facing release notes entirely
+- Anything unlabeled falls under "Other Changes", which is a fine default for
+  internal refactors and CI work.
+- `needs-triage` and `help wanted` are issue-triage labels and do not affect
   release notes.
+- Do not invent labels in a PR body or in these instructions. GitHub silently
+  ignores a label that does not exist, so a category keyed to a made-up label
+  never renders. Create the label first with `gh label create` if a new grouping
+  is genuinely needed, then add it to both `.github/release.yml` and this list.
 - Do not make release notes primarily about commit hashes, workflow run IDs,
   artifact names, or SHA-256 values. Keep those in workflow logs or summaries.
 

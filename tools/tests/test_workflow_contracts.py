@@ -152,5 +152,42 @@ class ReleaseVersionMetadataTests(unittest.TestCase):
         self.assertEqual(int(readme_code.group(1)), major * 10_000 + minor * 100 + patch)
 
 
+class ReleaseNoteLabelTests(unittest.TestCase):
+    """`.github/release.yml` may only reference labels that really exist.
+
+    GitHub silently ignores an unknown label, so a category keyed to one renders
+    as nothing at all. The repository label set is small and documented in
+    AGENTS.md; this keeps the two from drifting apart again.
+    """
+
+    def _configured_labels(self) -> set[str]:
+        text = (ROOT / ".github" / "release.yml").read_text(encoding="utf-8")
+        # Bare sequence scalars only; `- title: ...` entries are category headers.
+        labels = set(re.findall(r'^\s+- "?([^\s:"]+)"?$', text, re.MULTILINE))
+        return labels - {"*"}
+
+    def test_release_note_labels_are_documented_in_agents_md(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        undocumented = sorted(
+            label for label in self._configured_labels() if f"`{label}`" not in agents
+        )
+        self.assertEqual(undocumented, [])
+
+    def test_release_note_config_avoids_retired_placeholder_labels(self) -> None:
+        configured = self._configured_labels()
+        retired = {
+            "feature",
+            "bugfix",
+            "fix",
+            "testing-notes",
+            "needs-testing",
+            "maintenance",
+            "release",
+            "docs",
+            "internal-only",
+        }
+        self.assertEqual(sorted(configured & retired), [])
+
+
 if __name__ == "__main__":
     unittest.main()

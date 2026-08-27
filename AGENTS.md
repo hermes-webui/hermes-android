@@ -290,7 +290,9 @@ summary.
 
 Branch hygiene after merges:
 
-- After a feature or fix branch is merged into `main`, delete the merged branch locally and on GitHub unless the human explicitly wants to keep it.
+- After a feature or fix branch is merged into `main`, clean it up locally and on GitHub when deletion is safe. Verify either that Git proves the branch is an ancestor of current `origin/main`, or that GitHub reports the pull request merged and the branch still matches that pull request's exact head ref and SHA. The latter is required for squash merges, whose head commits are not ancestors of `main`.
+- Preserve branches attached to another worktree, advanced beyond the verified pull-request head, carrying unmerged work, or otherwise uncertain unless the human explicitly approves deletion.
+- GitHub's automatic merged-branch deletion setting is optional, not a repository requirement. Lack of Admin access to enable it does not block completion; continue best-effort manual cleanup.
 - After merges land, sync local `main` with `origin/main` before starting new work or cutting another branch.
 - Before creating a new working branch, confirm `main` is current with `git fetch origin` plus an ahead/behind check such as `git status --short --branch`.
 - Treat a branch that is fully merged but behind `main` as stale; recreate it from current `main` instead of reviving it with extra history.

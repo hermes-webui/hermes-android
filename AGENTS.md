@@ -94,6 +94,7 @@ When a user references GitHub issues (e.g., by URL or issue number), agents shou
 - For issue work, create or reuse a branch named after the issue (for example `issue-73`) before publishing any code.
 - Push the branch to GitHub with `git push --set-upstream origin <branch>` once the work is ready for review.
 - Create the PR with `gh pr create --title "<user-facing release note>" --body-file <path-to-markdown> --base main --head <branch>`; do not hand-write a long inline body in `--body`.
+- When working on an issue, assign the issue and its associated pull request to `Paladin173` using `gh issue edit <issue-number> --add-assignee Paladin173` and `gh pr edit <pr-number> --add-assignee Paladin173`.
 - Attach the PR to the issue in the PR body by including a closing keyword such as `Fixes #123` or `Closes #123`; use `Related #123` when the PR contributes without fully resolving the issue.
 - When an issue is resolved and closed, always add a comment to the issue explaining the fix: a short root-cause summary, what changed, and how it was verified. Post it with a file-based markdown body, such as `gh issue comment <issue-number> --body-file <path-to-markdown>` or `gh api repos/<owner>/<repo>/issues/<issue-number>/comments --input <path-to-markdown>`.
 - Always verify the rendered result with `gh pr view` or `gh issue view` after posting, and fix any markdown formatting regression immediately.

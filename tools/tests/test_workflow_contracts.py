@@ -66,6 +66,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(generators, ["1-orchestration-release.yml"])
 
         orchestrator = workflows["1-orchestration-release.yml"]
+        self.assertIn("permissions:\n  contents: write\n  actions: read", orchestrator)
         self.assertIn("tools/generate_release_metadata.py", orchestrator)
         self.assertIn("build/release/release-notes.md", orchestrator)
         self.assertIn("build/release/play-whatsnew/whatsnew-en-US", orchestrator)

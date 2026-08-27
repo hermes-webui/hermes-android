@@ -104,8 +104,8 @@ jobs:
   # build dependency.
   docs-render:
     name: Docs - Markdown rendering and in-repo links
-    needs: changes
-    if: ${{ needs.changes.outputs.docs == 'true' }}
+    # Unconditional: it checks the whole tree in seconds, and a required status
+    # check must never be skipped or it reports as pending forever.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -205,28 +205,40 @@ jobs:
   unit-tests:
     name: Unit tests
     needs: changes
-    # always() so a detector failure degrades to running this gate rather than
-    # silently skipping it; an empty docs_only is treated as "not docs-only".
-    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
+    # These three jobs always run so they can safely be required status checks:
+    # a *skipped* required check reports as pending forever and wedges the PR.
+    # A docs-only change set short-circuits the steps instead, so the check still
+    # reports a conclusion within seconds. An empty docs_only (which is what a
+    # failed `changes` job yields) is treated as "not docs-only", so a detector
+    # failure degrades to running the full gate.
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Docs-only short-circuit
+        if: needs.changes.outputs.docs_only == 'true'
+        run: echo "Documentation-only change set - nothing to compile or test."
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.docs_only != 'true'
 
       - name: Set up JDK 17
+        if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
+        if: needs.changes.outputs.docs_only != 'true'
         uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
 
       - name: Run unit tests
+        if: needs.changes.outputs.docs_only != 'true'
         run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Upload unit test reports
-        if: always()
+        if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hermes-unit-test-reports
@@ -238,26 +250,34 @@ jobs:
   android-lint:
     name: Android Lint
     needs: changes
-    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Docs-only short-circuit
+        if: needs.changes.outputs.docs_only == 'true'
+        run: echo "Documentation-only change set - nothing to lint."
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.docs_only != 'true'
 
       - name: Set up JDK 17
+        if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle
+        if: needs.changes.outputs.docs_only != 'true'
         uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
 
       - name: Run Android Lint
+        if: needs.changes.outputs.docs_only != 'true'
         run: ./gradlew --no-daemon lintDebug
 
       - name: Upload lint report
-        if: always()
+        if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hermes-lint-report
@@ -267,19 +287,26 @@ jobs:
   debug-build:
     name: Debug APK build
     needs: changes
-    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Docs-only short-circuit
+        if: needs.changes.outputs.docs_only == 'true'
+        run: echo "Documentation-only change set - nothing to build."
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.docs_only != 'true'
 
       - name: Set up JDK 17
+        if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Prepare Android SDK
+        if: needs.changes.outputs.docs_only != 'true'
         shell: bash
         run: |
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
@@ -289,13 +316,15 @@ jobs:
           set -o pipefail
 
       - name: Set up Gradle
+        if: needs.changes.outputs.docs_only != 'true'
         uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5.0.0
 
       - name: Assemble debug APK
+        if: needs.changes.outputs.docs_only != 'true'
         run: ./gradlew --no-daemon assembleDebug
 
       - name: Upload debug APK
-        if: success()
+        if: ${{ success() && needs.changes.outputs.docs_only != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hermes-debug-apk

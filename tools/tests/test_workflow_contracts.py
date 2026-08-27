@@ -13,6 +13,14 @@ def read_workflow(name: str) -> str:
     return (WORKFLOW_DIR / name).read_text(encoding="utf-8")
 
 
+def ci_job_blocks(workflow: str) -> dict[str, str]:
+    """Map each job id in the CI workflow to its YAML block."""
+    jobs_section = workflow.split("\njobs:\n", 1)[1]
+    names = re.findall(r"^  ([a-z0-9-]+):$", jobs_section, re.MULTILINE)
+    blocks = re.split(r"^  [a-z0-9-]+:$", jobs_section, flags=re.MULTILINE)[1:]
+    return dict(zip(names, blocks))
+
+
 class WorkflowContractTests(unittest.TestCase):
     def test_every_external_action_is_pinned_to_commit(self) -> None:
         failures: list[str] = []
@@ -81,19 +89,24 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_docs_only_change_sets_skip_the_gradle_gates_but_fail_safe(self) -> None:
         workflow = read_workflow("0-ci-build-and-test.yml")
-        jobs_section = workflow.split("\njobs:\n", 1)[1]
-        blocks = dict(
-            zip(
-                re.findall(r"^  ([a-z0-9-]+):$", jobs_section, re.MULTILINE),
-                re.split(r"^  [a-z0-9-]+:$", jobs_section, flags=re.MULTILINE)[1:],
-            )
-        )
+        blocks = ci_job_blocks(workflow)
         for job in ("unit-tests", "android-lint", "debug-build"):
-            self.assertIn(
-                "if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}",
-                blocks[job],
-                msg=f"{job} must skip docs-only runs while defaulting to running",
+            block = blocks[job]
+            header = block.split("\n    steps:\n", 1)[0]
+            directives = "\n".join(
+                line for line in header.splitlines() if not line.strip().startswith("#")
             )
+            # The job itself must always run. A *skipped* required status check
+            # reports as pending forever, which wedges the pull request.
+            self.assertIn("if: ${{ always() }}", directives, msg=job)
+            self.assertNotIn(
+                "docs_only", directives, msg=f"{job} must not skip at job level"
+            )
+            self.assertIn("Docs-only short-circuit", block)
+            # Every step must be guarded, or a docs-only run still pays for it.
+            steps = block.split("\n      - ")[1:]
+            unguarded = [step.splitlines()[0] for step in steps if "docs_only" not in step]
+            self.assertEqual(unguarded, [], msg=f"{job} has unguarded steps")
         # Release tooling tests assert README release metadata, so a docs-only
         # change is exactly when they matter most.
         self.assertNotIn("docs_only", blocks["release-tooling-tests"])
@@ -101,14 +114,41 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('docs_only="false"', blocks["changes"])
         self.assertIn("trap emit EXIT", blocks["changes"])
 
+    def test_required_check_candidates_always_report_a_conclusion(self) -> None:
+        """Jobs intended as required status checks must never be skipped.
+
+        GitHub reports a skipped required check as pending forever, so a job that
+        can be skipped must not be made required. Keep this list aligned with the
+        repository ruleset.
+        """
+        workflow = read_workflow("0-ci-build-and-test.yml")
+        blocks = ci_job_blocks(workflow)
+        required = (
+            "docs-render",
+            "release-tooling-tests",
+            "webui-script-syntax",
+            "webui-script-lint",
+            "unit-tests",
+            "android-lint",
+            "debug-build",
+        )
+        for job in required:
+            block = blocks[job]
+            condition = re.search(r"^    if: (.+)$", block, re.MULTILINE)
+            if condition is None:
+                continue
+            self.assertEqual(
+                condition.group(1).strip(),
+                "${{ always() }}",
+                msg=f"{job} is a required check and must not be conditionally skipped",
+            )
+
     def test_every_ci_job_declares_a_timeout(self) -> None:
         workflow = read_workflow("0-ci-build-and-test.yml")
-        jobs_section = workflow.split("\njobs:\n", 1)[1]
-        jobs = re.findall(r"^  ([a-z0-9-]+):$", jobs_section, re.MULTILINE)
-        self.assertGreater(len(jobs), 1)
-        blocks = re.split(r"^  [a-z0-9-]+:$", jobs_section, flags=re.MULTILINE)[1:]
+        blocks = ci_job_blocks(workflow)
+        self.assertGreater(len(blocks), 1)
         missing = [
-            job for job, block in zip(jobs, blocks) if "timeout-minutes:" not in block
+            job for job, block in blocks.items() if "timeout-minutes:" not in block
         ]
         self.assertEqual(missing, [])
 

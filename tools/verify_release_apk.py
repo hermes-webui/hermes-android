@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 PACKAGE_RE = re.compile(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']*)'", re.MULTILINE)
 CERT_SHA256_RE = re.compile(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})")
@@ -41,6 +43,33 @@ def run_tool(cmd: list[str]) -> str:
     return result.stdout
 
 
+def find_build_tool(name: str) -> str | None:
+    on_path = shutil.which(name)
+    if on_path:
+        return on_path
+
+    for sdk_variable in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        sdk_root = os.environ.get(sdk_variable)
+        if not sdk_root:
+            continue
+        build_tools = Path(sdk_root) / "build-tools"
+        if not build_tools.is_dir():
+            continue
+        versions = sorted(
+            (
+                directory for directory in build_tools.iterdir()
+                if directory.is_dir() and re.fullmatch(r"\d+(?:\.\d+)*", directory.name)
+            ),
+            key=lambda directory: tuple(int(part) for part in directory.name.split(".")),
+            reverse=True,
+        )
+        for directory in versions:
+            found = shutil.which(name, path=str(directory))
+            if found:
+                return found
+    return None
+
+
 def parse_badging(output: str) -> tuple[str, int, str]:
     match = PACKAGE_RE.search(output)
     if not match:
@@ -62,19 +91,19 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    aapt = shutil.which("aapt") or shutil.which("aapt2")
-    apksigner = shutil.which("apksigner")
+    aapt = find_build_tool("aapt") or find_build_tool("aapt2")
+    apksigner = find_build_tool("apksigner")
     if not aapt:
-        print("ERROR: neither aapt nor aapt2 found on PATH", file=sys.stderr)
+        print("ERROR: neither aapt nor aapt2 found on PATH or in the Android SDK", file=sys.stderr)
         return 1
     if not apksigner:
-        print("ERROR: apksigner not found on PATH", file=sys.stderr)
+        print("ERROR: apksigner not found on PATH or in the Android SDK", file=sys.stderr)
         return 1
 
     try:
         apk_sha256 = sha256_of(args.apk)
         package, version_code, version_name = parse_badging(run_tool([aapt, "dump", "badging", args.apk]))
-        cert_digest = CERT_SHA256_RE.search(run_tool(["apksigner", "verify", "--print-certs", args.apk]))
+        cert_digest = CERT_SHA256_RE.search(run_tool([apksigner, "verify", "--print-certs", args.apk]))
     except (OSError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

@@ -106,6 +106,10 @@ python tools/verify_release_apk.py --apk <staged-apk> `
 ./gradlew.bat -q :app:printReleaseVersionName --no-daemon
 ```
 
+The APK verifier locates `aapt` and `apksigner` in Android SDK build-tools when
+they are not on `PATH`; set `ANDROID_HOME` or `ANDROID_SDK_ROOT` to the SDK
+directory if needed. A missing tool still fails verification.
+
 ### Per-Device Checklist (repeat on phone and tablet)
 
 1. Package check: installed app id is `com.hermeswebui.android.github`

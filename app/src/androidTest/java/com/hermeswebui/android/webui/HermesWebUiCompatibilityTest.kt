@@ -246,6 +246,64 @@ class HermesWebUiCompatibilityTest {
     }
 
     @Test
+    fun viewportFix_stopsMutatingIdlePageButRepairsNewContent() {
+        loadFixture("<main id=\"shell\"><button>Ready</button></main>")
+        evaluate(HermesWebUiScripts.viewportFixScript)
+        evaluate(
+            """
+            window.__hermesAndroidApplyViewportFix();
+            var panel = document.createElement('section');
+            panel.id = 'dynamicPanel';
+            panel.style.cssText = 'width: 400px; max-height: 0; overflow: hidden';
+            panel.innerHTML = '<div style="height: 700px"><button>New action</button></div>';
+            document.body.appendChild(panel);
+            """.trimIndent()
+        )
+        assertThat(
+            awaitBoolean(
+                "dynamicPanel.hasAttribute('data-hermes-android-vh-repaired')",
+                expected = true
+            )
+        ).isTrue()
+        evaluate("dynamicPanel.style.maxHeight = '0px'")
+        assertThat(
+            awaitBoolean("parseFloat(dynamicPanel.style.maxHeight) > 0", expected = true)
+        ).isTrue()
+
+        evaluate(
+            """
+            window.__viewportMutations = 0;
+            window.__viewportMutationObserver = new MutationObserver(function(mutations) {
+              var style = document.getElementById('hermes-android-viewport-fix');
+              mutations.forEach(function(mutation) {
+                if ((mutation.target === document.documentElement && mutation.attributeName === 'style') ||
+                    (style && (mutation.target === style || style.contains(mutation.target)))) {
+                  window.__viewportMutations++;
+                }
+              });
+            });
+            window.__viewportMutationObserver.observe(document.documentElement, {
+              attributes: true, attributeFilter: ['style'], childList: true, subtree: true
+            });
+            """.trimIndent()
+        )
+
+        Thread.sleep(300)
+        val idleBaseline = evaluate("window.__viewportMutations").toInt()
+        Thread.sleep(400)
+        assertThat(evaluate("window.__viewportMutations").toInt()).isEqualTo(idleBaseline)
+
+        evaluate("dynamicPanel.style.display = 'none'")
+        assertThat(
+            awaitBoolean(
+                "!dynamicPanel.hasAttribute('data-hermes-android-vh-repaired')",
+                expected = true
+            )
+        ).isTrue()
+        evaluate("window.__viewportMutationObserver.disconnect();")
+    }
+
+    @Test
     fun viewportFix_fitsPromptAndDoesNotCreateGenericScrollContainer() {
         loadFixture(
             """

@@ -79,11 +79,13 @@ class HermesWebUiScriptsTest {
     fun `viewport fix script injects CSS custom properties for viewport dimensions`() {
         val script = HermesWebUiScripts.viewportFixScript
 
-        assertThat(script).contains("root.style.setProperty('--vh',")
-        assertThat(script).contains("root.style.setProperty('--dvh',")
-        assertThat(script).contains("root.style.setProperty('--viewport-height',")
-        assertThat(script).contains("root.style.setProperty('--viewport-width',")
-        assertThat(script).contains("root.style.setProperty('--hermes-android-visual-viewport-height',")
+        assertThat(script).contains("setViewportProperty('--vh',")
+        assertThat(script).contains("setViewportProperty('--dvh',")
+        assertThat(script).contains("setViewportProperty('--viewport-height',")
+        assertThat(script).contains("setViewportProperty('--viewport-width',")
+        assertThat(script).contains("setViewportProperty('--hermes-android-visual-viewport-height',")
+        assertThat(script).contains("if (root.style.getPropertyValue(name) !== value)")
+        assertThat(script).contains("if (style.textContent !== baselineCSS)")
         assertThat(script).contains("visualBottom: visualTop + visualHeight")
     }
 

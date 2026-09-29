@@ -31,6 +31,13 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - `HermesForegroundServiceCoordinator`: owns reconnect/debug foreground-service lifecycle sync so `onResume`, `onStop`, and settings toggles do not each duplicate service promotion/teardown rules.
 - `HermesWebViewConfigurator`: centralizes shared main/popup WebView hardening and settings setup.
 
+The viewport polyfill writes root CSS variables, baseline rules, and retained
+repair constraints only when their values change. Its DOM observer still
+responds to WebUI updates (including changed styles on repaired panels),
+resize, and keyboard changes without its own writes causing continuous scans
+while the page is idle. Changes during the scan throttle window are deferred,
+not dropped.
+
 ## Runtime flow
 
 1. App starts and loads encrypted WebUI settings (`SettingsRepository`). The bundled dashboard origin default is blank so WebUI owns dashboard auto-detect and persistence.

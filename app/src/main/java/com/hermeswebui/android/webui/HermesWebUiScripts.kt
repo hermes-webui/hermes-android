@@ -88,6 +88,7 @@ object HermesWebUiScripts {
 
           var lastScanTime = 0;
           var scheduled = false;
+          var pendingScanTimer = null;
 
           // Tags to skip entirely (not visual content containers)
           var SKIP_TAGS = {
@@ -135,13 +136,18 @@ object HermesWebUiScripts {
 
             // Inject CSS custom properties on :root for potential future use
             var root = document.documentElement;
-            root.style.setProperty('--vh', (viewport.height / 100) + 'px');
-            root.style.setProperty('--dvh', (viewport.height / 100) + 'px');
-            root.style.setProperty('--vw', (viewport.width / 100) + 'px');
-            root.style.setProperty('--viewport-height', viewport.height + 'px');
-            root.style.setProperty('--viewport-width', viewport.width + 'px');
-            root.style.setProperty('--hermes-android-visual-viewport-height', viewport.visualHeight + 'px');
-            root.style.setProperty('--hermes-android-visual-viewport-top', viewport.visualTop + 'px');
+            function setViewportProperty(name, value) {
+              if (root.style.getPropertyValue(name) !== value) {
+                root.style.setProperty(name, value);
+              }
+            }
+            setViewportProperty('--vh', (viewport.height / 100) + 'px');
+            setViewportProperty('--dvh', (viewport.height / 100) + 'px');
+            setViewportProperty('--vw', (viewport.width / 100) + 'px');
+            setViewportProperty('--viewport-height', viewport.height + 'px');
+            setViewportProperty('--viewport-width', viewport.width + 'px');
+            setViewportProperty('--hermes-android-visual-viewport-height', viewport.visualHeight + 'px');
+            setViewportProperty('--hermes-android-visual-viewport-top', viewport.visualTop + 'px');
 
             // Baseline CSS rules that generic detection cannot handle
             var style = document.getElementById(STYLE_ID);
@@ -205,7 +211,7 @@ object HermesWebUiScripts {
             // Fit the real visual viewport and let the inner region scroll instead.
             var promptPanelMaxPx = Math.max(1, promptPanelMax) + 'px';
 
-            style.textContent = [
+            var baselineCSS = [
               // Root sizing baseline
               'html, body { min-height: ' + px + ' !important; }',
               'body { overflow-x: hidden !important; }',
@@ -227,6 +233,9 @@ object HermesWebUiScripts {
               // repair or WebUI change can never re-clip the floating prompt surface.
               '.composer-flyout, .composer-wrap { overflow: visible !important; }'
             ].filter(Boolean).join('\n');
+            if (style.textContent !== baselineCSS) {
+              style.textContent = baselineCSS;
+            }
           }
 
           function shouldSkipElement(el) {
@@ -336,9 +345,9 @@ object HermesWebUiScripts {
             var maxPanel = Math.max(180, Math.round(viewport.height * 0.82)) + 'px';
             var minPanel = Math.max(100, Math.round(viewport.height * 0.25)) + 'px';
 
-            el.style.height = 'auto';
-            el.style.minHeight = minPanel;
-            el.style.maxHeight = maxPanel;
+            if (el.style.height !== 'auto') el.style.height = 'auto';
+            if (el.style.minHeight !== minPanel) el.style.minHeight = minPanel;
+            if (el.style.maxHeight !== maxPanel) el.style.maxHeight = maxPanel;
             // Preserve the element's existing overflow contract. Creating a new
             // scroll container caused #80, while rewriting an existing inline
             // overflow value would corrupt the layout when the repair clears.
@@ -366,7 +375,15 @@ object HermesWebUiScripts {
 
           function scanAndRepair() {
             var now = Date.now();
-            if (now - lastScanTime < MIN_SCAN_INTERVAL_MS) return;
+            if (now - lastScanTime < MIN_SCAN_INTERVAL_MS) {
+              if (pendingScanTimer === null) {
+                pendingScanTimer = window.setTimeout(function() {
+                  pendingScanTimer = null;
+                  schedulePolyfill();
+                }, MIN_SCAN_INTERVAL_MS - (now - lastScanTime));
+              }
+              return;
+            }
             lastScanTime = now;
 
             var viewport = getMeasuredViewport();
@@ -445,10 +462,10 @@ object HermesWebUiScripts {
             // MutationObserver for DOM changes
             try {
               var observer = new MutationObserver(function(mutations) {
-                // Skip mutations that are just our own repairs
+                // Changed styles on repaired elements may come from WebUI; idempotent
+                // repair writes keep observing them from creating a feedback loop.
                 var dominated = mutations.every(function(m) {
-                  return m.attributeName === REPAIRED_ATTR ||
-                    (m.attributeName === 'style' && m.target.getAttribute && m.target.getAttribute(REPAIRED_ATTR));
+                  return m.attributeName === REPAIRED_ATTR;
                 });
                 if (!dominated) schedulePolyfill();
               });

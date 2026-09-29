@@ -126,6 +126,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| REL-029 | 2026-09-29 | Release preparation | Aligned reviewed Android and README metadata for v1.1.1 (version code 10101) so the next orchestrated release can include the Issue #112 WebView fix. |
 | BUG-049 | 2026-09-29 | WebView | Fixed Issue #112's Android viewport polyfill rescanning idle conversations by avoiding redundant DOM style writes while preserving dynamic content repairs. |
 | TEST-005 | 2026-08-26 | CI / Documentation | Added documentation checks for Markdown rendering breaks, dead in-repo links, and external URLs, and gave documentation-only pull requests a fail-safe fast path that skips the Gradle jobs while keeping README release-metadata assertions running. |
 | TEST-004 | 2026-08-26 | CI / Testing | Split PR CI into per-check jobs (release tooling, unit tests, Android Lint, debug APK) so a failure names the gate that broke, added job timeouts, and introduced syntax plus ESLint runtime-error gates for the JavaScript Android injects into the WebUI WebView. |

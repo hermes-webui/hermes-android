@@ -232,4 +232,31 @@ class HermesWebUiScriptsTest {
         assertThat(script).doesNotContain("role === 'dialog'")
         assertThat(script).doesNotContain("querySelectorAll('input")
     }
+
+    @Test
+    fun `app foreground script emits the WebUI voice host event with a literal state`() {
+        val inactive = HermesWebUiScripts.buildAppForegroundScript(active = false)
+        val active = HermesWebUiScripts.buildAppForegroundScript(active = true)
+
+        assertThat(inactive).contains("var active = false;")
+        assertThat(active).contains("var active = true;")
+        assertThat(inactive).contains("window.__hermesAppForegroundActive = active;")
+        assertThat(inactive).contains(
+            "window.dispatchEvent(new CustomEvent('hermes-app-foreground', { detail: { active: active } }));"
+        )
+    }
+
+    @Test
+    fun `app foreground script reports state only and never arms or names a profile`() {
+        // Returning to the app must never re-arm listening, and profile/session ownership
+        // stays in WebUI: the host signal carries nothing but the foreground boolean.
+        val script = HermesWebUiScripts.buildAppForegroundScript(active = true)
+
+        assertThat(script).doesNotContain("arm(")
+        assertThat(script).doesNotContain("click(")
+        assertThat(script).doesNotContain("_voiceMode")
+        assertThat(script).doesNotContain("getUserMedia")
+        assertThat(script).doesNotContain("profile")
+        assertThat(script).doesNotContain("session")
+    }
 }

@@ -18,6 +18,7 @@
 | Android sharing | Done - share-to-app intake for text and files |
 | Files | Done - WebView upload/download integration |
 | Microphone | Done - allowlisted WebView audio capture with Android runtime permission plus WebUI MediaRecorder fallback |
+| Voice conversation | In acceptance - WebUI-owned two-way selected-profile voice conversation; Android grants capture only in the foreground, stops it on pause/stop, never re-arms, and lets spoken replies play on the WebUI route |
 | Local settings | Done - encrypted settings storage |
 | Native navigation | Done - WebUI-owned dashboard link integration and deep links |
 | Server health probing | Done - `/api/status` probe to distinguish server-down from content errors |
@@ -52,6 +53,7 @@
 - [x] File upload support
 - [x] File download support
 - [x] Microphone capture support for WebUI voice input
+- [ ] Foreground-only WebUI voice conversation host support (pending phone acceptance)
 - [x] Browser notification permission and delivery bridge for WebUI alerts
 - [x] Share-to-app intake for text
 - [x] Share-to-app intake for files
@@ -253,3 +255,4 @@ sketches are captured inline below.
 | BUG-043 | 2026-08-23 | WebView | Fixed Issue 80 Clarify multiple-choice panel clipped behind the composer in Android WebView: the panel's `max-height: clamp(180px, min(68vh, calc(100vh - 220px)), 420px)` collapsed because WebView evaluates vh units as 0, and the generic collapse repair re-capped it to a viewport-derived height that ignored the app titlebar/composer and could also repair the intentionally zero-height `.composer-flyout` anchor, shifting the card down behind the composer. The viewport polyfill now re-caps the expanded approval/clarify panel to the measured space between the `.app-titlebar` bottom and the card's anchor-invariant bottom edge (which tracks the composer, not the panel height) minus an 8px gap, floored at the WebUI clamp's 180px minimum, via `!important` rules on the card and its inner scroller, and excludes the prompt cards plus the flyout anchor from generic repair so the measured geometry cannot oscillate. Verified on emulator via WebView DevTools/CDP injection of the real `showClarifyCard()` path: card renders at full 420px in portrait and landscape with all choices reachable and oversized content scrolling internally |
 | UX-003 | 2026-08-23 | WebView | Issue 83: when a hardware keyboard is attached (Bluetooth/USB/host), a plain Enter in the composer now sends the message and Shift+Enter inserts a newline (desktop convention), instead of forcing a newline and requiring a Send tap. The Issue #34 Enter→newline shim now reads a live `window.__hermesAndroidHardwareKeyboard` flag at keydown time and defers to WebUI's native handling when set; MainActivity detects attachment via `Configuration.keyboard`/`hardKeyboardHidden` and re-syncs the flag on page load and `onConfigurationChanged`. Soft-keyboard behavior (Enter=newline) is unchanged. Verified on emulator: a trusted Enter sent the message (the agent replied), and forcing the flag off restored newline insertion |
 | BUG-044 | 2026-08-23 | Settings | Fixed Issue 81 Settings screen crashing instantly on open in v1.0.24: the reconnect polling-interval description passed a `R.plurals` quantity-resource ID to `stringResource`, which throws `Resources.NotFoundException` during composition. Switched to `pluralStringResource` and added an instrumented `SettingsScreenTest` regression that renders the screen at quantities 1 and 2 and asserts both singular/plural descriptions, so the crash is caught by the androidTest lane before release |
+| VOICE-001 | 2026-10-02 | Voice | Added Android host support for WebUI voice conversation: `VoiceCaptureLifecycleGate` grants WebView audio capture only while resumed, sends WebUI's `hermes-app-foreground` signal on pause/stop/resume so capture stops immediately and never re-arms, denies a RECORD_AUDIO grant that lands after the app stopped, and lifts the WebView media-gesture rule only on the configured WebUI route so spoken replies play after a voice wake |

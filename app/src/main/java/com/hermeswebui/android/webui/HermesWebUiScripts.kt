@@ -1407,4 +1407,22 @@ object HermesWebUiScripts {
             })();
         """.trimIndent()
     }
+
+    /**
+     * Host side of WebUI's voice contract: `hermes-app-foreground` with `active:false` makes
+     * WebUI stop every microphone track and cancel playback; `active:true` only permits a new
+     * explicit arm. The flag is also set directly so a document still booting sees it.
+     */
+    fun buildAppForegroundScript(active: Boolean): String {
+        return """
+            (function() {
+              var active = $active;
+              try { window.__hermesAppForegroundActive = active; } catch (_) {}
+              try {
+                window.dispatchEvent(new CustomEvent('hermes-app-foreground', { detail: { active: active } }));
+              } catch (_) {}
+            })();
+        """.trimIndent()
+    }
 }
+

@@ -108,4 +108,16 @@ class WebTrustPolicyTest {
             )
         ).isFalse()
     }
+
+    @Test
+    fun `gesture-free media playback is limited to the configured WebUI route`() {
+        // WebUI voice replies play long after the arming tap; Android WebView's
+        // gesture rule would reject them. Provider, dashboard and external pages keep it.
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://hermes.example.com/session/123")).isTrue()
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://provider.example.com/login")).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://dashboard.example.com/app")).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://api.hermes.example.com/")).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback(null)).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback("about:blank")).isFalse()
+    }
 }

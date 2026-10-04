@@ -126,6 +126,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-050 | 2026-10-04 | Files | Fixed Issue #118 chat and Files downloads saving as `media.bin` and `raw.bin`: Android now honors WebUI's RFC-compatible filename headers, including UTF-8 names and inline image downloads, without replacing original extensions for generic MIME types. Authenticated DownloadManager regression coverage preserves cookies, user agent, bytes, and the live host allowlist. |
 | REL-029 | 2026-09-29 | Release preparation | Aligned reviewed Android and README metadata for v1.1.1 (version code 10101) so the next orchestrated release can include the Issue #112 WebView fix. |
 | BUG-049 | 2026-09-29 | WebView | Fixed Issue #112's Android viewport polyfill rescanning idle conversations by avoiding redundant DOM style writes while preserving dynamic content repairs. |
 | TEST-005 | 2026-08-26 | CI / Documentation | Added documentation checks for Markdown rendering breaks, dead in-repo links, and external URLs, and gave documentation-only pull requests a fail-safe fast path that skips the Gradle jobs while keeping README release-metadata assertions running. |

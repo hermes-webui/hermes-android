@@ -30,11 +30,9 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.webkit.ClientCertRequest
 import android.webkit.CookieManager
-import android.webkit.DownloadListener
 import android.webkit.PermissionRequest
 import android.webkit.ServiceWorkerController
 import android.webkit.SslErrorHandler
-import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -120,6 +118,7 @@ import com.hermeswebui.android.ui.settings.VpnLaunchAppOption
 import com.hermeswebui.android.ui.web.WebShell
 import com.hermeswebui.android.webui.HermesWebUiScripts
 import com.hermeswebui.android.webview.HermesWebViewConfigurator
+import com.hermeswebui.android.webview.HermesWebViewDownloadListener
 import com.hermeswebui.android.update.HermesAppUpdateCoordinator
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
@@ -1036,7 +1035,9 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            setDownloadListener(buildDownloadListener(this@MainActivity))
+            setDownloadListener(
+                HermesWebViewDownloadListener(this@MainActivity) { url -> urlPolicy.isAllowed(url) }
+            )
         }
     }
 
@@ -1821,32 +1822,6 @@ class MainActivity : ComponentActivity() {
     private fun isHttpOrHttpsUrl(url: String): Boolean {
         val scheme = runCatching { url.toUri().scheme }.getOrNull()
         return scheme.equals("http", ignoreCase = true) || scheme.equals("https", ignoreCase = true)
-    }
-
-    private fun buildDownloadListener(context: Context): DownloadListener {
-        return DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
-            if (!urlPolicy.isAllowed(url)) {
-                Toast.makeText(context, "Blocked download from non-allowlisted domain", Toast.LENGTH_LONG).show()
-                return@DownloadListener
-            }
-            val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
-            val request = DownloadManager.Request(url.toUri()).apply {
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setTitle(fileName)
-                setDescription("Downloading from Hermes")
-                setAllowedOverMetered(true)
-                CookieManager.getInstance().getCookie(url)?.takeIf { it.isNotBlank() }?.let {
-                    addRequestHeader("Cookie", it)
-                }
-                userAgent?.takeIf { it.isNotBlank() }?.let {
-                    addRequestHeader("User-Agent", it)
-                }
-                setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
-            }
-            val manager = context.getSystemService(DownloadManager::class.java)
-            manager.enqueue(request)
-            Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
-        }
     }
 
     private fun saveSettings(serverUrl: String) {

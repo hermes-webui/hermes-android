@@ -38,6 +38,7 @@ Useful entry points:
 - `background/HermesDebugLoggingService.kt` + `background/DebugLogBootstrap.kt` - opt-in foreground logcat capture into `files/debug-logs/` with a persistent Stop notification
 - `server/HermesServerProfileCoordinator.kt` - startup preflight plus server-profile add/edit/delete/switch validation and confirmation flows
 - `webview/HermesWebViewConfigurator.kt` - shared main/popup WebView hardening and settings setup
+- `webview/HermesWebViewDownloadListener.kt` - allowlisted DownloadManager handoff with session cookies, user agent, and AndroidX RFC-compatible filename parsing; preserve `filename*`, original extensions, and explicit downloads from inline image headers rather than using legacy `android.webkit.URLUtil`
 - `webui/HermesWebUiScripts.kt` - document-start WebUI compatibility shims (hybrid viewport polyfill with generic collapse detection, microphone fallback, Enter-key newline behavior, sidebar settings injector, notification bridge script payloads); keep these scoped to the configured Hermes WebUI origin
 - `update/HermesAppUpdateCoordinator.kt` - app-update checks, update notifications, Play update launch, and GitHub APK download intents
 - `update/GitHubReleaseUpdateChecker.kt` + `update/AppVersionComparator.kt` + `update/AppUpdateCheckResult.kt` - GitHub-channel update check (Play channel uses Play Core in `MainActivity`)

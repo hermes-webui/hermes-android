@@ -129,6 +129,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 ### Real Android integration
 
 - File uploads and downloads, including direct camera capture when pages request image capture
+- Chat and Files downloads keep server-provided filenames and extensions, including UTF-8 names
 - Share-to-app intake for text and files
 - Android-backed browser notifications for Hermes WebUI alerts
 - Optional ongoing background activity notification for trusted Hermes sessions
@@ -165,8 +166,8 @@ Hermes-Android currently publishes through two release channels:
 
 Current checked-in release metadata:
 
-- Version name: `1.1.1`
-- Version code: `10101`
+- Version name: `1.1.2`
+- Version code: `10102`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - Compile SDK / target SDK: `37`

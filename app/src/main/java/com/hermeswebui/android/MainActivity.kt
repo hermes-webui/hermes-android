@@ -109,6 +109,7 @@ import com.hermeswebui.android.security.ClientCertificateRequestSupport
 import com.hermeswebui.android.notification.HermesNotificationPresenter
 import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.server.HermesServerProfileCoordinator
+import com.hermeswebui.android.server.SelectedServerNavigation
 import com.hermeswebui.android.domain.ShareIntentParser
 import com.hermeswebui.android.domain.TailscaleEndpointDetector
 import com.hermeswebui.android.ui.MainViewModel
@@ -1892,11 +1893,12 @@ class MainActivity : ComponentActivity() {
         // Restore only trusted Hermes WebUI routes; fall back to the server root for
         // dashboard-origin pages and for stale non-WebUI URLs (e.g. OAuth provider pages
         // persisted by older builds mid-flow).
-        val startUrl = notificationUrl ?: if (lastLoadedUrl != null && matchesConfiguredWebUiRoute(lastLoadedUrl)) {
-            lastLoadedUrl
-        } else {
-            serverUrl
-        }
+        val startUrl = SelectedServerNavigation.startupUrl(
+            selectedServerUrl = serverUrl,
+            lastLoadedUrl = lastLoadedUrl,
+            notificationUrl = notificationUrl,
+            trustPolicy = currentWebTrustPolicy()
+        )
         if (shouldRequireVpnForServerUrl(serverUrl) && !isVpnTransportActive()) {
             queueVpnGuardedLoad(
                 serverUrl = serverUrl,
@@ -1982,14 +1984,15 @@ class MainActivity : ComponentActivity() {
 
         viewModel.switchServerProfile(profile.id)
         urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
-        installHermesWebUiDocumentStartFixes(webView, profile.url)
+        val targetUrl = SelectedServerNavigation.switchTargetUrl(profile)
+        installHermesWebUiDocumentStartFixes(webView, targetUrl)
         requestLocalNetworkPermissionIfNeeded(
-            url = profile.url,
+            url = targetUrl,
             onGranted = {
-                loadServerUrlWithVpnGuard(profile.url)
+                loadServerUrlWithVpnGuard(targetUrl)
             },
             onDenied = {
-                loadServerUrlWithVpnGuard(profile.url)
+                loadServerUrlWithVpnGuard(targetUrl)
             }
         )
         viewModel.closeSettings()
@@ -2112,7 +2115,11 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshConfiguredHermes(closeSettings: Boolean = false) {
         val state = viewModel.uiState.value
-        val targetUrl = state.currentUrl.takeIf(::matchesConfiguredWebUiRoute) ?: state.settings.serverUrl
+        val targetUrl = SelectedServerNavigation.reconnectUrl(
+            currentUrl = state.currentUrl,
+            selectedServerUrl = state.settings.serverUrl,
+            trustPolicy = currentWebTrustPolicy()
+        )
         if (targetUrl.isBlank()) {
             viewModel.openSettings()
             return

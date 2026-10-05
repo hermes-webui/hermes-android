@@ -68,6 +68,7 @@ class HermesAppUpdateCoordinator(
         return when (updateChannel) {
             "github" -> "GitHub Releases"
             "play" -> "Google Play"
+            "none" -> "no update channel (DEBUG build)"
             else -> "this build channel"
         }
     }

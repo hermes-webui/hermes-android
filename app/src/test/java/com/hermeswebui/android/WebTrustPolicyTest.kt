@@ -120,4 +120,20 @@ class WebTrustPolicyTest {
         assertThat(policy.allowsGestureFreeMediaPlayback(null)).isFalse()
         assertThat(policy.allowsGestureFreeMediaPlayback("about:blank")).isFalse()
     }
+
+    @Test
+    fun `gesture-free media playback honours a non-default configured port`() {
+        val voicePolicy = WebTrustPolicy(
+            urlPolicy = UrlPolicy(setOf("calinux.tail96d6ee.ts.net")),
+            configuredWebUiUrl = "https://calinux.tail96d6ee.ts.net:8789",
+            configuredDashboardUrl = ""
+        )
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net:8789")).isTrue()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net:8789/session/abc")).isTrue()
+        // Same host on the default port (production) and other ports keep requiring a gesture.
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net/")).isFalse()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net:8787/")).isFalse()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("http://calinux.tail96d6ee.ts.net:8789/")).isFalse()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://example.com/")).isFalse()
+    }
 }

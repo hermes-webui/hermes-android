@@ -55,8 +55,7 @@
             </intent-filter>
 
             <!-- Deep link: hermes://session/{session_id} navigates the WebView to
-                 {serverUrl}/{session_id}, matching the Hermes WebUI session route
-                 contract (see apps/desktop/src/app/routes.ts: sessionRoute()). -->
+                 {serverUrl}/session/{session_id}, the Hermes WebUI session route. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

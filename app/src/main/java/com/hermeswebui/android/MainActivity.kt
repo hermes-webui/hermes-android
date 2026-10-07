@@ -506,8 +506,8 @@ class MainActivity : ComponentActivity() {
     /** Handles Hermes app deep links.
      *
      * hermes://app/settings opens native Android settings. hermes://session/{id}
-     * navigates the WebView to {serverUrl}/{id}, matching the Hermes WebUI
-     * session route contract (sessionRoute() in apps/desktop/src/app/routes.ts).
+     * navigates the WebView to {serverUrl}/session/{id}, the Hermes WebUI
+     * session route (see DeepLinkRoutes).
      * Returns true if the intent was consumed, false if it should fall through.
      */
     private fun handleDeepLink(intent: Intent): Boolean {
@@ -527,7 +527,7 @@ class MainActivity : ComponentActivity() {
             viewModel.openSettings()
             return true
         }
-        val sessionUrl = "${serverUrl.trimEnd('/')}/${Uri.encode(sessionId)}"
+        val sessionUrl = DeepLinkRoutes.sessionUrl(serverUrl, sessionId)
         if (!urlPolicy.isAllowed(sessionUrl)) {
             Toast.makeText(this, "Session URL is not allowlisted", Toast.LENGTH_LONG).show()
             return true

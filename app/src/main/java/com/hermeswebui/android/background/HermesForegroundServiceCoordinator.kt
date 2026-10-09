@@ -12,7 +12,7 @@ class HermesForegroundServiceCoordinator(
     private val onCancelAutoRetry: () -> Unit,
     private val onSetDebugLoggingEnabled: (Boolean) -> Unit
 ) {
-    private var reconnectServiceRunning = false
+    private var reconnectServiceRequest: ReconnectServiceRequest? = null
     private var debugLoggingServiceRunning = false
 
     fun onUiStateChanged(state: MainUiState, activityVisible: Boolean) {
@@ -52,35 +52,56 @@ class HermesForegroundServiceCoordinator(
             stopReconnectForegroundService()
             return
         }
-        if (reconnectServiceRunning) return
+        val request = ReconnectServiceRequest(
+            pollIntervalSeconds = state.reconnectPollIntervalSeconds,
+            serverUrl = state.settings.serverUrl,
+            sessionId = sessionId,
+            sessionTargetUrl = sessionTargetUrl,
+            cookieHeader = CookieManager.getInstance().getCookie(state.settings.serverUrl),
+            sseTransportEnabled = state.sseTransportEnabled,
+            isReconnecting = state.isReconnecting,
+            showFullTextOnLockScreen = state.backgroundActivityFullTextEnabled
+        )
+        if (reconnectServiceRequest == request) return
 
         try {
             HermesReconnectService.start(
                 context,
-                pollIntervalSeconds = state.reconnectPollIntervalSeconds,
-                serverUrl = state.settings.serverUrl,
-                sessionId = sessionId,
-                sessionTargetUrl = sessionTargetUrl,
-                cookieHeader = CookieManager.getInstance().getCookie(state.settings.serverUrl),
-                sseTransportEnabled = state.sseTransportEnabled,
-                isReconnecting = state.isReconnecting,
-                showFullTextOnLockScreen = state.backgroundActivityFullTextEnabled
+                pollIntervalSeconds = request.pollIntervalSeconds,
+                serverUrl = request.serverUrl,
+                sessionId = request.sessionId,
+                sessionTargetUrl = request.sessionTargetUrl,
+                cookieHeader = request.cookieHeader,
+                sseTransportEnabled = request.sseTransportEnabled,
+                isReconnecting = request.isReconnecting,
+                showFullTextOnLockScreen = request.showFullTextOnLockScreen
             )
-            reconnectServiceRunning = true
+            reconnectServiceRequest = request
         } catch (_: IllegalStateException) {
-            reconnectServiceRunning = false
+            reconnectServiceRequest = null
             onCancelAutoRetry()
         } catch (_: SecurityException) {
-            reconnectServiceRunning = false
+            reconnectServiceRequest = null
             onCancelAutoRetry()
         }
     }
 
     private fun stopReconnectForegroundService() {
-        if (!reconnectServiceRunning) return
+        if (reconnectServiceRequest == null) return
         HermesReconnectService.stop(context)
-        reconnectServiceRunning = false
+        reconnectServiceRequest = null
     }
+
+    private data class ReconnectServiceRequest(
+        val pollIntervalSeconds: Int,
+        val serverUrl: String,
+        val sessionId: String?,
+        val sessionTargetUrl: String?,
+        val cookieHeader: String?,
+        val sseTransportEnabled: Boolean,
+        val isReconnecting: Boolean,
+        val showFullTextOnLockScreen: Boolean
+    )
 
     private fun syncDebugLoggingForegroundService(debugLoggingEnabled: Boolean) {
         val persistedEnabled = settingsRepository.isDebugLoggingEnabled()

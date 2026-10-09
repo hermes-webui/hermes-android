@@ -21,6 +21,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URI
@@ -29,6 +30,9 @@ import java.net.URLEncoder
 class HermesReconnectService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var sessionStreamJob: Job? = null
+    private var sessionStreamGeneration = 0L
+    private var approvalStateGeneration = 0L
+    private var activeApprovalId: String? = null
 
     // Reference to the in-flight SSE connection so cancellation can actively close the socket.
     // Cancelling sessionStreamJob alone does not interrupt the blocking readLine() in consumeSse
@@ -59,12 +63,28 @@ class HermesReconnectService : Service() {
             ?: DEFAULT_POLL_INTERVAL_SECONDS
         val serverUrl = intent?.getStringExtra(EXTRA_SERVER_URL)
         val sessionId = intent?.getStringExtra(EXTRA_SESSION_ID)
+        if (intent?.action == ACTION_RESPOND_APPROVAL && activeServerUrl != null) {
+            // A retained tray action must not reconfigure an already-running session monitor.
+            if (activeServerUrl == serverUrl && activeSessionId == sessionId) {
+                handleApprovalAction(intent)
+            }
+            return START_NOT_STICKY
+        }
         val sessionTargetUrl = intent?.getStringExtra(EXTRA_SESSION_TARGET_URL)
         val cookieHeader = intent?.getStringExtra(EXTRA_COOKIE_HEADER)
         val sseTransportEnabled = intent?.getBooleanExtra(EXTRA_SSE_TRANSPORT_ENABLED, false) == true
         val isReconnecting = intent?.getBooleanExtra(EXTRA_IS_RECONNECTING, false) == true
         val showFullTextOnLockScreen =
             intent?.getBooleanExtra(EXTRA_SHOW_FULL_TEXT_ON_LOCK_SCREEN, false) == true
+
+        if (activeServerUrl != serverUrl || activeSessionId != sessionId) {
+            approvalStateGeneration++
+            activeApprovalId = null
+            currentNotificationBody = ""
+            currentNotificationTargetUrl = null
+            currentApprovalRequest = null
+            clearRespondedApprovals()
+        }
 
         activeServerUrl = serverUrl
         activeSessionId = sessionId
@@ -106,6 +126,7 @@ class HermesReconnectService : Service() {
         }
 
         cancelSessionStream()
+        val streamGeneration = sessionStreamGeneration
         sessionStreamJob = serviceScope.launch {
             streamSessionUpdates(
                 baseUrl = serverUrl,
@@ -115,7 +136,8 @@ class HermesReconnectService : Service() {
                 pollIntervalSeconds = pollIntervalSeconds,
                 sseTransportEnabled = sseTransportEnabled,
                 isReconnecting = isReconnecting,
-                showFullTextOnLockScreen = showFullTextOnLockScreen
+                showFullTextOnLockScreen = showFullTextOnLockScreen,
+                streamGeneration = streamGeneration
             )
         }
         return START_NOT_STICKY
@@ -134,10 +156,18 @@ class HermesReconnectService : Service() {
      * instead of leaking it until the read timeout.
      */
     private fun cancelSessionStream() {
+        sessionStreamGeneration++
         sessionStreamJob?.cancel()
         sessionStreamJob = null
         runCatching { activeStreamConnection?.disconnect() }
         activeStreamConnection = null
+    }
+
+    private fun stopSessionStream(streamGeneration: Long) {
+        // A canceled blocking read may finish after onStartCommand has installed a new stream.
+        serviceScope.launch(Dispatchers.Main) {
+            if (sessionStreamGeneration == streamGeneration) stopSelf()
+        }
     }
 
     private fun buildNotification(
@@ -303,13 +333,14 @@ class HermesReconnectService : Service() {
     }
 
     private fun handleApprovalAction(intent: Intent) {
+        val approvalGeneration = approvalStateGeneration
         val approvalId = intent.getStringExtra(EXTRA_APPROVAL_ID)?.trim().orEmpty()
         val requestedChoice = ApprovalActionSupport.normalizeChoice(
             intent.getStringExtra(EXTRA_APPROVAL_CHOICE)
         ).orEmpty()
         val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)?.trim().orEmpty()
         val sessionId = intent.getStringExtra(EXTRA_SESSION_ID)?.trim().orEmpty()
-        val cookieHeader = intent.getStringExtra(EXTRA_COOKIE_HEADER)
+        val cookieHeader = activeCookieHeader
 
         if (approvalId.isBlank() || requestedChoice.isBlank() || serverUrl.isBlank() || sessionId.isBlank()) {
             publishServiceState(
@@ -320,13 +351,8 @@ class HermesReconnectService : Service() {
             return
         }
 
-        val currentApprovalId = currentApprovalRequest?.approvalId
+        val currentApprovalId = activeApprovalId
         if (currentApprovalId != null && currentApprovalId != approvalId) {
-            publishServiceState(
-                body = getString(R.string.approval_notification_expired),
-                targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
-                approvalRequest = null
-            )
             return
         }
 
@@ -347,23 +373,28 @@ class HermesReconnectService : Service() {
 
         serviceScope.launch {
             val pending = ApprovalClient.fetchPendingApproval(serverUrl, sessionId, cookieHeader)
+            if (!withCurrentApprovalState(approvalGeneration)) return@launch
             if (pending == null || pending.approvalId != approvalId) {
-                removeApprovalInFlight(approvalId)
-                publishServiceState(
-                    body = getString(R.string.approval_notification_expired),
-                    targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
-                    approvalRequest = null
-                )
+                withCurrentApprovalState(approvalGeneration) {
+                    removeApprovalInFlight(approvalId)
+                    publishServiceState(
+                        body = getString(R.string.approval_notification_expired),
+                        targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
+                        approvalRequest = null
+                    )
+                }
                 return@launch
             }
             val pendingChoices = pending.choices.mapNotNull(ApprovalActionSupport::normalizeChoice)
             if (requestedChoice !in pendingChoices) {
-                removeApprovalInFlight(approvalId)
-                publishServiceState(
-                    body = getString(R.string.approval_notification_invalid_choice),
-                    targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
-                    approvalRequest = currentApprovalRequest
-                )
+                withCurrentApprovalState(approvalGeneration) {
+                    removeApprovalInFlight(approvalId)
+                    publishServiceState(
+                        body = getString(R.string.approval_notification_invalid_choice),
+                        targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
+                        approvalRequest = currentApprovalRequest
+                    )
+                }
                 return@launch
             }
 
@@ -377,23 +408,41 @@ class HermesReconnectService : Service() {
             )
 
             if (!success) {
-                removeApprovalInFlight(approvalId)
-                publishServiceState(
-                    body = getString(R.string.approval_notification_failed),
-                    targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
-                    approvalRequest = currentApprovalRequest
-                )
+                withCurrentApprovalState(approvalGeneration) {
+                    removeApprovalInFlight(approvalId)
+                    publishServiceState(
+                        body = getString(R.string.approval_notification_failed),
+                        targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
+                        approvalRequest = currentApprovalRequest
+                    )
+                }
                 return@launch
             }
 
-            publishServiceState(
-                body = getString(
-                    R.string.approval_notification_sent,
-                    ApprovalActionSupport.labelForChoice(requestedChoice)
-                ),
-                targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
-                approvalRequest = null
-            )
+            withCurrentApprovalState(approvalGeneration) {
+                publishServiceState(
+                    body = getString(
+                        R.string.approval_notification_sent,
+                        ApprovalActionSupport.labelForChoice(requestedChoice)
+                    ),
+                    targetUrl = currentNotificationTargetUrl ?: activeSessionTargetUrl,
+                    approvalRequest = null
+                )
+            }
+        }
+    }
+
+    private suspend fun withCurrentApprovalState(
+        generation: Long,
+        action: () -> Unit = {}
+    ): Boolean {
+        return withContext(Dispatchers.Main) {
+            if (approvalStateGeneration != generation) {
+                false
+            } else {
+                action()
+                true
+            }
         }
     }
 
@@ -405,11 +454,12 @@ class HermesReconnectService : Service() {
         pollIntervalSeconds: Int,
         sseTransportEnabled: Boolean,
         isReconnecting: Boolean,
-        showFullTextOnLockScreen: Boolean
+        showFullTextOnLockScreen: Boolean,
+        streamGeneration: Long
     ) {
         if (!sseTransportEnabled || baseUrl.isNullOrBlank() || sessionId.isNullOrBlank()) {
             if (!isReconnecting) {
-                stopSelf()
+                stopSessionStream(streamGeneration)
             }
             return
         }
@@ -438,7 +488,7 @@ class HermesReconnectService : Service() {
             val contentType = connection.contentType.orEmpty()
             if (responseCode !in 200..299 || !contentType.contains("text/event-stream", ignoreCase = true)) {
                 if (!isReconnecting) {
-                    stopSelf()
+                    stopSessionStream(streamGeneration)
                 }
                 return
             }
@@ -450,15 +500,16 @@ class HermesReconnectService : Service() {
                     sessionTargetUrl = sessionTargetUrl,
                     pollIntervalSeconds = pollIntervalSeconds,
                     showFullTextOnLockScreen = showFullTextOnLockScreen,
-                    isReconnecting = isReconnecting
+                    isReconnecting = isReconnecting,
+                    streamGeneration = streamGeneration
                 )
                 if (shouldStop || !isReconnecting) {
-                    stopSelf()
+                    stopSessionStream(streamGeneration)
                 }
             }
         } catch (_: Exception) {
             if (!isReconnecting) {
-                stopSelf()
+                stopSessionStream(streamGeneration)
             }
             return
         } finally {
@@ -475,7 +526,8 @@ class HermesReconnectService : Service() {
         sessionTargetUrl: String?,
         pollIntervalSeconds: Int,
         showFullTextOnLockScreen: Boolean,
-        isReconnecting: Boolean
+        isReconnecting: Boolean,
+        streamGeneration: Long
     ): Boolean {
         var eventName: String? = null
         val dataLines = mutableListOf<String>()
@@ -496,12 +548,16 @@ class HermesReconnectService : Service() {
                             rawData = payload
                         )
                         if (update != null) {
-                            publishNotificationUpdate(
-                                update = update,
-                                pollIntervalSeconds = pollIntervalSeconds,
-                                showFullTextOnLockScreen = showFullTextOnLockScreen,
-                                isReconnecting = isReconnecting
-                            )
+                            serviceScope.launch(Dispatchers.Main) {
+                                if (sessionStreamGeneration == streamGeneration) {
+                                    publishNotificationUpdate(
+                                        update = update,
+                                        pollIntervalSeconds = pollIntervalSeconds,
+                                        showFullTextOnLockScreen = showFullTextOnLockScreen,
+                                        isReconnecting = isReconnecting
+                                    )
+                                }
+                            }
                             if (update.isTerminal) {
                                 return true
                             }
@@ -522,7 +578,10 @@ class HermesReconnectService : Service() {
         showFullTextOnLockScreen: Boolean,
         isReconnecting: Boolean
     ) {
-        if (update.approvalRequest?.approvalId != currentApprovalRequest?.approvalId) {
+        val incomingApprovalId = update.approvalRequest?.approvalId
+        if (incomingApprovalId != null && incomingApprovalId != activeApprovalId) {
+            approvalStateGeneration++
+            activeApprovalId = incomingApprovalId
             clearRespondedApprovals()
         }
         currentApprovalRequest = update.approvalRequest
@@ -633,5 +692,3 @@ class HermesReconnectService : Service() {
         }
     }
 }
-
-

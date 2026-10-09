@@ -108,4 +108,32 @@ class WebTrustPolicyTest {
             )
         ).isFalse()
     }
+
+    @Test
+    fun `gesture-free media playback is limited to the configured WebUI route`() {
+        // WebUI voice replies play long after the arming tap; Android WebView's
+        // gesture rule would reject them. Provider, dashboard and external pages keep it.
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://hermes.example.com/session/123")).isTrue()
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://provider.example.com/login")).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://dashboard.example.com/app")).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback("https://api.hermes.example.com/")).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback(null)).isFalse()
+        assertThat(policy.allowsGestureFreeMediaPlayback("about:blank")).isFalse()
+    }
+
+    @Test
+    fun `gesture-free media playback honours a non-default configured port`() {
+        val voicePolicy = WebTrustPolicy(
+            urlPolicy = UrlPolicy(setOf("calinux.tail96d6ee.ts.net")),
+            configuredWebUiUrl = "https://calinux.tail96d6ee.ts.net:8789",
+            configuredDashboardUrl = ""
+        )
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net:8789")).isTrue()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net:8789/session/abc")).isTrue()
+        // Same host on the default port (production) and other ports keep requiring a gesture.
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net/")).isFalse()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://calinux.tail96d6ee.ts.net:8787/")).isFalse()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("http://calinux.tail96d6ee.ts.net:8789/")).isFalse()
+        assertThat(voicePolicy.allowsGestureFreeMediaPlayback("https://example.com/")).isFalse()
+    }
 }

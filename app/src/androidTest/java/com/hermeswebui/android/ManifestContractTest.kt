@@ -3,6 +3,7 @@ package com.hermeswebui.android
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -72,6 +73,22 @@ class ManifestContractTest {
         assertThat(debugService.exported).isFalse()
         assertThat(provider.exported).isFalse()
         assertThat(provider.grantUriPermissions).isTrue()
+    }
+
+    @Test
+    fun noServiceCanKeepMicrophoneCaptureAliveInTheBackground() {
+        // Voice conversation is foreground-only: Android's while-in-use rules silence the
+        // microphone once the activity stops unless a microphone-typed service holds it.
+        val services = packageManager.getPackageInfo(
+            context.packageName,
+            PackageManager.PackageInfoFlags.of(PackageManager.GET_SERVICES.toLong())
+        ).services.orEmpty()
+
+        assertThat(services).isNotEmpty()
+        services.forEach { service ->
+            assertThat(service.foregroundServiceType and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                .isEqualTo(0)
+        }
     }
 
     private fun resolveActivity(intent: Intent): String? {

@@ -24,6 +24,15 @@ class WebTrustPolicy(
             targetPath.startsWith("$dashboardPath/")
     }
 
+    /**
+     * WebUI voice replies start playback long after the arming tap, which Android WebView's
+     * per-element gesture rule rejects. Lift it only for the configured WebUI route; OAuth
+     * provider, dashboard and other pages keep requiring a gesture.
+     */
+    fun allowsGestureFreeMediaPlayback(mainFrameUrl: String?): Boolean {
+        return isConfiguredWebUiRoute(mainFrameUrl)
+    }
+
     fun isTrustedNotificationTarget(url: String?): Boolean {
         return !url.isNullOrBlank() && urlPolicy.isAllowed(url) && isConfiguredWebUiRoute(url)
     }

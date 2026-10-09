@@ -1,6 +1,7 @@
 package com.hermeswebui.android
 
 import com.google.common.truth.Truth.assertThat
+import com.hermeswebui.android.background.ReconnectBackgroundPolicy
 import com.hermeswebui.android.background.ReconnectSessionStreamSupport
 import org.junit.Test
 
@@ -8,33 +9,75 @@ class ReconnectSessionStreamSupportTest {
     private val baseUrl = "https://hermes.example.com"
 
     @Test
-    fun `session id is derived from single-segment Hermes session route`() {
+    fun `session id is derived from WebUI session route`() {
         assertThat(
-            ReconnectSessionStreamSupport.sessionIdFromUrl("https://hermes.example.com/session_123")
+            ReconnectSessionStreamSupport.sessionIdFromUrl("$baseUrl/session/session_123")
         ).isEqualTo("session_123")
     }
 
     @Test
-    fun `session id is not derived from multi-segment route`() {
+    fun `session deep links round trip with mount prefixes and encoded ids`() {
+        val servers = listOf(baseUrl, "$baseUrl/", "$baseUrl/hermes", "$baseUrl/apps/hermes/")
+        val ids = listOf("abc123", "a b", "a+b", "a/b", "literal%2F", "caf\u00e9")
+        servers.forEach { server ->
+            ids.forEach { id ->
+                assertThat(
+                    ReconnectSessionStreamSupport.sessionIdFromUrl(DeepLinkRoutes.sessionUrl(server, id))
+                ).isEqualTo(id)
+            }
+        }
+    }
+
+    @Test
+    fun `query and fragment are not part of the session id`() {
         assertThat(
-            ReconnectSessionStreamSupport.sessionIdFromUrl("https://hermes.example.com/a/b")
-        ).isNull()
+            ReconnectSessionStreamSupport.sessionIdFromUrl("$baseUrl/hermes/session/a%2Bb?view=chat#latest")
+        ).isEqualTo("a+b")
+    }
+
+    @Test
+    fun `unrelated incomplete and malformed routes have no session id`() {
+        val urls = listOf(
+            null, "", baseUrl, "$baseUrl/", "$baseUrl/session", "$baseUrl/session/",
+            "$baseUrl/session_123", "$baseUrl/settings", "$baseUrl/a/b",
+            "$baseUrl/hermes/session/", "$baseUrl/session/abc/extra",
+            "$baseUrl/session//", "$baseUrl/session/%20", "$baseUrl/session/%ZZ"
+        )
+        urls.forEach { url ->
+            assertThat(ReconnectSessionStreamSupport.sessionIdFromUrl(url)).isNull()
+        }
+    }
+
+    @Test
+    fun `real WebUI session enables background monitoring without reconnecting`() {
+        val sessionId = ReconnectSessionStreamSupport.sessionIdFromUrl(
+            DeepLinkRoutes.sessionUrl("$baseUrl/hermes", "session_123")
+        )
+        assertThat(
+            ReconnectBackgroundPolicy.shouldRunForegroundService(
+                backgroundReconnectEnabled = true,
+                activityVisible = false,
+                isReconnecting = false,
+                sseTransportEnabled = true,
+                hasSessionId = sessionId != null
+            )
+        ).isTrue()
     }
 
     @Test
     fun `activity summary event maps to notification summary and route`() {
         val update = ReconnectSessionStreamSupport.notificationUpdateForEvent(
             baseUrl = baseUrl,
-            fallbackTargetUrl = "$baseUrl/session_123",
+            fallbackTargetUrl = "$baseUrl/session/session_123",
             eventName = "activity_summary",
             rawData = """
-                {"route":"/session_456","summary":"Wrote the migration and verified the build."}
+                {"route":"/session/session_456","summary":"Wrote the migration and verified the build."}
             """.trimIndent()
         )
 
         assertThat(update).isNotNull()
         assertThat(update?.body).isEqualTo("Wrote the migration and verified the build.")
-        assertThat(update?.targetUrl).isEqualTo("https://hermes.example.com/session_456")
+        assertThat(update?.targetUrl).isEqualTo("$baseUrl/session/session_456")
         assertThat(update?.isTerminal).isFalse()
     }
 
@@ -42,7 +85,7 @@ class ReconnectSessionStreamSupportTest {
     fun `task completion event formats error summaries`() {
         val update = ReconnectSessionStreamSupport.notificationUpdateForEvent(
             baseUrl = baseUrl,
-            fallbackTargetUrl = "$baseUrl/session_123",
+            fallbackTargetUrl = "$baseUrl/session/session_123",
             eventName = "bg_task_complete",
             rawData = """
                 {"summary":"Tests failed in app module","status":"error"}
@@ -51,7 +94,7 @@ class ReconnectSessionStreamSupportTest {
 
         assertThat(update).isNotNull()
         assertThat(update?.body).isEqualTo("Hermes reported an error: Tests failed in app module")
-        assertThat(update?.targetUrl).isEqualTo("$baseUrl/session_123")
+        assertThat(update?.targetUrl).isEqualTo("$baseUrl/session/session_123")
         assertThat(update?.isTerminal).isTrue()
     }
 
@@ -59,7 +102,7 @@ class ReconnectSessionStreamSupportTest {
     fun `turn started event produces generic progress copy`() {
         val update = ReconnectSessionStreamSupport.notificationUpdateForEvent(
             baseUrl = baseUrl,
-            fallbackTargetUrl = "$baseUrl/session_123",
+            fallbackTargetUrl = "$baseUrl/session/session_123",
             eventName = "server_turn_started",
             rawData = """
                 {"session_id":"session_123","input_type":"user_message"}
@@ -68,7 +111,7 @@ class ReconnectSessionStreamSupportTest {
 
         assertThat(update).isNotNull()
         assertThat(update?.body).isEqualTo("Hermes started working on a user_message request.")
-        assertThat(update?.targetUrl).isEqualTo("$baseUrl/session_123")
+        assertThat(update?.targetUrl).isEqualTo("$baseUrl/session/session_123")
         assertThat(update?.isTerminal).isFalse()
     }
 
@@ -76,10 +119,10 @@ class ReconnectSessionStreamSupportTest {
     fun `approval event maps to safe approval copy`() {
         val update = ReconnectSessionStreamSupport.notificationUpdateForEvent(
             baseUrl = baseUrl,
-            fallbackTargetUrl = "$baseUrl/session_123",
+            fallbackTargetUrl = "$baseUrl/session/session_123",
             eventName = "approval_required",
             rawData = """
-                {"route":"/session_123","approval_id":"approval_123","description":"Allow write access to app/src/main?","choices":["once","session","always","deny"]}
+                {"route":"/session/session_123","approval_id":"approval_123","description":"Allow write access to app/src/main?","choices":["once","session","always","deny"]}
             """.trimIndent()
         )
 
@@ -94,7 +137,7 @@ class ReconnectSessionStreamSupportTest {
     fun `turn failed event stops activity notification`() {
         val update = ReconnectSessionStreamSupport.notificationUpdateForEvent(
             baseUrl = baseUrl,
-            fallbackTargetUrl = "$baseUrl/session_123",
+            fallbackTargetUrl = "$baseUrl/session/session_123",
             eventName = "turn_failed",
             rawData = """
                 {"error":"Connection lost while waiting for the model."}

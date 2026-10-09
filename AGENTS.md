@@ -35,6 +35,7 @@ Useful entry points:
 - `background/HermesReconnectService.kt` + `background/ReconnectBackgroundPolicy.kt` - foreground service (manifest `foregroundServiceType="dataSync"`) that keeps the bounded reconnect probe and `/api/session/stream` subscription alive while the activity is backgrounded; policy helpers gate when the service should run/keep-alive/cancel
 - `background/HermesForegroundServiceCoordinator.kt` - owns MainActivity-facing reconnect/debug foreground-service lifecycle sync and promotion/teardown rules
 - `background/ApprovalClient.kt` + `background/ApprovalActionSupport.kt` + `background/ReconnectSessionStreamSupport.kt` - authenticated `/api/approval/pending`/`/api/approval/respond` client and SSE event support used by the notification approval actions
+- Background session IDs come from trusted WebUI URLs ending in `/session/{id}`, including mount prefixes. Use `UrlOrigins.pathSegments` to split before decoding once; do not restore the dashboard-only `/{id}` assumption or parse untrusted provider URLs to enable monitoring.
 - `background/HermesDebugLoggingService.kt` + `background/DebugLogBootstrap.kt` - opt-in foreground logcat capture into `files/debug-logs/` with a persistent Stop notification
 - `server/HermesServerProfileCoordinator.kt` - startup preflight plus server-profile add/edit/delete/switch validation and confirmation flows
 - `webview/HermesWebViewConfigurator.kt` - shared main/popup WebView hardening and settings setup

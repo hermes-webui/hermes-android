@@ -21,11 +21,9 @@ internal data class NotificationApprovalRequest(
 internal object ReconnectSessionStreamSupport {
     fun sessionIdFromUrl(currentUrl: String?): String? {
         if (currentUrl.isNullOrBlank()) return null
-        val segments = UrlOrigins.normalizedPath(currentUrl)
-            .trimStart('/')
-            .split('/')
-            .filter { it.isNotBlank() }
-        return segments.singleOrNull()
+        val segments = UrlOrigins.pathSegments(currentUrl)
+        if (segments.size < 2 || segments[segments.lastIndex - 1] != "session") return null
+        return segments.last().takeIf { it.isNotBlank() }
     }
 
     fun notificationUpdateForEvent(

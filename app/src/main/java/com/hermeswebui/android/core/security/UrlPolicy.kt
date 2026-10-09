@@ -1,6 +1,7 @@
 package com.hermeswebui.android.core.security
 
 import java.net.URI
+import java.net.URLDecoder
 import java.util.Locale
 
 enum class NavigationDecision {
@@ -448,6 +449,14 @@ object UrlOrigins {
 
     fun normalizedPath(url: String): String {
         return url.toUriOrNull()?.path.orEmpty().trimEnd('/')
+    }
+
+    /** Split before decoding so an encoded slash remains part of its original segment. */
+    fun pathSegments(url: String): List<String> {
+        val rawPath = url.toUriOrNull()?.rawPath ?: return emptyList()
+        return rawPath.removePrefix("/").split('/').map { segment ->
+            URLDecoder.decode(segment.replace("+", "%2B"), "UTF-8")
+        }
     }
 
     private fun String.toUriOrNull(): URI? = runCatching { URI(this) }.getOrNull()

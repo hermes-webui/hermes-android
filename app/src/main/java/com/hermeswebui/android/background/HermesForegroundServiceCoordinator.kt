@@ -38,7 +38,8 @@ class HermesForegroundServiceCoordinator(
     }
 
     private fun syncReconnectForegroundService(state: MainUiState, activityVisible: Boolean) {
-        val sessionId = ReconnectSessionStreamSupport.sessionIdFromUrl(state.currentUrl)
+        val sessionTargetUrl = state.currentUrl.takeIf(isTrustedNotificationTarget)
+        val sessionId = ReconnectSessionStreamSupport.sessionIdFromUrl(sessionTargetUrl)
         if (
             !ReconnectBackgroundPolicy.shouldRunForegroundService(
                 backgroundReconnectEnabled = state.backgroundReconnectEnabled,
@@ -54,7 +55,6 @@ class HermesForegroundServiceCoordinator(
         if (reconnectServiceRunning) return
 
         try {
-            val sessionTargetUrl = state.currentUrl.takeIf(isTrustedNotificationTarget)
             HermesReconnectService.start(
                 context,
                 pollIntervalSeconds = state.reconnectPollIntervalSeconds,

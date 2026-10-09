@@ -32,6 +32,14 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - `HermesWebViewConfigurator`: centralizes shared main/popup WebView hardening and settings setup.
 - `HermesWebViewDownloadListener`: hands allowlisted WebView downloads to Android DownloadManager with session cookies and the WebView user agent. AndroidX WebKit's RFC-compatible filename parser honors `filename*` over `filename` and preserves server-provided extensions even with generic MIME types. Explicit image downloads also retain filenames from inline preview headers; filenames cannot introduce nested destination paths. Emulator regression tests exercise the production listener and downloaded bytes for both chat and Files endpoints.
 
+Background session monitoring derives the session ID from the final
+`/session/{id}` path segments of a trusted WebUI URL, including deployments
+under a mount prefix. URL segments are split before decoding so IDs round-trip
+through deep links without losing encoded slashes, plus signs, or literal
+percent escapes. Root, Settings, and incomplete session routes do not trigger
+session monitoring; the legacy dashboard `/{id}` shape is not a WebUI session
+route, and dashboard pages remain browser-owned Custom Tab surfaces.
+
 The viewport polyfill writes root CSS variables, baseline rules, and retained
 repair constraints only when their values change. Its DOM observer still
 responds to WebUI updates (including changed styles on repaired panels),

@@ -10,6 +10,20 @@ class UrlPolicyTest {
     private val policy = UrlPolicy(setOf("hermes.example.com"))
 
     @Test
+    fun `path segments decode once without splitting encoded slashes or changing plus signs`() {
+        assertThat(
+            UrlOrigins.pathSegments("https://hermes.example.com/mount/session/a%2Fb+c%252F?view=chat#latest")
+        ).containsExactly("mount", "session", "a/b+c%2F").inOrder()
+    }
+
+    @Test
+    fun `path segments preserve empty segments and reject malformed URLs`() {
+        assertThat(UrlOrigins.pathSegments("https://hermes.example.com/session//"))
+            .containsExactly("session", "", "").inOrder()
+        assertThat(UrlOrigins.pathSegments("https://hermes.example.com/session/%ZZ")).isEmpty()
+    }
+
+    @Test
     fun `allows allowlisted host over https`() {
         assertThat(policy.isAllowed("https://hermes.example.com")).isTrue()
     }

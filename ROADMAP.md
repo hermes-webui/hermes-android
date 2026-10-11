@@ -128,6 +128,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| REL-032 | 2026-10-11 | Release preparation | Prepared Android and README metadata for v1.1.4 (version code 10104), including PR #120's trusted voice playback and selected-server navigation fixes. GitHub and Play production publication are pending the approved orchestration run. |
 | REL-031 | 2026-10-09 | Release preparation | Prepared Android and README metadata for v1.1.3 (version code 10103), including the session deep-link and background-monitoring fixes from PRs #122 and #124. Publication is pending the approved GitHub/Play production orchestration run. |
 | BUG-051 | 2026-10-09 | Background continuity | Implemented Issue #123's trusted WebUI `/session/{id}` detection, including mounted routes and one-time ID decoding. API 36 emulator coverage exercises authenticated SSE notifications, real approval PendingIntents, resume/socket teardown, reconnect/session transitions, and stale-stream/approval fencing. PR #124 remains subject to review and CI; upstream WebUI/OEM behavior is not established by the loopback fixtures. |
 | REL-030 | 2026-10-04 | Release preparation | Prepared Android and README metadata for v1.1.2 (version code 10102) so the next approved orchestrated release can include the Issue #118 filename fix. |

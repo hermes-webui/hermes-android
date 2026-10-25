@@ -11,7 +11,7 @@
 
 | Surface | Status |
 |---|---|
-| Secure WebView shell | Done - HTTP/HTTPS navigation, host allowlist, hardened defaults |
+| Secure WebView shell | Done - HTTP/HTTPS navigation, host allowlist, hardened defaults, and system plus user-installed CA trust with normal certificate validation |
 | WebUI integration | Done - first-run WebUI URL setting, WebUI-owned dashboard config, session persistence, pull-to-refresh |
 | WebView compatibility | Done - disables forced darkening, patches Android viewport-unit collapse, respects system-bar safe insets, uses browser-managed cache defaults, smooths reload rendering, restores touch-and-hold context-menu dispatch for conversation actions, and forces WebUI microphone input onto the Android-compatible MediaRecorder path |
 | Official dashboard link | Done - Android no longer writes WebUI's Official Hermes Dashboard config, opens explicitly configured dashboard-origin requests in a Chrome Custom Tab with minimal browser UI, and avoids persisting dashboard pages as startup state |
@@ -47,6 +47,7 @@
 - [x] Loading, error, and offline states
 - [x] Cookie-backed session persistence
 - [x] Encrypted local settings
+- [x] HTTPS trust for Android system and user-installed CAs within this app, retaining certificate-chain and hostname validation
 
 ### Android integration
 
@@ -128,6 +129,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-052 | 2026-10-25 | Security / WebView | Fixed Issue #127 by configuring Android WebView to trust both system and user-installed CAs within Hermes-Android, while retaining standard certificate-chain and hostname validation. This is app-wide rather than per-server-profile trust; no certificate-error bypass was added. |
 | REL-032 | 2026-10-11 | Release preparation | Prepared Android and README metadata for v1.1.4 (version code 10104), including PR #120's trusted voice playback and selected-server navigation fixes. GitHub and Play production publication are pending the approved orchestration run. |
 | REL-031 | 2026-10-09 | Release preparation | Prepared Android and README metadata for v1.1.3 (version code 10103), including the session deep-link and background-monitoring fixes from PRs #122 and #124. Publication is pending the approved GitHub/Play production orchestration run. |
 | BUG-051 | 2026-10-09 | Background continuity | Implemented Issue #123's trusted WebUI `/session/{id}` detection, including mounted routes and one-time ID decoding. API 36 emulator coverage exercises authenticated SSE notifications, real approval PendingIntents, resume/socket teardown, reconnect/session transitions, and stale-stream/approval fencing. PR #124 remains subject to review and CI; upstream WebUI/OEM behavior is not established by the loopback fixtures. |

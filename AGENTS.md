@@ -97,6 +97,7 @@ When a user references GitHub issues (e.g., by URL or issue number), agents shou
 
 ### GitHub issue + PR workflow
 
+- Before GitHub operations, confirm the active `gh` account is `Paladin173` with `gh auth status --hostname github.com`; if another account is active, switch with `gh auth switch --hostname github.com --user Paladin173`. Verify the active account again before publishing, commenting, or changing issue/PR state.
 - Always work on issues through a dedicated branch and a pull request. Never commit issue fixes directly to `main`.
 - For issue work, create or reuse a branch named after the issue (for example `issue-73`) before publishing any code.
 - Push the branch to GitHub with `git push --set-upstream origin <branch>` once the work is ready for review.

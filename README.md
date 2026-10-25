@@ -144,6 +144,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Only `http://` and `https://` Hermes hosts are supported in-app
 - Allowlisted Hermes navigation stays in-app; other web links are externalized
 - Non-web schemes are blocked
+- HTTPS in the app uses Android's system and user-installed CA stores; normal certificate-chain and hostname checks remain enabled. User-installed CAs apply app-wide, not just to one server profile.
 - Notification routing, microphone access, and callback handling stay scoped to trusted Hermes origins
 - Local settings are encrypted with Android Keystore-backed storage
 - Optional VPN/Tailscale startup guard for Tailscale-addressed Hermes servers (`*.ts.net`, Tailscale CGNAT/ULA ranges)

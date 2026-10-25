@@ -140,6 +140,7 @@ not dropped.
 - Client certificates support PKCS#12 (`.pfx`/`.p12`) files selected through Android's document picker. Requests are limited to allowlisted hosts; malformed, password-mismatched, keyless, or otherwise unreadable stores fail closed and cancel the WebView request.
 - WebAuthn support is enabled for app-hosted WebView authentication flows (`WEB_AUTHENTICATION_SUPPORT_FOR_APP`) when the underlying WebView feature is available, allowing passkey-capable identity providers to complete embedded sign-in.
 - Android cleartext traffic is permitted so configured HTTP deployments can load. App-level URL policy still limits trusted in-app navigation and downloads to the configured host allowlist.
+- The app's Network Security Configuration trusts both Android system CAs and user-installed CAs. This lets WebView connect to servers signed by a CA the device owner installed, while normal certificate-chain, validity, and hostname checks remain enabled. This is app-wide rather than limited to one server profile: the Android Network Security Configuration is static, and stock WebView does not expose a safe runtime per-profile trust-anchor switch. It does not change trust settings for Android or other apps.
 - WebView uses browser-managed HTTP and service-worker cache semantics. Android does not maintain a separate stale copy of Hermes WebUI HTML or authenticated API responses.
 - Sensitive app-side config is encrypted with Android Keystore-backed keys.
 

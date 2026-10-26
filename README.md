@@ -131,6 +131,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 
 - File uploads and downloads, including direct camera capture when pages request image capture
 - Chat and Files downloads keep server-provided filenames and extensions, including UTF-8 names
+- Downloads save to the shared Download folder on Android 10+, so they appear in Files > Downloads
 - Share-to-app intake for text and files
 - Android-backed browser notifications for Hermes WebUI alerts
 - Optional ongoing background activity notification for trusted Hermes sessions

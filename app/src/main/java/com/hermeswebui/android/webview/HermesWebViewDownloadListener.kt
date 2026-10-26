@@ -2,6 +2,7 @@ package com.hermeswebui.android.webview
 
 import android.app.DownloadManager
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
@@ -36,13 +37,31 @@ class HermesWebViewDownloadListener(
             userAgent?.takeIf { it.isNotBlank() }?.let {
                 addRequestHeader("User-Agent", it)
             }
-            setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
+            setHermesDestination(context, fileName)
         }
         context.getSystemService(DownloadManager::class.java).enqueue(request)
         Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
     }
 
     internal companion object {
+        /**
+         * Android 10+ (API 29) lets DownloadManager write to the shared Download folder without a
+         * storage permission, so files show up in Files > Downloads and survive app data clears.
+         * Android 8 and 9 would need WRITE_EXTERNAL_STORAGE for that, so they keep the
+         * app-specific folder. If shared storage is unavailable, fall back to the same folder.
+         */
+        fun DownloadManager.Request.setHermesDestination(context: Context, fileName: String) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                    return
+                } catch (_: IllegalStateException) {
+                    // Shared storage not mounted or Download folder unusable.
+                }
+            }
+            setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
+        }
+
         fun fileNameFor(url: String, contentDisposition: String?, mimeType: String?): String {
             val dispositionParts = contentDisposition?.split(';', limit = 2)
             // An explicit image download can carry the server's inline preview header.

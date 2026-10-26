@@ -2,6 +2,8 @@ package com.hermeswebui.android.webview
 
 import android.app.DownloadManager
 import android.content.Context
+import android.os.Build
+import android.os.Environment
 import android.os.SystemClock
 import android.webkit.CookieManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -221,10 +223,19 @@ class HermesWebViewDownloadListenerTest {
         assertThat(download.status).isEqualTo(DownloadManager.STATUS_SUCCESSFUL)
         val file = File(URI(requireNotNull(download.localUri)))
         assertThat(file.name).isEqualTo(filename)
+        assertThat(file.parentFile?.canonicalPath).isEqualTo(expectedDownloadDir().canonicalPath)
         assertThat(file.readBytes()).isEqualTo(payload)
         assertThat(requestHeaders.single()["cookie"]).contains("issue118_fixture=authenticated")
         assertThat(requestHeaders.single()["user-agent"]).isEqualTo("Hermes-Issue118-Fixture")
     }
+
+    // Issue #130: Android 10+ saves to the shared Download folder listed in Files > Downloads.
+    private fun expectedDownloadDir(): File =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        } else {
+            requireNotNull(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS))
+        }
 
     private data class Download(
         val id: Long,

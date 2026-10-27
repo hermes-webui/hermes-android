@@ -22,13 +22,16 @@ import com.hermeswebui.android.background.HermesDebugLoggingService
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.SocketException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 
 /** Real HTTP, setup coordinator, consent UI and main WebView; no upstream Authelia is implied. */
 @RunWith(AndroidJUnit4::class)
@@ -72,12 +75,9 @@ class ProxyAuthRedirectInstrumentationTest {
                 awaitText("Continue to server sign-in?")
                 assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
                 clickDialogButton("Continue")
-                awaitWebView(scenario) { it.url?.startsWith("${server.loginOrigin}/login") == true }
+                awaitLoginForm(scenario, server)
                 assertThat(repository.getLastLoadedUrl()).doesNotContain("login")
-                scenario.onActivity { activity ->
-                    findWebView(activity.findViewById(android.R.id.content))!!
-                        .evaluateJavascript("document.getElementById('signin').click();", null)
-                }
+                evaluateWebView(scenario, "document.getElementById('signin').click();")
                 awaitWebView(scenario) { it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in" }
                 eventually("Final Hermes route persisted") {
                     repository.getLastLoadedUrl() == "${server.baseUrl}/session/issue132"
@@ -92,7 +92,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 }
                 awaitText("${server.baseUrl} redirected to ${server.loginOrigin}.")
                 clickDialogButton("Continue")
-                awaitWebView(scenario) { it.url?.startsWith("${server.loginOrigin}/login") == true }
+                awaitLoginForm(scenario, server)
                 assertThat(repository.getLastLoadedUrl()).isEqualTo("${server.baseUrl}/session/issue132")
             }
         }
@@ -194,6 +194,33 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
+    private fun awaitLoginForm(scenario: ActivityScenario<MainActivity>, server: ProxyServer) {
+        eventually("Login document and sign-in button ready") {
+            evaluateWebView(
+                scenario,
+                """
+                document.readyState === 'complete' &&
+                  location.origin === ${JSONObject.quote(server.loginOrigin)} &&
+                  document.getElementById('signin') !== null
+                """.trimIndent()
+            ) == "true"
+        }
+    }
+
+    private fun evaluateWebView(scenario: ActivityScenario<MainActivity>, script: String): String? {
+        val completed = CountDownLatch(1)
+        var result: String? = null
+        scenario.onActivity { activity ->
+            checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                .evaluateJavascript(script) {
+                    result = it
+                    completed.countDown()
+                }
+        }
+        check(completed.await(5, TimeUnit.SECONDS)) { "WebView JavaScript callback timed out" }
+        return result
+    }
+
     private fun findWebView(view: View): WebView? {
         if (view is WebView) return view
         if (view is ViewGroup) {
@@ -252,7 +279,17 @@ class ProxyAuthRedirectInstrumentationTest {
                             Triple("$redirectCode Redirect", "Location: ${locationOverride ?: "$loginOrigin/login?rd=synthetic-secret"}\r\n", "")
                         path == "/login" -> Triple("200 OK", "", """
                             <title>Proxy sign-in</title>
-                            <button id="signin" onclick="location.href='$baseUrl/auth/return?ticket=synthetic'">Sign in</button>
+                            <script>
+                              setTimeout(function() {
+                                var button = document.createElement('button');
+                                button.id = 'signin';
+                                button.textContent = 'Sign in';
+                                button.onclick = function() {
+                                  location.href='$baseUrl/auth/return?ticket=synthetic';
+                                };
+                                document.body.appendChild(button);
+                              }, 3000);
+                            </script>
                         """.trimIndent())
                         path == "/auth/return" -> Triple("302 Found",
                             "Set-Cookie: proxy_auth=ok; Path=/; HttpOnly; SameSite=Lax\r\nLocation: /auth/interstitial\r\n", "")

@@ -97,6 +97,7 @@ import androidx.webkit.WebViewFeature
 import com.hermeswebui.android.background.DebugLogBootstrap
 import com.hermeswebui.android.background.HermesForegroundServiceCoordinator
 import com.hermeswebui.android.core.security.NavigationDecision
+import com.hermeswebui.android.core.security.ProxyAuthNavigation
 import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.core.security.UrlPolicy
 import com.hermeswebui.android.core.security.WebTrustPolicy
@@ -225,6 +226,8 @@ class MainActivity : ComponentActivity() {
     private var activeOAuthPopup: WebView? = null
     private var activeOAuthFlow: OAuthPopupFlow? = null
     private var activeMainFrameOAuthFlow: OAuthPopupFlow? = null
+    private val proxyAuthNavigation = ProxyAuthNavigation()
+    private var proxySignInDialog: android.app.AlertDialog? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
     private val oauthReturnNavigation = OAuthReturnNavigation()
@@ -388,7 +391,8 @@ class MainActivity : ComponentActivity() {
             serverUrlValidator = serverUrlValidator,
             onOpenInExternalBrowser = ::openInExternalBrowser,
             onPerformServerProfileSwitch = ::performServerProfileSwitch,
-            onRefreshConfiguredHermes = ::loadServerUrlWithVpnGuard
+            onRefreshConfiguredHermes = ::loadServerUrlWithVpnGuard,
+            onApproveProxySignIn = proxyAuthNavigation::begin
         )
         foregroundServiceCoordinator = HermesForegroundServiceCoordinator(
             context = this,
@@ -505,6 +509,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::serverProfileCoordinator.isInitialized) serverProfileCoordinator.dispose()
+        proxySignInDialog?.dismiss()
+        proxyAuthNavigation.clear()
         stopVpnReconnectWaitLoop()
         runCatching { unregisterReceiver(appUpdateDownloadReceiver) }
         super.onDestroy()
@@ -902,7 +909,26 @@ class MainActivity : ComponentActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val target = request?.url?.toString() ?: return true
-                    val handled = handleMainWebViewNavigation(target)
+                    val serverUrl = viewModel.uiState.value.settings.serverUrl
+                    if (request.isForMainFrame &&
+                        !proxyAuthNavigation.allows(serverUrl, target) &&
+                        !urlPolicy.isAllowed(target) &&
+                        activeMainFrameOAuthFlow == null &&
+                        parseTrustedOAuthStart(target) == null &&
+                        request.isRedirect &&
+                        matchesConfiguredWebUiRoute(view?.url)
+                    ) {
+                        val origin = ProxyAuthNavigation.safeRedirectOrigin(serverUrl, 302, target)
+                        if (origin != null) {
+                            confirmProxySignInRedirect(serverUrl, origin, target)
+                            return true
+                        }
+                    }
+                    val handled = if (request.isForMainFrame && proxyAuthNavigation.allows(serverUrl, target)) {
+                        false
+                    } else {
+                        handleMainWebViewNavigation(target)
+                    }
                     if (!handled && request.isForMainFrame) {
                         restrictMediaPlaybackBeforeNavigation(target)
                     }
@@ -930,6 +956,7 @@ class MainActivity : ComponentActivity() {
                         // restored on launch: the flow is gone and the page needs the OAuth
                         // context to render.
                         rememberLastUrl = matchesConfiguredWebUiRoute(url) &&
+                            !proxyAuthNavigation.isPending(viewModel.uiState.value.settings.serverUrl) &&
                             oauthReturnNavigation.shouldRememberUrl(url)
                     )
                     completeOAuthReturnIfHermesPage(view, url)
@@ -942,6 +969,7 @@ class MainActivity : ComponentActivity() {
                     // Ignore internal/non-web URLs; persist only trusted Hermes WebUI routes.
                     if (!urlPolicy.isAllowed(visitedUrl)) return
                     if (!matchesConfiguredWebUiRoute(visitedUrl)) return
+                    if (proxyAuthNavigation.isPending(viewModel.uiState.value.settings.serverUrl)) return
                     if (!oauthReturnNavigation.shouldRememberUrl(visitedUrl)) return
 
                     // Persist SPA/history route changes so cold starts restore the active session route.
@@ -1256,9 +1284,45 @@ class MainActivity : ComponentActivity() {
         HermesMediaPlaybackPolicy.beforeAllowedMainFrameNavigation(webView, target, currentWebTrustPolicy())
     }
 
+    private fun confirmProxySignInRedirect(serverUrl: String, origin: String, target: String) {
+        if (proxySignInDialog?.isShowing == true) return
+        DiagnosticsLogger.record(this, "proxy_sign_in_redirect", mapOf(
+            "origin" to DiagnosticsLogger.originOnly(serverUrl),
+            "login_origin" to origin
+        ))
+        proxySignInDialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Continue to server sign-in?")
+            .setMessage(
+                "${UrlOrigins.pageOrigin(serverUrl)} redirected to $origin. " +
+                    "Continue only if this is your server's sign-in service. " +
+                    "Access lasts five minutes and is limited to these two origins."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue") { _, _ ->
+                val stillConfigured = viewModel.uiState.value.settings.serverUrl == serverUrl &&
+                    matchesConfiguredWebUiRoute(webView.url)
+                DiagnosticsLogger.record(this, "proxy_sign_in_approval", mapOf(
+                    "origin" to DiagnosticsLogger.originOnly(serverUrl),
+                    "current_origin" to DiagnosticsLogger.originOnly(webView.url),
+                    "approved" to stillConfigured.toString()
+                ))
+                if (stillConfigured) {
+                    proxyAuthNavigation.begin(serverUrl, origin)
+                    restrictMediaPlaybackBeforeNavigation(target)
+                    webView.loadUrl(target)
+                } else {
+                    Toast.makeText(this, "Server changed. Please retry sign-in.", Toast.LENGTH_LONG).show()
+                }
+            }
+            .show()
+    }
+
     private fun completeOAuthReturnIfHermesPage(view: WebView?, url: String?) {
         if (view == null || url.isNullOrBlank()) return
-        if (!oauthReturnNavigation.shouldStayInMainWebView(url)) return
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        if (!oauthReturnNavigation.shouldStayInMainWebView(url) &&
+            !(proxyAuthNavigation.isPending(serverUrl) && matchesConfiguredWebUiRoute(url))
+        ) return
 
         view.evaluateJavascript(
             """
@@ -1272,11 +1336,15 @@ class MainActivity : ComponentActivity() {
         ) { result ->
             // Ignore a delayed result from a page that navigated again while JavaScript ran.
             if (view.url == url) {
+                val proxyWasActive = proxyAuthNavigation.isPending(serverUrl)
+                proxyAuthNavigation.completeIfHermesPage(serverUrl, url, result == "true")
                 val completed = oauthReturnNavigation.completeIfHermesPage(
                     url = url,
                     isHermesPage = result == "true"
                 )
-                if (completed && matchesConfiguredWebUiRoute(url)) {
+                if ((completed || (proxyWasActive && !proxyAuthNavigation.isPending(serverUrl))) &&
+                    matchesConfiguredWebUiRoute(url)
+                ) {
                     viewModel.onUrlVisited(url = url, rememberLastUrl = true)
                 }
             }
@@ -1640,7 +1708,10 @@ class MainActivity : ComponentActivity() {
         // not cover provider origins. Apply only the generic viewport polyfill while a verified
         // OAuth flow is active (e.g. the Nous portal login root uses h-screen and would
         // otherwise collapse to a blank page).
-        if (activeMainFrameOAuthFlow != null && isHttpOrHttpsUrl(effectiveUrl)) {
+        if ((activeMainFrameOAuthFlow != null ||
+                proxyAuthNavigation.allows(viewModel.uiState.value.settings.serverUrl, effectiveUrl)) &&
+            isHttpOrHttpsUrl(effectiveUrl)
+        ) {
             view.evaluateJavascript(HermesWebUiScripts.viewportFixScript, null)
         }
     }
@@ -1999,6 +2070,7 @@ class MainActivity : ComponentActivity() {
         clearWebViewStateForServerSwitch()
 
         viewModel.switchServerProfile(profile.id)
+        if (!proxyAuthNavigation.isActive(profile.url)) proxyAuthNavigation.clear()
         urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
         val targetUrl = SelectedServerNavigation.switchTargetUrl(profile)
         installHermesWebUiDocumentStartFixes(webView, targetUrl)
@@ -2016,6 +2088,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun clearWebViewStateForServerSwitch() {
+        proxySignInDialog?.dismiss()
+        clearActiveMainFrameOAuth()
+        activeOAuthPopup?.let { destroyPopup(it) }
+        clearActiveOAuthPopup()
         oauthReturnNavigation.clear()
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
@@ -2286,7 +2362,11 @@ class MainActivity : ComponentActivity() {
      * is otherwise invisible without a URL bar.
      */
     private fun updateOAuthInFlowHost(url: String?) {
-        val host = if (activeMainFrameOAuthFlow != null && !url.isNullOrBlank() && !urlPolicy.isAllowed(url)) {
+        val proxyActive = proxyAuthNavigation.isPending(viewModel.uiState.value.settings.serverUrl)
+        val host = if (!url.isNullOrBlank() &&
+            ((activeMainFrameOAuthFlow != null && !urlPolicy.isAllowed(url)) ||
+                (proxyActive && !matchesConfiguredWebUiRoute(url)))
+        ) {
             UrlOrigins.hostFrom(url)
         } else {
             null

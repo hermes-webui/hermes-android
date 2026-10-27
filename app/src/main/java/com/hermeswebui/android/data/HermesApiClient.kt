@@ -1,6 +1,7 @@
 package com.hermeswebui.android.data
 
 import android.webkit.CookieManager
+import com.hermeswebui.android.core.security.ProxyAuthNavigation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -53,7 +54,8 @@ object HermesApiClient {
          * Surfaced on screen in troubleshooting flows and in debug builds so testers
          * can capture the full picture without needing a logcat.
          */
-        val diagnostics: String? = null
+        val diagnostics: String? = null,
+        val signInRedirectOrigin: String? = null
     )
 
     private val sseFeatureKeys = setOf(
@@ -158,9 +160,13 @@ object HermesApiClient {
             conn.connectTimeout = timeoutMs
             conn.readTimeout = timeoutMs
             conn.instanceFollowRedirects = false
+            conn.applySessionCookie(url.toString(), null)
             val code = conn.responseCode
+            val redirectOrigin = ProxyAuthNavigation.safeRedirectOrigin(
+                url.toString(), code, conn.getHeaderField("Location")
+            )
             conn.disconnect()
-            code in 200..299 || code == 401 || code == 403
+            code in 200..299 || code == 401 || code == 403 || redirectOrigin != null
         } catch (_: Exception) {
             false
         }
@@ -178,6 +184,7 @@ object HermesApiClient {
             conn.readTimeout = TIMEOUT_MS
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "application/json")
+            conn.applySessionCookie(url.toString(), null)
 
             val code = conn.responseCode
             val contentType = conn.contentType
@@ -207,7 +214,8 @@ object HermesApiClient {
             val interpreted = interpretServerStatusResponse(
                 httpStatus = code,
                 contentType = contentType,
-                rawBody = body
+                rawBody = body,
+                signInRedirectOrigin = ProxyAuthNavigation.safeRedirectOrigin(probedUrl, code, locationHeader)
             )
             interpreted.copy(
                 diagnostics = buildDiagnostics(
@@ -315,8 +323,13 @@ object HermesApiClient {
             appendLine("HTTP: $httpStatus")
             if (!contentType.isNullOrBlank()) appendLine("Content-Type: $contentType")
             if (!serverHeader.isNullOrBlank()) appendLine("Server: $serverHeader")
-            if (!locationHeader.isNullOrBlank()) appendLine("Location: $locationHeader")
-            if (snippet.isNotBlank()) appendLine("Body[0..500]: $snippet")
+            if (httpStatus in 300..399) {
+                val origin = ProxyAuthNavigation.safeRedirectOrigin(probedUrl, httpStatus, locationHeader)
+                appendLine("Redirect origin: ${origin ?: "missing or unsafe"}")
+            } else {
+                if (!locationHeader.isNullOrBlank()) appendLine("Location: $locationHeader")
+                if (snippet.isNotBlank()) appendLine("Body[0..500]: $snippet")
+            }
             if (!extra.isNullOrBlank()) appendLine(extra)
         }.trim()
     }
@@ -330,6 +343,7 @@ object HermesApiClient {
             conn.readTimeout = TIMEOUT_MS
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+            conn.applySessionCookie(rootUrl.toString(), null)
 
             val code = conn.responseCode
             val contentType = conn.contentType
@@ -352,14 +366,16 @@ object HermesApiClient {
     internal fun interpretServerStatusResponse(
         httpStatus: Int,
         contentType: String?,
-        rawBody: String
+        rawBody: String,
+        signInRedirectOrigin: String? = null
     ): ServerReadinessResult {
         if (httpStatus !in 200..299) {
             return when (httpStatus) {
-                301, 302, 307, 308 -> ServerReadinessResult(
+                301, 302, 303, 307, 308 -> ServerReadinessResult(
                     isReady = false,
-                    message = "This URL redirected instead of returning Hermes status directly. Use the final Hermes WebUI URL instead.",
-                    status = ServerReadinessStatus.REDIRECTED
+                    message = "This server redirected the status check. Sign in before Android can verify Hermes.",
+                    status = ServerReadinessStatus.REDIRECTED,
+                    signInRedirectOrigin = signInRedirectOrigin
                 )
                 503 -> ServerReadinessResult(
                     isReady = false,

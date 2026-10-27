@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.webkit.CookieManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -224,7 +225,10 @@ class HermesWebViewDownloadListenerTest {
         val file = File(URI(requireNotNull(download.localUri)))
         assertThat(file.name).isEqualTo(filename)
         assertThat(file.parentFile?.canonicalPath).isEqualTo(expectedDownloadDir().canonicalPath)
-        assertThat(file.readBytes()).isEqualTo(payload)
+        val downloadedBytes = ParcelFileDescriptor.AutoCloseInputStream(
+            manager.openDownloadedFile(download.id)
+        ).use { it.readBytes() }
+        assertThat(downloadedBytes).isEqualTo(payload)
         assertThat(requestHeaders.single()["cookie"]).contains("issue118_fixture=authenticated")
         assertThat(requestHeaders.single()["user-agent"]).isEqualTo("Hermes-Issue118-Fixture")
     }

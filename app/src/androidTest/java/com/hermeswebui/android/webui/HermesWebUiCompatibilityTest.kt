@@ -2,16 +2,19 @@ package com.hermeswebui.android.webui
 
 import android.annotation.SuppressLint
 import android.os.SystemClock
-import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import com.hermeswebui.android.core.security.UrlPolicy
@@ -31,7 +34,7 @@ class HermesWebUiCompatibilityTest {
     }
 
     @get:Rule
-    val composeTestRule = createComposeRule()
+    val composeTestRule = createAndroidComposeRule<ComponentActivity>()
 
     private lateinit var webView: WebView
 
@@ -138,6 +141,29 @@ class HermesWebUiCompatibilityTest {
             .isEqualTo("\"width=device-width,initial-scale=1\"")
         assertThat(evaluateBoolean("window.location.origin === 'https://oauth.provider.test'"))
             .isTrue()
+    }
+
+    @Test
+    fun textInput_usesAndroidEditorWithoutWindowFocus() {
+        loadFixture("""<input id="folderName">""")
+        try {
+            composeTestRule.runOnIdle {
+                composeTestRule.activity.window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+            }
+            composeTestRule.waitUntil(timeoutMillis = JAVASCRIPT_TIMEOUT_SECONDS * 1_000) {
+                var unfocused = false
+                composeTestRule.runOnIdle { unfocused = !webView.hasWindowFocus() }
+                unfocused
+            }
+            evaluate("folderName.focus()")
+            assertThat(awaitBoolean("document.activeElement === folderName", expected = true)).isTrue()
+            typeTextInWebView("hi")
+            assertThat(awaitBoolean("folderName.value === 'hi'", expected = true)).isTrue()
+        } finally {
+            composeTestRule.runOnIdle {
+                composeTestRule.activity.window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+            }
+        }
     }
 
     @Test
@@ -510,7 +536,6 @@ class HermesWebUiCompatibilityTest {
                 view.settings.javaScriptEnabled = true
                 view.isFocusable = true
                 view.isFocusableInTouchMode = true
-                view.requestFocus()
                 view.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         loaded.countDown()
@@ -526,6 +551,7 @@ class HermesWebUiCompatibilityTest {
             }
         }
         assertThat(loaded.await(WEBVIEW_LOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue()
+        composeTestRule.runOnIdle { webView.requestFocus() }
     }
 
     private fun evaluate(script: String): String {
@@ -576,29 +602,37 @@ class HermesWebUiCompatibilityTest {
     }
 
     private fun pressTabInWebView() {
-      pressKeysInWebView(KeyEvent.KEYCODE_TAB)
+        pressKeysInWebView(KeyEvent.KEYCODE_TAB)
     }
 
     private fun pressKeysInWebView(vararg keyCodes: Int) {
         composeTestRule.runOnIdle {
-        keyCodes.forEach { keyCode ->
-          webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
-          webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+            keyCodes.forEach { keyCode ->
+                webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+                webView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+            }
         }
-      }
     }
 
     private fun typeTextInWebView(text: String) {
-      val events = checkNotNull(
-        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
-      )
-      composeTestRule.runOnIdle {
-        events.forEach(webView::dispatchKeyEvent)
+        var connection: InputConnection? = null
+        composeTestRule.waitUntil(timeoutMillis = JAVASCRIPT_TIMEOUT_SECONDS * 1_000) {
+            composeTestRule.runOnIdle {
+                if (webView.onCheckIsTextEditor()) {
+                    connection = webView.onCreateInputConnection(EditorInfo())
+                }
+            }
+            connection != null
+        }
+        // Exercise WebView's Android IME path, not whichever window owns injected keys.
+        composeTestRule.runOnIdle {
+            assertThat(checkNotNull(connection).commitText(text, 1)).isTrue()
         }
     }
 
     private fun awaitBoolean(script: String, expected: Boolean): Boolean {
-        repeat(20) {
+        val deadline = SystemClock.uptimeMillis() + 5_000
+        while (SystemClock.uptimeMillis() < deadline) {
             if (evaluateBoolean(script) == expected) return true
             Thread.sleep(25)
         }

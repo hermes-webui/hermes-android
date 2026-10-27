@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-10-25
+> Last updated: 2026-10-26
 
 ---
 
@@ -129,6 +129,11 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| REL-034 | 2026-10-26 | Release preparation | Prepared v1.1.6 (version code 10106) for proxy sign-in redirects and shared Downloads support. Publication to GitHub and Play production is pending the approved orchestrator run. |
+| TEST-006 | 2026-10-26 | Files / CI | Shared-Downloads regression tests read completed bytes through DownloadManager's descriptor API rather than a raw filesystem stream, preserving filename, public destination, authentication, and byte assertions under Android scoped storage. Resolves the API 35/36 `EACCES` failures in runs 40423409388 and 40426721188 without weakening the suite or adding storage permissions. |
+| TEST-007 | 2026-10-26 | Authentication / CI | Proxy consent tests inspect the app's actual dialog windows instead of depending on the active accessibility window on headless API 36. They still exercise native consent and the real MainActivity/WebView flow; activity teardown now cancels validation and dismisses retained consent dialogs. |
+| TEST-008 | 2026-10-26 | WebView / CI | Compatibility fixtures request native focus after page load without making DOM tests depend on window focus. Text assertions use WebView's Android IME input connection rather than global key injection; a regression deliberately removes window focus and still verifies real editor input. Proxy tests await the actual login DOM and cover delayed form creation. Both readiness defects reproduced RED before correction and GREEN afterward on headless AOSP API 35; Clarify, editability, consent, cookie, and return-route assertions remain intact. |
+| BUG-053 | 2026-10-26 | Authentication / WebView | Implemented Issue #132's reverse-proxy authentication redirect handling: unverified reachable status, explicit origin consent, five-minute exact-origin main-frame navigation, cookie-backed preflights, and no login/interstitial startup persistence. API 36 loopback tests cover the Android flow; review/CI and the reporter's live Authelia acceptance remain pending. |
 | REL-033 | 2026-10-25 | Release preparation | Prepared Android and README metadata for v1.1.5 (version code 10105), including Issue #127's Android user-installed CA trust support. GitHub APK and Play production publication are pending the approved orchestration run. |
 | BUG-052 | 2026-10-25 | Security / WebView | Fixed Issue #127 by configuring Android WebView to trust both system and user-installed CAs within Hermes-Android, while retaining standard certificate-chain and hostname validation. This is app-wide rather than per-server-profile trust; no certificate-error bypass was added. |
 | REL-032 | 2026-10-11 | Release preparation | Prepared Android and README metadata for v1.1.4 (version code 10104), including PR #120's trusted voice playback and selected-server navigation fixes. GitHub and Play production publication are pending the approved orchestration run. |

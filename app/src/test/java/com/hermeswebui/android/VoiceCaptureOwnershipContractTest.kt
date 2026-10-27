@@ -87,7 +87,8 @@ class VoiceCaptureOwnershipContractTest {
         val activity = kotlinSources.entries.single { it.key.endsWith("MainActivity.kt") }.value
         val navigation = activity.substringAfter("override fun shouldOverrideUrlLoading(")
             .substringBefore("override fun onPageStarted(")
-        assertThat(navigation).contains("val handled = handleMainWebViewNavigation(target)")
+        assertThat(navigation).contains("val handled = if (request.isForMainFrame && proxyAuthNavigation.allows(serverUrl, target))")
+        assertThat(navigation).contains("handleMainWebViewNavigation(target)")
         assertThat(navigation).contains("if (!handled && request.isForMainFrame)")
         assertThat(navigation).contains("restrictMediaPlaybackBeforeNavigation(target)")
         assertThat(activity).contains("HermesMediaPlaybackPolicy.beforeAllowedMainFrameNavigation(webView, target, currentWebTrustPolicy())")

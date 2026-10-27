@@ -126,6 +126,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Microphone compatibility handling so trusted Hermes pages can use Android-supported capture paths
 - Spoken replies can play without a fresh tap on the trusted WebUI route. Android denies new microphone requests while not resumed and dispatches a proposed `hermes-app-foreground` host signal; current WebUI does not consume it. Stopping existing capture/playback and requiring explicit re-arm depend on WebUI support (tracked in [#120](https://github.com/hermes-webui/hermes-android/pull/120)).
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
+- Reverse-proxy sign-in redirects (such as Authelia) can continue in-app after you confirm the server and login origins; `/api/status` does not need to be exposed outside proxy authentication
 
 ### Real Android integration
 
@@ -147,6 +148,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Non-web schemes are blocked
 - HTTPS in the app uses Android's system and user-installed CA stores; normal certificate-chain and hostname checks remain enabled. User-installed CAs apply app-wide, not just to one server profile.
 - Notification routing, microphone access, and callback handling stay scoped to trusted Hermes origins
+- Proxy sign-in approval lasts five minutes and permits only the server and confirmed login origins. It does not grant the login site Hermes notification, microphone, or download privileges; unrelated redirect destinations remain external.
 - Local settings are encrypted with Android Keystore-backed storage
 - Optional VPN/Tailscale startup guard for Tailscale-addressed Hermes servers (`*.ts.net`, Tailscale CGNAT/ULA ranges)
 - Optional VPN launch-app picker with search plus a Tailscale default package fallback before Android VPN settings when the VPN/Tailscale guard blocks a server load; Hermes first asks Tailscale to connect while keeping Hermes on screen, keeps an every-second `/api/status` probe alive, automatically reloads once VPN and server are ready, and only opens Tailscale if auto-connect has not established a tunnel within ten seconds

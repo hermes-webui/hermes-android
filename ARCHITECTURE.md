@@ -106,6 +106,31 @@ not dropped.
 21. `hermes://session/{id}` deep links are handled in `MainActivity.onNewIntent`, navigating the WebView to `{serverUrl}/session/{id}` — the Hermes WebUI session route (built by `DeepLinkRoutes.sessionUrl`).
 22. An "Application Settings" entry point is injected into the Hermes WebUI sidebar immediately after the WebUI Settings item via a document-start WebView shim, with Help used only as a fallback anchor if Settings cannot be found. This shim clones the target menu item structure, strips routing attributes, injects a custom phone-outline SVG icon, and binds the click handler to the `hermes://app/settings` deep link, which triggers `MainViewModel.openSettings()` to display the native full-page settings screen overlay (`SettingsScreen`). Android exports the same `hermes://app/settings` deep link as a recovery route so native settings can be opened from ADB or an external link if WebUI is stuck on a bad route.
 
+## Reverse-proxy authentication
+
+`HermesApiClient` does not follow native preflight redirects. A 301, 302, 303,
+307, or 308 with a valid HTTP(S) `Location` reports `REDIRECTED`, not ready:
+the server is reachable but its Hermes identity is unverified. Missing or
+unsafe destinations, userinfo, and HTTPS-to-HTTP downgrades do not qualify.
+Startup, save, add/edit, and profile-switch validation offer explicit consent
+showing only the server and login origins before continuing to the configured
+server URL. Readiness and reachability probes reuse cookies for their exact
+request URL without forwarding them to a redirect destination. Redirect
+diagnostics omit response bodies and token-bearing Location paths/queries.
+
+`ProxyAuthNavigation` grants main-frame navigation to only those two exact
+origins for a fixed five-minute monotonic window. It does not extend the host
+allowlist, notification bridge, download policy, or microphone permission
+trust. Login pages receive only the viewport compatibility repair and show the
+existing in-flow host indicator. Main-frame redirects from a configured
+WebUI page can request fresh consent when an established proxy session expires;
+ordinary external links and subframes cannot create this permission.
+Configured-origin interstitials remain in the main WebView, bypassing dashboard
+handoff, until a finished configured WebUI page has explicit Hermes markers.
+Provider/interstitial URLs are not persisted during this pending return, even
+after navigation permission expires. Existing validated OAuth/OIDC handling
+remains separate; arbitrary additional proxy-login origins are not authorized.
+
 ## Build and release flow
 
 - Local signed release builds load upload-key credentials from an untracked repo-root `keystore.properties` file.

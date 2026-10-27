@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-10-25
+> Last updated: 2026-10-26
 
 ---
 
@@ -129,6 +129,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-053 | 2026-10-26 | Authentication / WebView | Implemented Issue #132's reverse-proxy authentication redirect handling: unverified reachable status, explicit origin consent, five-minute exact-origin main-frame navigation, cookie-backed preflights, and no login/interstitial startup persistence. API 36 loopback tests cover the Android flow; review/CI and the reporter's live Authelia acceptance remain pending. |
 | REL-033 | 2026-10-25 | Release preparation | Prepared Android and README metadata for v1.1.5 (version code 10105), including Issue #127's Android user-installed CA trust support. GitHub APK and Play production publication are pending the approved orchestration run. |
 | BUG-052 | 2026-10-25 | Security / WebView | Fixed Issue #127 by configuring Android WebView to trust both system and user-installed CAs within Hermes-Android, while retaining standard certificate-chain and hostname validation. This is app-wide rather than per-server-profile trust; no certificate-error bypass was added. |
 | REL-032 | 2026-10-11 | Release preparation | Prepared Android and README metadata for v1.1.4 (version code 10104), including PR #120's trusted voice playback and selected-server navigation fixes. GitHub and Play production publication are pending the approved orchestration run. |

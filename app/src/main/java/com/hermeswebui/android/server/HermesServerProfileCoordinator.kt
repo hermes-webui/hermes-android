@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.widget.Toast
 import com.hermeswebui.android.R
+import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
@@ -30,7 +31,8 @@ class HermesServerProfileCoordinator(
     private val serverUrlValidator: ServerUrlValidator,
     private val onOpenInExternalBrowser: (String) -> Unit,
     private val onPerformServerProfileSwitch: (ServerProfile) -> Unit,
-    private val onRefreshConfiguredHermes: (String) -> Unit
+    private val onRefreshConfiguredHermes: (String) -> Unit,
+    private val onApproveProxySignIn: (String, String) -> Unit
 ) {
     private var serverValidationJob: Job? = null
 
@@ -204,6 +206,12 @@ class HermesServerProfileCoordinator(
         )
         serverValidationJob = activityScope.launch {
             val result = HermesApiClient.checkServerReadiness(newProfile.url)
+            if (result.signInRedirectOrigin != null) {
+                showProxySignInConfirmation(newProfile.url, result.signInRedirectOrigin) {
+                    performServerProfileSwitch(newProfile)
+                }
+                return@launch
+            }
             val reachable = result.isReady || HermesApiClient.isServerReachable(newProfile.url)
             DiagnosticsLogger.record(
                 context,
@@ -411,6 +419,31 @@ class HermesServerProfileCoordinator(
         onPerformServerProfileSwitch(profile)
     }
 
+    private fun showProxySignInConfirmation(serverUrl: String, loginOrigin: String, onContinue: () -> Unit) {
+        val validationJob = serverValidationJob
+        viewModel.setServerValidationState(
+            isChecking = false,
+            message = "Sign in to verify this server.",
+            isError = false
+        )
+        AlertDialog.Builder(context)
+            .setTitle("Continue to server sign-in?")
+            .setMessage(
+                "${UrlOrigins.pageOrigin(serverUrl)} redirected its status check to $loginOrigin.\n\n" +
+                    "Hermes has not been verified yet. Continue only if this is your server's sign-in service. " +
+                    "Access lasts five minutes and is limited to these two origins."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue") { _, _ ->
+                if (serverValidationJob === validationJob) {
+                    onApproveProxySignIn(serverUrl, loginOrigin)
+                    viewModel.clearServerValidationState()
+                    onContinue()
+                }
+            }
+            .show()
+    }
+
     private fun validateServerBeforePersist(
         serverUrl: String,
         openSettingsOnFailure: Boolean = false,
@@ -441,6 +474,10 @@ class HermesServerProfileCoordinator(
                 )
             )
 
+            if (result.signInRedirectOrigin != null) {
+                showProxySignInConfirmation(serverUrl, result.signInRedirectOrigin, onSuccess)
+                return@launch
+            }
             val authRequiredButReachable = !result.isReady &&
                 result.status == HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED &&
                 HermesApiClient.isServerReachable(serverUrl)

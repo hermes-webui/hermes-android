@@ -2,7 +2,6 @@ package com.hermeswebui.android.webui
 
 import android.annotation.SuppressLint
 import android.os.SystemClock
-import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.webkit.WebView
@@ -12,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import com.hermeswebui.android.core.security.UrlPolicy
@@ -510,7 +510,6 @@ class HermesWebUiCompatibilityTest {
                 view.settings.javaScriptEnabled = true
                 view.isFocusable = true
                 view.isFocusableInTouchMode = true
-                view.requestFocus()
                 view.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         loaded.countDown()
@@ -526,6 +525,16 @@ class HermesWebUiCompatibilityTest {
             }
         }
         assertThat(loaded.await(WEBVIEW_LOAD_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue()
+        composeTestRule.waitUntil(timeoutMillis = JAVASCRIPT_TIMEOUT_SECONDS * 1_000) {
+            var ready = false
+            composeTestRule.runOnIdle {
+                if (webView.hasWindowFocus()) {
+                    webView.requestFocus()
+                    ready = webView.hasFocus()
+                }
+            }
+            ready
+        }
     }
 
     private fun evaluate(script: String): String {
@@ -589,16 +598,22 @@ class HermesWebUiCompatibilityTest {
     }
 
     private fun typeTextInWebView(text: String) {
-      val events = checkNotNull(
-        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
-      )
-      composeTestRule.runOnIdle {
-        events.forEach(webView::dispatchKeyEvent)
+        composeTestRule.waitUntil(timeoutMillis = JAVASCRIPT_TIMEOUT_SECONDS * 1_000) {
+            var ready = false
+            composeTestRule.runOnIdle {
+                ready = webView.hasWindowFocus() && webView.hasFocus()
+            }
+            ready
         }
+        assertThat(awaitBoolean("document.hasFocus()", expected = true)).isTrue()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.sendStringSync(text)
+        instrumentation.waitForIdleSync()
     }
 
     private fun awaitBoolean(script: String, expected: Boolean): Boolean {
-        repeat(20) {
+        val deadline = SystemClock.uptimeMillis() + 5_000
+        while (SystemClock.uptimeMillis() < deadline) {
             if (evaluateBoolean(script) == expected) return true
             Thread.sleep(25)
         }

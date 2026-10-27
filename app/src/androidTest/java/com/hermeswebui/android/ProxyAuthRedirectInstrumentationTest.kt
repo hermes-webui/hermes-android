@@ -4,7 +4,10 @@ import android.content.Context
 import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
-import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inspector.WindowInspector
+import android.widget.Button
+import android.widget.TextView
+import androidx.test.filters.SdkSuppress
 import android.webkit.CookieManager
 import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
@@ -29,6 +32,7 @@ import org.junit.runner.RunWith
 
 /** Real HTTP, setup coordinator, consent UI and main WebView; no upstream Authelia is implied. */
 @RunWith(AndroidJUnit4::class)
+@SdkSuppress(minSdkVersion = 29)
 class ProxyAuthRedirectInstrumentationTest {
     @get:Rule
     val notifications: GrantPermissionRule = GrantPermissionRule.grant("android.permission.POST_NOTIFICATIONS")
@@ -144,22 +148,36 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     private fun awaitText(text: String) {
-        eventually(text) {
-            val nodes = instrumentation.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(text)
-            !nodes.isNullOrEmpty()
+        eventually({ "$text\n${DiagnosticsLogger.recentText(context).takeLast(3_000)}" }) {
+            var found = false
+            instrumentation.runOnMainSync {
+                found = WindowInspector.getGlobalWindowViews().any { root ->
+                    descendants(root).filterIsInstance<TextView>().any { it.text.contains(text) && it.isShown }
+                }
+            }
+            found
         }
     }
 
     private fun clickDialogButton(text: String) {
-        var button: AccessibilityNodeInfo? = null
+        var clicked = false
         eventually("Native $text button") {
-            button = instrumentation.uiAutomation.rootInActiveWindow
-                ?.findAccessibilityNodeInfosByText(text)
-                ?.firstOrNull { it.text?.toString().equals(text, ignoreCase = true) && it.isClickable }
-            button != null
+            instrumentation.runOnMainSync {
+                val button = WindowInspector.getGlobalWindowViews().asSequence()
+                    .flatMap { descendants(it) }.filterIsInstance<Button>()
+                    .firstOrNull { it.text.toString().equals(text, true) && it.isShown && it.isEnabled }
+                if (button != null) clicked = button.performClick()
+            }
+            clicked
         }
-        check(requireNotNull(button).performAction(AccessibilityNodeInfo.ACTION_CLICK))
         instrumentation.waitForIdleSync()
+    }
+
+    private fun descendants(view: View): Sequence<View> = sequence {
+        yield(view)
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
+        }
     }
 
     private fun awaitWebView(scenario: ActivityScenario<MainActivity>, predicate: (WebView) -> Boolean) {

@@ -35,6 +35,13 @@ class HermesServerProfileCoordinator(
     private val onApproveProxySignIn: (String, String) -> Unit
 ) {
     private var serverValidationJob: Job? = null
+    private var proxySignInDialog: AlertDialog? = null
+
+    fun dispose() {
+        serverValidationJob?.cancel()
+        proxySignInDialog?.dismiss()
+        proxySignInDialog = null
+    }
 
     fun preflightConfiguredStartupServer(
         serverUrl: String,
@@ -421,12 +428,13 @@ class HermesServerProfileCoordinator(
 
     private fun showProxySignInConfirmation(serverUrl: String, loginOrigin: String, onContinue: () -> Unit) {
         val validationJob = serverValidationJob
+        proxySignInDialog?.dismiss()
         viewModel.setServerValidationState(
             isChecking = false,
             message = "Sign in to verify this server.",
             isError = false
         )
-        AlertDialog.Builder(context)
+        proxySignInDialog = AlertDialog.Builder(context)
             .setTitle("Continue to server sign-in?")
             .setMessage(
                 "${UrlOrigins.pageOrigin(serverUrl)} redirected its status check to $loginOrigin.\n\n" +

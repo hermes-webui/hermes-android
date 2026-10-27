@@ -509,6 +509,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::serverProfileCoordinator.isInitialized) serverProfileCoordinator.dispose()
         proxySignInDialog?.dismiss()
         proxyAuthNavigation.clear()
         stopVpnReconnectWaitLoop()

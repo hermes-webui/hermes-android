@@ -113,7 +113,8 @@ not dropped.
 same-origin destination (for example `/login`) reports `AUTH_REQUIRED`: the
 server is reachable and ordinary sign-in happens on the already-trusted origin,
 so no proxy consent is requested. A same-host HTTP-to-HTTPS upgrade reports
-`REDIRECTED` with a suggested HTTPS server URL; add/edit offers **Use HTTPS**,
+`REDIRECTED` with a suggested HTTPS server URL; Settings save and profile
+add/edit offer **Use HTTPS**,
 which re-validates that URL before saving. Only a cross-origin destination
 reports `REDIRECTED` with a sign-in origin: the server is reachable but its
 Hermes identity is unverified. Missing or

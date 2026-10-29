@@ -1959,7 +1959,9 @@ class MainActivity : ComponentActivity() {
         }
         serverProfileCoordinator.validateServerForPersistence(
             serverUrl = serverUrl,
-            onFailure = { result -> showServerValidationRecoveryDialog(serverUrl, result, "Save server") { persist() } }
+            onFailure = { result ->
+                showServerValidationRecoveryDialog(serverUrl, result, "Save server", onUseHttpsUrl = ::saveSettings) { persist() }
+            }
         ) { persist() }
     }
 
@@ -2016,6 +2018,7 @@ class MainActivity : ComponentActivity() {
         url: String,
         result: HermesApiClient.ServerReadinessResult,
         positiveLabel: String,
+        onUseHttpsUrl: ((String) -> Unit)? = null,
         onProceedAnyway: () -> Unit
     ) {
         val body = buildString {
@@ -2034,10 +2037,21 @@ class MainActivity : ComponentActivity() {
                 "status" to result.status.name
             )
         )
-        AlertDialog.Builder(this)
+        val httpsUrl = result.httpsUpgradeUrl?.takeIf { onUseHttpsUrl != null }
+        val builder = AlertDialog.Builder(this)
             .setTitle("Server check failed")
             .setMessage(body)
-            .setNeutralButton("Open in browser") { _, _ ->
+        if (httpsUrl != null) {
+            builder.setNeutralButton("Use HTTPS") { _, _ ->
+                DiagnosticsLogger.record(
+                    this,
+                    "server_validation_use_https",
+                    mapOf("origin" to DiagnosticsLogger.originOnly(httpsUrl))
+                )
+                onUseHttpsUrl?.invoke(httpsUrl)
+            }
+        } else {
+            builder.setNeutralButton("Open in browser") { _, _ ->
                 DiagnosticsLogger.record(
                     this,
                     "server_validation_open_browser",
@@ -2048,6 +2062,8 @@ class MainActivity : ComponentActivity() {
                 )
                 openInExternalBrowser(url)
             }
+        }
+        builder
             .setNegativeButton("Cancel", null)
             .setPositiveButton(positiveLabel) { _, _ ->
                 DiagnosticsLogger.record(

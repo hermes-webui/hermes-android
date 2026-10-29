@@ -44,6 +44,32 @@ class ProxyAuthNavigationTest {
     }
 
     @Test
+    fun `status redirects are classified by their origin relationship`() {
+        val classify = ProxyAuthNavigation.Companion::classifyRedirect
+        assertThat(classify("http://hermes.test/api/status", 301, "https://hermes.test/api/status"))
+            .isEqualTo(ProxyAuthNavigation.StatusRedirect.HttpsUpgrade("https://hermes.test"))
+        assertThat(classify("http://hermes.test:8443/api/status", 308, "https://hermes.test:8443/api/status"))
+            .isEqualTo(ProxyAuthNavigation.StatusRedirect.HttpsUpgrade("https://hermes.test:8443"))
+        for (location in listOf("/login?rd=secret", "$server/oauth2/sign_in", "https://HERMES.example.test:443/x")) {
+            assertThat(classify("$server/api/status", 302, location))
+                .isEqualTo(ProxyAuthNavigation.StatusRedirect.SameOrigin)
+        }
+        assertThat(classify("http://hermes.test:80/api/status", 302, "http://hermes.test/login"))
+            .isEqualTo(ProxyAuthNavigation.StatusRedirect.SameOrigin)
+        // A different port, a different host, or a non-standard port pair is not an upgrade.
+        for ((source, location) in listOf(
+            "http://hermes.test:8080" to "https://hermes.test:8443/",
+            "http://hermes.test" to "https://login.hermes.test/",
+            "https://hermes.test" to "https://hermes.test:8443/",
+            server to "$login/login"
+        )) {
+            assertThat(classify(source, 302, location)).isInstanceOf(ProxyAuthNavigation.StatusRedirect.CrossOrigin::class.java)
+        }
+        assertThat(classify(server, 302, "http://hermes.example.test/login")).isNull()
+        assertThat(classify(server, 200, "$login/login")).isNull()
+    }
+
+    @Test
     fun `approval grants only the two exact origins for a fixed time`() {
         assertThat(navigation.allows(server, login)).isFalse()
         navigation.begin(server, login)

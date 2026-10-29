@@ -44,8 +44,27 @@ class ProxyAuthNavigation(private val now: () -> Long = { android.os.SystemClock
         expiresAt = 0L
     }
 
+    /** How a safe status-check redirect relates to the server that issued it. */
+    sealed interface StatusRedirect {
+        /** Same origin (for example `/login`): ordinary sign-in on an already-trusted origin. */
+        data object SameOrigin : StatusRedirect
+        /** Same host moving from http to https: the configured URL itself is stale. */
+        data class HttpsUpgrade(val origin: String) : StatusRedirect
+        /** A different origin: the only case that may be a reverse-proxy sign-in service. */
+        data class CrossOrigin(val origin: String) : StatusRedirect
+    }
+
     companion object {
         const val TIMEOUT_MS = 5 * 60 * 1000L
+
+        fun classifyRedirect(sourceUrl: String, status: Int, location: String?): StatusRedirect? {
+            val origin = safeRedirectOrigin(sourceUrl, status, location) ?: return null
+            return when {
+                origin == UrlOrigins.pageOrigin(sourceUrl) -> StatusRedirect.SameOrigin
+                UrlOrigins.hasSameOrUpgradedWebOrigin(origin, sourceUrl) -> StatusRedirect.HttpsUpgrade(origin)
+                else -> StatusRedirect.CrossOrigin(origin)
+            }
+        }
 
         fun safeRedirectOrigin(sourceUrl: String, status: Int, location: String?): String? {
             if (status !in setOf(301, 302, 303, 307, 308) || location.isNullOrBlank()) return null

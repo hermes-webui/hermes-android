@@ -109,11 +109,18 @@ not dropped.
 ## Reverse-proxy authentication
 
 `HermesApiClient` does not follow native preflight redirects. A 301, 302, 303,
-307, or 308 with a valid HTTP(S) `Location` reports `REDIRECTED`, not ready:
-the server is reachable but its Hermes identity is unverified. Missing or
+307, or 308 with a valid HTTP(S) `Location` is classified by origin. A
+same-origin destination (for example `/login`) reports `AUTH_REQUIRED`: the
+server is reachable and ordinary sign-in happens on the already-trusted origin,
+so no proxy consent is requested. A same-host HTTP-to-HTTPS upgrade reports
+`REDIRECTED` with a suggested HTTPS server URL; Settings save and profile
+add/edit offer **Use HTTPS**,
+which re-validates that URL before saving. Only a cross-origin destination
+reports `REDIRECTED` with a sign-in origin: the server is reachable but its
+Hermes identity is unverified. Missing or
 unsafe destinations, userinfo, and HTTPS-to-HTTP downgrades do not qualify.
 Startup, save, add/edit, and profile-switch validation offer explicit consent
-showing only the server and login origins before continuing to the configured
+for cross-origin redirects only, showing only the server and login origins before continuing to the configured
 server URL. Readiness and reachability probes reuse cookies for their exact
 request URL without forwarding them to a redirect destination. Redirect
 diagnostics omit response bodies and token-bearing Location paths/queries.

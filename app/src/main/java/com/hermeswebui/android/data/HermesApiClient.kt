@@ -55,7 +55,10 @@ object HermesApiClient {
          * can capture the full picture without needing a logcat.
          */
         val diagnostics: String? = null,
-        val signInRedirectOrigin: String? = null
+        /** Set only for a cross-origin status redirect that may be a reverse-proxy sign-in. */
+        val signInRedirectOrigin: String? = null,
+        /** Set when the server upgrades this same host from http to https; suggests the URL to use. */
+        val httpsUpgradeUrl: String? = null
     )
 
     private val sseFeatureKeys = setOf(
@@ -215,7 +218,8 @@ object HermesApiClient {
                 httpStatus = code,
                 contentType = contentType,
                 rawBody = body,
-                signInRedirectOrigin = ProxyAuthNavigation.safeRedirectOrigin(probedUrl, code, locationHeader)
+                redirect = ProxyAuthNavigation.classifyRedirect(probedUrl, code, locationHeader),
+                baseUrl = baseUrl
             )
             interpreted.copy(
                 diagnostics = buildDiagnostics(
@@ -363,20 +367,48 @@ object HermesApiClient {
         }
     }
 
+    private fun interpretStatusRedirect(
+        redirect: ProxyAuthNavigation.StatusRedirect?,
+        baseUrl: String?
+    ): ServerReadinessResult = when (redirect) {
+        ProxyAuthNavigation.StatusRedirect.SameOrigin -> ServerReadinessResult(
+            isReady = false,
+            message = "Hermes requires sign-in before Android can verify /api/status. Open the server in the app or browser and sign in, then try again.",
+            status = ServerReadinessStatus.AUTH_REQUIRED
+        )
+        is ProxyAuthNavigation.StatusRedirect.HttpsUpgrade -> {
+            val path = baseUrl?.let { runCatching { URI(it.trim()).rawPath }.getOrNull() }.orEmpty()
+            val upgradeUrl = redirect.origin + path
+            ServerReadinessResult(
+                isReady = false,
+                message = "This server redirects to ${redirect.origin}. Use $upgradeUrl as the server URL instead.",
+                status = ServerReadinessStatus.REDIRECTED,
+                httpsUpgradeUrl = upgradeUrl
+            )
+        }
+        is ProxyAuthNavigation.StatusRedirect.CrossOrigin -> ServerReadinessResult(
+            isReady = false,
+            message = "This server redirected the status check. Sign in before Android can verify Hermes.",
+            status = ServerReadinessStatus.REDIRECTED,
+            signInRedirectOrigin = redirect.origin
+        )
+        null -> ServerReadinessResult(
+            isReady = false,
+            message = "This URL redirected instead of returning Hermes status directly. Use the final Hermes WebUI URL instead.",
+            status = ServerReadinessStatus.REDIRECTED
+        )
+    }
+
     internal fun interpretServerStatusResponse(
         httpStatus: Int,
         contentType: String?,
         rawBody: String,
-        signInRedirectOrigin: String? = null
+        redirect: ProxyAuthNavigation.StatusRedirect? = null,
+        baseUrl: String? = null
     ): ServerReadinessResult {
         if (httpStatus !in 200..299) {
             return when (httpStatus) {
-                301, 302, 303, 307, 308 -> ServerReadinessResult(
-                    isReady = false,
-                    message = "This server redirected the status check. Sign in before Android can verify Hermes.",
-                    status = ServerReadinessStatus.REDIRECTED,
-                    signInRedirectOrigin = signInRedirectOrigin
-                )
+                301, 302, 303, 307, 308 -> interpretStatusRedirect(redirect, baseUrl)
                 503 -> ServerReadinessResult(
                     isReady = false,
                     message = "Hermes responded, but it is not ready yet. Finish the server's initial setup and try again.",

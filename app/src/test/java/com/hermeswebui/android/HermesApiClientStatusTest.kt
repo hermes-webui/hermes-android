@@ -6,6 +6,54 @@ import java.net.ConnectException
 import org.junit.Test
 
 class HermesApiClientStatusTest {
+    private fun redirectResult(base: String, location: String) = HermesApiClient.interpretServerStatusResponse(
+        httpStatus = 301,
+        contentType = null,
+        rawBody = "",
+        redirect = com.hermeswebui.android.core.security.ProxyAuthNavigation.classifyRedirect(
+            base.trimEnd('/') + "/api/status", 301, location
+        ),
+        baseUrl = base
+    )
+
+    @Test
+    fun `same-host https upgrade fails with a suggested https url instead of sign-in consent`() {
+        val result = redirectResult("http://hermes.test/hermes", "https://hermes.test/api/status")
+
+        assertThat(result.isReady).isFalse()
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.REDIRECTED)
+        assertThat(result.signInRedirectOrigin).isNull()
+        assertThat(result.httpsUpgradeUrl).isEqualTo("https://hermes.test/hermes")
+        assertThat(result.message).contains("https://hermes.test/hermes")
+    }
+
+    @Test
+    fun `same-origin sign-in redirect is auth required without sign-in consent`() {
+        val result = redirectResult("https://hermes.test", "/oauth2/sign_in?rd=%2F")
+
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED)
+        assertThat(result.signInRedirectOrigin).isNull()
+        assertThat(result.httpsUpgradeUrl).isNull()
+    }
+
+    @Test
+    fun `only a cross-origin redirect requests proxy sign-in consent`() {
+        val result = redirectResult("https://hermes.test", "https://auth.example.test/login")
+
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.REDIRECTED)
+        assertThat(result.signInRedirectOrigin).isEqualTo("https://auth.example.test")
+        assertThat(result.httpsUpgradeUrl).isNull()
+    }
+
+    @Test
+    fun `unsafe redirect asks for the final Hermes url without consent`() {
+        val result = redirectResult("https://hermes.test", "http://hermes.test/api/status")
+
+        assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.REDIRECTED)
+        assertThat(result.signInRedirectOrigin).isNull()
+        assertThat(result.httpsUpgradeUrl).isNull()
+    }
+
     @Test
     fun `ready Hermes status payload is accepted`() {
         val result = HermesApiClient.interpretServerStatusResponse(

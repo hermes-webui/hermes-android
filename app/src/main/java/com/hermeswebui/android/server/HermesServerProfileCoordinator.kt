@@ -97,7 +97,12 @@ class HermesServerProfileCoordinator(
         validateServerBeforePersist(
             trimmedUrl,
             onFailure = { result ->
-                showServerValidationRecoveryDialog(trimmedUrl, result, "Add server") {
+                showServerValidationRecoveryDialog(
+                    trimmedUrl,
+                    result,
+                    "Add server",
+                    onUseHttpsUrl = { httpsUrl -> handleAddServerProfile(trimmedName, httpsUrl) }
+                ) {
                     val profile = viewModel.addServerProfile(
                         name = trimmedName.ifBlank { trimmedUrl },
                         url = trimmedUrl
@@ -150,7 +155,12 @@ class HermesServerProfileCoordinator(
         validateServerBeforePersist(
             trimmedUrl,
             onFailure = { result ->
-                showServerValidationRecoveryDialog(trimmedUrl, result, "Save changes") {
+                showServerValidationRecoveryDialog(
+                    trimmedUrl,
+                    result,
+                    "Save changes",
+                    onUseHttpsUrl = { httpsUrl -> handleEditServerProfile(profileId, trimmedName, httpsUrl) }
+                ) {
                     updateProfileAndFollowCurrent(profileId, trimmedName, trimmedUrl)
                     Toast.makeText(context, "Profile updated (readiness check skipped)", Toast.LENGTH_LONG).show()
                 }
@@ -370,6 +380,7 @@ class HermesServerProfileCoordinator(
         url: String,
         result: HermesApiClient.ServerReadinessResult,
         positiveLabel: String,
+        onUseHttpsUrl: ((String) -> Unit)? = null,
         onProceedAnyway: () -> Unit
     ) {
         val body = buildString {
@@ -388,10 +399,22 @@ class HermesServerProfileCoordinator(
                 "status" to result.status.name
             )
         )
-        AlertDialog.Builder(context)
+        val httpsUpgradeUrl = result.httpsUpgradeUrl
+        val builder = AlertDialog.Builder(context)
             .setTitle("Server check failed")
             .setMessage(body)
-            .setNeutralButton("Open in browser") { _, _ ->
+        if (httpsUpgradeUrl != null && onUseHttpsUrl != null) {
+            // Re-runs the same add/edit validation with the upgraded URL before anything is saved.
+            builder.setNeutralButton("Use HTTPS") { _, _ ->
+                DiagnosticsLogger.record(
+                    context,
+                    "server_validation_use_https",
+                    mapOf("origin" to DiagnosticsLogger.originOnly(httpsUpgradeUrl))
+                )
+                onUseHttpsUrl(httpsUpgradeUrl)
+            }
+        } else {
+            builder.setNeutralButton("Open in browser") { _, _ ->
                 DiagnosticsLogger.record(
                     context,
                     "server_validation_open_browser",
@@ -402,6 +425,8 @@ class HermesServerProfileCoordinator(
                 )
                 onOpenInExternalBrowser(url)
             }
+        }
+        builder
             .setNegativeButton("Cancel", null)
             .setPositiveButton(positiveLabel) { _, _ ->
                 DiagnosticsLogger.record(

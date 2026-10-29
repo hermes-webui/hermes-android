@@ -104,6 +104,22 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
+    fun sameOriginAndHttpsUpgradeRedirectsNeverRequestProxyConsent() = runBlocking {
+        ProxyServer(locationOverride = "/oauth2/sign_in?rd=%2F").use { server ->
+            val result = HermesApiClient.checkServerReadiness(server.baseUrl)
+            assertThat(result.signInRedirectOrigin).isNull()
+            assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.AUTH_REQUIRED)
+            assertThat(HermesApiClient.isServerReachable(server.baseUrl)).isTrue()
+        }
+        ProxyServer(redirectCode = 301, locationOverride = "https://127.0.0.1:{port}/api/status").use { server ->
+            val result = HermesApiClient.checkServerReadiness(server.baseUrl)
+            assertThat(result.signInRedirectOrigin).isNull()
+            assertThat(result.status).isEqualTo(HermesApiClient.ServerReadinessStatus.REDIRECTED)
+            assertThat(result.message).contains("Use ${server.baseUrl.replace("http://", "https://")}")
+        }
+    }
+
+    @Test
     fun cancellingStartupConsentNeverLoadsLoginHost() {
         withConfiguredServer { server, _ ->
             ActivityScenario.launch(MainActivity::class.java).use {
@@ -363,7 +379,7 @@ class ProxyAuthRedirectInstrumentationTest {
                     val (status, extra, body) = when {
                         path == "/api/status" && authenticated -> Triple("200 OK", "", """{"version":"test","initialized":true}""")
                         path == "/api/status" || (path == "/" && !authenticated) ->
-                            Triple("$redirectCode Redirect", "Location: ${locationOverride ?: "$loginOrigin/login?rd=synthetic-secret"}\r\n", "")
+                            Triple("$redirectCode Redirect", "Location: ${(locationOverride ?: "$loginOrigin/login?rd=synthetic-secret").replace("{port}", socket.localPort.toString())}\r\n", "")
                         path == "/login" -> Triple("200 OK", "", """
                             <title>Proxy sign-in</title>
                             $FILE_INPUT

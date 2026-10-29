@@ -213,6 +213,43 @@ class ProxyAuthRedirectInstrumentationTest {
         instrumentation.waitForIdleSync()
     }
 
+    @Test
+    fun allowlistedHostOnAnotherPortCannotRequestConsentForTheServer() {
+        withConfiguredServer { server, _ ->
+            // Same host as the configured server, so the host-only allowlist admits it, but another port.
+            ProxyServer(locationOverride = "https://attacker.invalid/phish").use { redirector ->
+                redirector.rejectSession.set(true)
+                val externalized = CopyOnWriteArrayList<String>()
+                val monitor = object : Instrumentation.ActivityMonitor() {
+                    override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                        if (intent.action != Intent.ACTION_VIEW || intent.data?.host != "attacker.invalid") return null
+                        externalized.add(intent.dataString.orEmpty())
+                        return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+                    }
+                }
+                instrumentation.addMonitor(monitor)
+                try {
+                    ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                        awaitText("Continue to server sign-in?")
+                        clickDialogButton("Continue")
+                        awaitLoginForm(scenario, server)
+                        evaluateWebView(scenario, "document.getElementById('signin').click();")
+                        awaitWebView(scenario) { it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in" }
+                        evaluateWebView(scenario, "location.href = ${JSONObject.quote("${redirector.baseUrl}/api/status")};")
+                        eventually({
+                            "Unrelated redirect externalized; consent shown=${isTextShown("redirected to https://attacker.invalid")}"
+                        }) { externalized.isNotEmpty() }
+                        instrumentation.waitForIdleSync()
+                        assertThat(isTextShown("Continue to server sign-in?")).isFalse()
+                        assertThat(redirector.requests.any { it.path == "/api/status" }).isTrue()
+                    }
+                } finally {
+                    instrumentation.removeMonitor(monitor)
+                }
+            }
+        }
+    }
+
     private fun withConfiguredServer(block: (ProxyServer, SettingsRepository) -> Unit) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
         val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
@@ -251,15 +288,17 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     private fun awaitText(text: String) {
-        eventually({ "$text\n${DiagnosticsLogger.recentText(context).takeLast(3_000)}" }) {
-            var found = false
-            instrumentation.runOnMainSync {
-                found = WindowInspector.getGlobalWindowViews().any { root ->
-                    descendants(root).filterIsInstance<TextView>().any { it.text.contains(text) && it.isShown }
-                }
+        eventually({ "$text\n${DiagnosticsLogger.recentText(context).takeLast(3_000)}" }) { isTextShown(text) }
+    }
+
+    private fun isTextShown(text: String): Boolean {
+        var found = false
+        instrumentation.runOnMainSync {
+            found = WindowInspector.getGlobalWindowViews().any { root ->
+                descendants(root).filterIsInstance<TextView>().any { it.text.contains(text) && it.isShown }
             }
-            found
         }
+        return found
     }
 
     private fun clickDialogButton(text: String) {

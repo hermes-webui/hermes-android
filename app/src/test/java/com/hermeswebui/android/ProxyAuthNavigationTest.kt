@@ -23,6 +23,24 @@ class ProxyAuthNavigationTest {
     }
 
     @Test
+    fun `main-frame redirect consent requires the redirecting hop to be the exact server origin`() {
+        val consent = ProxyAuthNavigation.Companion::mainFrameRedirectConsentOrigin
+        assertThat(consent(server, "$server/session/abc", "$login/login?rd=x")).isEqualTo(login)
+        assertThat(consent("$server/hermes", "https://HERMES.example.test:443/api/x", "$login/")).isEqualTo(login)
+        // Allowlisted by host only, but not the configured origin: these hops cannot speak for the server.
+        for (hop in listOf(
+            "https://hermes.example.test:8443/r",
+            "http://hermes.example.test/r",
+            "https://cdn.hermes.example.test/r",
+            "about:blank",
+            null
+        )) {
+            assertThat(consent(server, hop, "https://attacker.example/")).isNull()
+        }
+        assertThat(consent(server, "$server/r", "http://attacker.example/")).isNull()
+    }
+
+    @Test
     fun `unsafe missing and non redirect destinations cannot become login origins`() {
         for (location in listOf(null, "", "http://login.example.test", "javascript:alert(1)",
             "intent://login", "https://user:password@login.example.test", "https://login.example.test:99999",

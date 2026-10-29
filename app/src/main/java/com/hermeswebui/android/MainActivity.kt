@@ -227,6 +227,9 @@ class MainActivity : ComponentActivity() {
     private var activeOAuthFlow: OAuthPopupFlow? = null
     private var activeMainFrameOAuthFlow: OAuthPopupFlow? = null
     private val proxyAuthNavigation = ProxyAuthNavigation()
+    // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
+    // configured server when this hop is exactly that origin (Issue #134).
+    private var lastMainFrameHopUrl: String? = null
     private var proxySignInDialog: android.app.AlertDialog? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
@@ -454,7 +457,7 @@ class MainActivity : ComponentActivity() {
         if (appUpdateCoordinator.handleIntent(intent)) {
             return
         }
-        if (notificationPresenter.handleIntent(intent, webView::loadUrl)) {
+        if (notificationPresenter.handleIntent(intent, ::loadInMainWebView)) {
             return
         }
         if (!handleDeepLink(intent)) {
@@ -591,7 +594,7 @@ class MainActivity : ComponentActivity() {
                 }
                 webView.canGoBack() -> {
                     backPressExitStage = 0
-                    webView.goBack()
+                    goBackInMainWebView()
                 }
                 else -> {
                     val currentTime = System.currentTimeMillis()
@@ -663,7 +666,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenExternal = onOpenExternal,
                             onOpenSettings = { viewModel.openSettings() },
-                            onBack = if (webView.canGoBack()) {{ webView.goBack() }} else null
+                            onBack = if (webView.canGoBack()) {{ goBackInMainWebView() }} else null
                         )
                         SnackbarHost(hostState = snackbarHostState)
 
@@ -920,7 +923,7 @@ class MainActivity : ComponentActivity() {
                         request.isRedirect &&
                         matchesConfiguredWebUiRoute(view?.url)
                     ) {
-                        val origin = ProxyAuthNavigation.safeRedirectOrigin(serverUrl, 302, target)
+                        val origin = ProxyAuthNavigation.mainFrameRedirectConsentOrigin(serverUrl, lastMainFrameHopUrl, target)
                         if (origin != null) {
                             confirmProxySignInRedirect(serverUrl, origin, target)
                             return true
@@ -932,6 +935,7 @@ class MainActivity : ComponentActivity() {
                         handleMainWebViewNavigation(target)
                     }
                     if (!handled && request.isForMainFrame) {
+                        lastMainFrameHopUrl = target
                         restrictMediaPlaybackBeforeNavigation(target)
                     }
                     return handled
@@ -1164,7 +1168,7 @@ class MainActivity : ComponentActivity() {
             // Move popup OAuth flows to the main frame so they are visible and interactive.
             rememberActiveMainFrameOAuth(flow)
             restrictMediaPlaybackBeforeNavigation(target)
-            webView.loadUrl(target)
+            loadInMainWebView(target)
             destroyPopup(popup)
             return true
         }
@@ -1194,7 +1198,7 @@ class MainActivity : ComponentActivity() {
             // Move popup OAuth flows to the main frame so they are visible and interactive.
             rememberActiveMainFrameOAuth(startedFlow)
             restrictMediaPlaybackBeforeNavigation(url)
-            webView.loadUrl(url)
+            loadInMainWebView(url)
             destroyPopup(popup)
             return
         }
@@ -1267,6 +1271,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleMainWebViewPageStarted(url: String?) {
+        if (!url.isNullOrBlank()) lastMainFrameHopUrl = url
         if (!url.isNullOrBlank()) {
             val activeTopLevelFlow = activeMainFrameOAuthFlow
             if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
@@ -1311,7 +1316,7 @@ class MainActivity : ComponentActivity() {
                 if (stillConfigured) {
                     proxyAuthNavigation.begin(serverUrl, origin)
                     restrictMediaPlaybackBeforeNavigation(target)
-                    webView.loadUrl(target)
+                    loadInMainWebView(target)
                 } else {
                     Toast.makeText(this, "Server changed. Please retry sign-in.", Toast.LENGTH_LONG).show()
                 }
@@ -1901,6 +1906,18 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun loadInMainWebView(url: String) {
+        lastMainFrameHopUrl = url
+        webView.loadUrl(url)
+    }
+
+    private fun goBackInMainWebView() {
+        // History navigation skips shouldOverrideUrlLoading, so record the entry being restored.
+        val history = webView.copyBackForwardList()
+        lastMainFrameHopUrl = history.getItemAtIndex(history.currentIndex - 1)?.url
+        webView.goBack()
+    }
+
     private fun handleNewWindowUrl(url: String) {
         if (matchesConfiguredDashboardRoute(url)) {
             openDashboardInCustomTab(url)
@@ -1909,7 +1926,7 @@ class MainActivity : ComponentActivity() {
         when (urlPolicy.navigationDecision(url)) {
             NavigationDecision.ALLOW_IN_WEBVIEW -> {
                 restrictMediaPlaybackBeforeNavigation(url)
-                webView.loadUrl(url)
+                loadInMainWebView(url)
             }
             NavigationDecision.OPEN_IN_EXTERNAL_BROWSER -> openInExternalBrowser(url)
             NavigationDecision.BLOCK -> Unit
@@ -1919,7 +1936,7 @@ class MainActivity : ComponentActivity() {
     private fun loadOAuthCallbackInMainWebView(flow: OAuthPopupFlow, url: String) {
         oauthReturnNavigation.begin(flow)
         restrictMediaPlaybackBeforeNavigation(url)
-        webView.loadUrl(url)
+        loadInMainWebView(url)
     }
 
     private fun parseTrustedOAuthStart(url: String): OAuthPopupFlow? {
@@ -2115,7 +2132,7 @@ class MainActivity : ComponentActivity() {
         CookieManager.getInstance().flush()
         WebStorage.getInstance().deleteAllData()
         webView.stopLoading()
-        webView.loadUrl("about:blank")
+        loadInMainWebView("about:blank")
         webView.clearHistory()
         webView.clearCache(true)
         webView.clearFormData()
@@ -2214,7 +2231,7 @@ class MainActivity : ComponentActivity() {
             pendingVpnGuardUrl = null
             stopVpnReconnectWaitLoop()
             restrictMediaPlaybackBeforeNavigation(url)
-            webView.loadUrl(url)
+            loadInMainWebView(url)
             return
         }
 

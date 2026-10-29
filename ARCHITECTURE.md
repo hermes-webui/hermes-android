@@ -130,7 +130,14 @@ origins for a fixed five-minute monotonic window. It does not extend the host
 allowlist, notification bridge, download policy, or microphone permission
 trust. Login pages receive only the viewport compatibility repair and show the
 existing in-flow host indicator. They never receive staged share-sheet files. Main-frame redirects from a configured
-WebUI page can request fresh consent when an established proxy session expires;
+WebUI page can request fresh consent when an established proxy session expires,
+but only when the hop that issued the redirect is exactly the configured server
+origin (scheme, host and port). `MainActivity` records that hop from its own
+main-frame loads, allowed main-frame navigations, committed page starts, and
+back navigation; other ports, subdomains, and the dashboard host are admitted by
+the host-only allowlist but cannot speak for the server, so their redirects are
+externalized instead. Form POSTs are not visible to `shouldOverrideUrlLoading`,
+so a POST to another allowlisted port is attributed to the last recorded hop;
 ordinary external links and subframes cannot create this permission.
 Configured-origin interstitials remain in the main WebView, bypassing dashboard
 handoff, until a finished configured WebUI page has explicit Hermes markers.

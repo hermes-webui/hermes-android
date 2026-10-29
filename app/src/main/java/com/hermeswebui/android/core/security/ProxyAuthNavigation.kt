@@ -66,6 +66,18 @@ class ProxyAuthNavigation(private val now: () -> Long = { android.os.SystemClock
             }
         }
 
+        /**
+         * Login origin a main-frame redirect may request consent for. The hop that issued the
+         * redirect must be exactly the configured server origin (scheme, host and port); the
+         * host-only allowlist must not let another port, subdomain, or the dashboard speak for it.
+         */
+        fun mainFrameRedirectConsentOrigin(serverUrl: String, redirectingHopUrl: String?, target: String): String? {
+            val hop = redirectingHopUrl ?: return null
+            val serverOrigin = UrlOrigins.pageOrigin(serverUrl) ?: return null
+            if (UrlOrigins.pageOrigin(hop) != serverOrigin) return null
+            return safeRedirectOrigin(hop, 302, target)
+        }
+
         fun safeRedirectOrigin(sourceUrl: String, status: Int, location: String?): String? {
             if (status !in setOf(301, 302, 303, 307, 308) || location.isNullOrBlank()) return null
             if (UrlOrigins.pageOrigin(sourceUrl) == null) return null

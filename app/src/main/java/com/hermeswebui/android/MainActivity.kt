@@ -249,7 +249,7 @@ class MainActivity : ComponentActivity() {
         filePathCallback?.onReceiveValue(uris.takeIf { it.isNotEmpty() }?.toTypedArray())
         filePathCallback = null
         pendingCameraCaptureUri = null
-        viewModel.dismissShareBanner()
+        if (!viewModel.hasStagedSharedFiles) viewModel.dismissShareBanner()
     }
 
     private val cameraCaptureLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -257,7 +257,7 @@ class MainActivity : ComponentActivity() {
         filePathCallback?.onReceiveValue(resultUri?.let { arrayOf(it) })
         filePathCallback = null
         pendingCameraCaptureUri = null
-        viewModel.dismissShareBanner()
+        if (!viewModel.hasStagedSharedFiles) viewModel.dismissShareBanner()
     }
 
     private val audioPermissionLauncher: ActivityResultLauncher<String> =
@@ -883,7 +883,9 @@ class MainActivity : ComponentActivity() {
                     fileChooserParams: FileChooserParams?
                 ): Boolean {
                     if (filePathCallback == null) return false
-                    val staged = viewModel.consumeSharedFileUris().map(Uri::parse)
+                    // FileChooserParams carries no requester origin, so this is a top-level gate.
+                    val requesterIsTrustedWebUi = matchesConfiguredWebUiRoute(webView?.url)
+                    val staged = viewModel.consumeSharedFileUris(requesterIsTrustedWebUi).map(Uri::parse)
                     if (staged.isNotEmpty()) {
                         filePathCallback.onReceiveValue(staged.toTypedArray())
                         viewModel.dismissShareBanner()

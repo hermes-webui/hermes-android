@@ -7,6 +7,7 @@ import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.data.SettingsStore
 import com.hermeswebui.android.data.SharePayload
+import com.hermeswebui.android.domain.SharedFileHandoff
 import com.hermeswebui.android.update.AppUpdateCheckResult
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -288,11 +289,12 @@ class MainViewModel(
     }
 
     private var sharedText: String? = null
-    private var sharedFileUris: List<String> = emptyList()
+    private val sharedFiles = SharedFileHandoff()
 
     fun consumeSharePayload(payload: SharePayload) {
         sharedText = payload.sharedText?.takeIf { it.isNotBlank() }
-        sharedFileUris = payload.fileUris.map { it.toString() }
+        sharedFiles.stage(payload.fileUris.map { it.toString() })
+        val sharedFileUris = payload.fileUris
         val banner = when {
             sharedText != null && sharedFileUris.isNotEmpty() -> "Shared text copied to clipboard, plus ${sharedFileUris.size} file(s) ready"
             sharedText != null -> "Shared text copied to clipboard"
@@ -302,11 +304,11 @@ class MainViewModel(
         _uiState.update { it.copy(pendingShareBanner = banner) }
     }
 
-    fun consumeSharedFileUris(): List<String> {
-        val staged = sharedFileUris
-        sharedFileUris = emptyList()
-        return staged
-    }
+    /** Returns staged share files only for the configured WebUI; other pages leave them staged. */
+    fun consumeSharedFileUris(requesterIsTrustedWebUi: Boolean): List<String> =
+        sharedFiles.takeFor(requesterIsTrustedWebUi)
+
+    val hasStagedSharedFiles: Boolean get() = sharedFiles.hasStagedFiles
 
      fun dismissShareBanner() {
          _uiState.update { it.copy(pendingShareBanner = null) }

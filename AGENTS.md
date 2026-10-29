@@ -25,6 +25,7 @@ Useful entry points:
 - `data/SettingsRepository.kt` - encrypted settings persistence; implements `SettingsStore` interface. Uses a versioned `runMigration()` pattern (`KEY_LAST_MIGRATION_VERSION`): when adding new data schema changes, increment `currentMigrationVersion` and add a corresponding migration block. Non-interface methods (`hasRequestedNotificationPermission`, `markNotificationPermissionRequested`, `getLastLoadedUrl`) are called directly by `MainActivity`.
 - `domain/ServerUrlValidator.kt` - server URL validation rules
 - `domain/ShareIntentParser.kt` - Android share-sheet parsing
+- `domain/SharedFileHandoff.kt` - staged share-sheet files; `onShowFileChooser` auto-delivers them only when the main WebView's top-level URL is the configured WebUI route. Other pages (proxy sign-in, OAuth providers) get the normal picker and must not consume or receive the staged files (Issue #136); never equate navigation consent with attachment trust
 - `ui/MainViewModel.kt` - app state orchestration (paired with `ui/MainViewModelFactory.kt`)
 - `ui/web/WebShell.kt` - Compose WebView host and refresh/error UX
 - `ui/settings/SettingsScreen.kt` + `ui/settings/SettingsSections.kt` - native settings surface and task-based section components (opened via `hermes://app/settings` and the injected WebUI sidebar entry)

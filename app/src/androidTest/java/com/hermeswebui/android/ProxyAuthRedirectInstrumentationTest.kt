@@ -1,12 +1,17 @@
 package com.hermeswebui.android
 
+import android.app.Activity
+import android.app.Instrumentation
 import android.content.Context
+import android.content.Intent
 import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.widget.Button
 import android.widget.TextView
+import androidx.core.content.FileProvider
 import androidx.test.filters.SdkSuppress
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -108,6 +113,88 @@ class ProxyAuthRedirectInstrumentationTest {
                 assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
             }
         }
+    }
+
+    @Test
+    fun stagedShareFilesReachOnlyTheConfiguredWebUiFileChooser() {
+        val shared = java.io.File(context.cacheDir, "upload-captures/issue136-share.txt").apply {
+            parentFile?.mkdirs()
+            writeText("synthetic shared file")
+        }
+        val sharedUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shared)
+        val pickerLaunches = java.util.concurrent.atomic.AtomicInteger()
+        val picker = object : Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                if (intent.action != Intent.ACTION_OPEN_DOCUMENT) return null
+                pickerLaunches.incrementAndGet()
+                return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+            }
+        }
+        instrumentation.addMonitor(picker)
+        try {
+            withConfiguredServer { server, _ ->
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitText("Continue to server sign-in?")
+                    clickDialogButton("Continue")
+                    awaitLoginForm(scenario, server)
+                    var launchIntent: Intent? = null
+                    scenario.onActivity { launchIntent = it.intent }
+                    context.startActivity(
+                        Intent(Intent.ACTION_SEND).setClass(context, MainActivity::class.java)
+                            .setType("text/plain")
+                            .putExtra(Intent.EXTRA_STREAM, sharedUri)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    )
+                    eventually("Share intent delivered to the running activity") {
+                        var delivered = false
+                        scenario.onActivity { delivered = it.intent?.action == Intent.ACTION_SEND }
+                        delivered
+                    }
+                    // ActivityScenario tracks its activity by launch intent; onNewIntent replaced it.
+                    scenario.onActivity { it.intent = launchIntent }
+
+                    tapWebViewCenter(scenario)
+                    eventually({
+                        "Sign-in page file chooser falls back to the system picker; page state " +
+                            evaluateWebView(scenario, "JSON.stringify({clicks: window.pickerClicks || 0, url: location.href})")
+                    }) {
+                        pickerLaunches.get() == 1
+                    }
+                    SystemClock.sleep(500)
+                    assertThat(evaluateWebView(scenario, "String(window.pickedCount || 0)")).isEqualTo("\"0\"")
+
+                    evaluateWebView(scenario, "document.getElementById('signin').click();")
+                    awaitWebView(scenario) { it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in" }
+                    eventually("Hermes file input ready") {
+                        evaluateWebView(scenario, "document.getElementById('picker') !== null") == "true"
+                    }
+                    tapWebViewCenter(scenario)
+                    eventually("Configured Hermes WebUI receives the staged share file") {
+                        evaluateWebView(scenario, "String(window.pickedCount || 0)") == "\"1\""
+                    }
+                    assertThat(pickerLaunches.get()).isEqualTo(1)
+                }
+            }
+        } finally {
+            instrumentation.removeMonitor(picker)
+            shared.delete()
+        }
+    }
+
+    private fun tapWebViewCenter(scenario: ActivityScenario<MainActivity>) {
+        scenario.onActivity { activity ->
+            val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+            val x = webView.width / 2f
+            val y = webView.height / 2f
+            val downTime = SystemClock.uptimeMillis()
+            listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { action ->
+                val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0)
+                event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                webView.dispatchTouchEvent(event)
+                event.recycle()
+            }
+        }
+        instrumentation.waitForIdleSync()
     }
 
     private fun withConfiguredServer(block: (ProxyServer, SettingsRepository) -> Unit) {
@@ -279,6 +366,7 @@ class ProxyAuthRedirectInstrumentationTest {
                             Triple("$redirectCode Redirect", "Location: ${locationOverride ?: "$loginOrigin/login?rd=synthetic-secret"}\r\n", "")
                         path == "/login" -> Triple("200 OK", "", """
                             <title>Proxy sign-in</title>
+                            $FILE_INPUT
                             <script>
                               setTimeout(function() {
                                 var button = document.createElement('button');
@@ -299,6 +387,7 @@ class ProxyAuthRedirectInstrumentationTest {
                         """.trimIndent())
                         path == "/session/issue132" && authenticated -> Triple("200 OK", "", """
                             <title>Hermes signed in</title><div class="layout"><main class="main">Authenticated</main></div>
+                            $FILE_INPUT
                         """.trimIndent())
                         else -> Triple("404 Not Found", "", "")
                     }
@@ -319,6 +408,11 @@ class ProxyAuthRedirectInstrumentationTest {
             socket.close()
             worker.join(6_000)
             check(!worker.isAlive)
+        }
+
+        private companion object {
+            // Full-viewport so a real centre tap provides the user activation file choosers need.
+            const val FILE_INPUT = """<input type="file" id="picker" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;opacity:0.01;z-index:10" onclick="window.pickerClicks=(window.pickerClicks||0)+1" onchange="window.pickedCount=this.files.length">"""
         }
     }
 }

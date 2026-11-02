@@ -1,0 +1,18 @@
+Hermes WebUI for Android brings your self-hosted Hermes WebUI workspace to Android without turning it into a second product. Hermes WebUI stays the real application; this app adds the Android capabilities that matter on a phone or tablet.
+
+<b>Features</b>
+<ul>
+<li>Hardened WebView that only loads the Hermes servers you configure</li>
+<li>Multiple server profiles with quick switching</li>
+<li>Share text, links, and files from other apps into Hermes</li>
+<li>Uploads, downloads, and voice input</li>
+<li>Native notifications for Hermes activity and approvals</li>
+<li>Encrypted local settings and client-certificate (PKCS#12) support</li>
+<li>Sign-in through OAuth/OIDC and reverse-proxy login pages</li>
+</ul>
+
+<b>Requirements</b>
+This app requires a running Hermes WebUI server (https://github.com/nesquena/hermes-webui). On first launch, enter the URL of your server.
+
+<b>Privacy</b>
+The app talks only to the Hermes servers you configure. This F-Droid build contains no Google libraries, analytics, or tracking, and it installs side by side with the Google Play and GitHub builds.

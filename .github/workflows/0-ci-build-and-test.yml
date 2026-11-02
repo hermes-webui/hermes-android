@@ -292,6 +292,12 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: ./gradlew --no-daemon assembleDebug
 
+      # F-Droid builds `assembleRelease` from each release tag without signing keys.
+      # Prove that exact unsigned build works and that only the Play build links Play Core.
+      - name: Verify F-Droid release build and Play-free dependencies
+        if: needs.changes.outputs.docs_only != 'true'
+        run: ./gradlew --no-daemon verifyFossDependencies compilePlayKotlin assembleRelease
+
       - name: Upload debug APK
         if: ${{ success() && needs.changes.outputs.docs_only != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

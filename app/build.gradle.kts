@@ -1,4 +1,7 @@
 import com.android.build.api.dsl.ApplicationExtension
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedComponentResult
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
@@ -122,8 +125,12 @@ extensions.configure<ApplicationExtension>("android") {
     }
 
     buildTypes {
+        // F-Droid builds `assembleRelease` from source and signs it with its own key, so
+        // `release` is the FOSS store build: no Google Play libraries (see `src/foss`) and
+        // no in-app updater because F-Droid delivers updates itself.
         release {
-            buildConfigField("String", "UPDATE_CHANNEL", "\"play\"")
+            applicationIdSuffix = ".fdroid"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"none\"")
             buildConfigField("String", "GITHUB_RELEASES_API_URL", "\"\"")
             buildConfigField("String", "GITHUB_RELEASES_PAGE_URL", "\"\"")
             isMinifyEnabled = true
@@ -138,6 +145,12 @@ extensions.configure<ApplicationExtension>("android") {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("play") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = null
+            buildConfigField("String", "UPDATE_CHANNEL", "\"play\"")
         }
         create("github") {
             initWith(getByName("release"))
@@ -164,6 +177,19 @@ extensions.configure<ApplicationExtension>("android") {
         }
     }
 
+    sourceSets {
+        // Every build type except `play` gets the Play-free update client.
+        listOf("release", "github", "debug").forEach { buildType ->
+            getByName(buildType).kotlin.directories.add("src/foss/java")
+        }
+    }
+
+    // F-Droid asks for no dependency-metadata block in APKs; Play still receives it in the AAB.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -182,11 +208,45 @@ extensions.configure<ApplicationExtension>("android") {
 }
 
 tasks.matching {
-    it.name == "assembleRelease" ||
-        it.name == "assembleGithub" ||
-        it.name == "bundleRelease"
+    it.name == "assemblePlay" ||
+        it.name == "bundlePlay" ||
+        it.name == "assembleGithub"
 }.configureEach {
     dependsOn(verifyReleaseSigning)
+}
+
+// Proprietary dependency groups that must never reach the F-Droid (`release`) or GitHub APKs.
+val nonFreeDependencyGroups = listOf("com.google.android.play", "com.google.android.gms", "com.google.firebase")
+val fossRuntimeClasspaths = listOf("releaseRuntimeClasspath", "githubRuntimeClasspath")
+
+tasks.register("verifyFossDependencies") {
+    group = "verification"
+    description = "Fails if the F-Droid or GitHub builds resolve Google Play, GMS, or Firebase libraries."
+    val resolvedRoots = fossRuntimeClasspaths.map { name ->
+        name to configurations.named(name).flatMap { it.incoming.resolutionResult.rootComponent }
+    }
+    val blockedGroups = nonFreeDependencyGroups
+
+    doLast {
+        val violations = resolvedRoots.flatMap { (classpath, root) ->
+            val seen = mutableSetOf<ResolvedComponentResult>()
+            val pending = ArrayDeque(listOf(root.get()))
+            while (pending.isNotEmpty()) {
+                val component = pending.removeFirst()
+                if (!seen.add(component)) continue
+                component.dependencies
+                    .filterIsInstance<ResolvedDependencyResult>()
+                    .forEach { pending.add(it.selected) }
+            }
+            seen.mapNotNull { it.id as? ModuleComponentIdentifier }
+                .filter { id -> blockedGroups.any { id.group == it || id.group.startsWith("$it.") } }
+                .map { "$classpath: ${it.displayName}" }
+        }
+        check(violations.isEmpty()) {
+            "Proprietary dependencies found in FOSS builds:\n" + violations.joinToString("\n")
+        }
+        logger.lifecycle("FOSS builds are free of ${blockedGroups.joinToString()}: ${fossRuntimeClasspaths.joinToString()}")
+    }
 }
 
 kotlin {
@@ -210,8 +270,8 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.security.crypto)
-    implementation(libs.play.app.update)
-    implementation(libs.play.app.update.ktx)
+    "playImplementation"(libs.play.app.update)
+    "playImplementation"(libs.play.app.update.ktx)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

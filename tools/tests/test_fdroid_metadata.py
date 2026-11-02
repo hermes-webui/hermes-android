@@ -24,10 +24,13 @@ SCANNED_CONFIGURATION_RE = re.compile(
 
 
 def recipe_field(name: str) -> str:
-    match = re.search(rf"^{name}:\s*(.+)$", RECIPE.read_text(encoding="utf-8"), re.MULTILINE)
+    # `fdroid rewritemeta` folds long plain scalars onto indented continuation lines.
+    match = re.search(
+        rf"^{name}:\s*(.+(?:\n[ \t]+\S.*)*)$", RECIPE.read_text(encoding="utf-8"), re.MULTILINE
+    )
     if match is None:
         raise AssertionError(f"F-Droid recipe is missing {name}")
-    return match.group(1).strip().strip("'")
+    return " ".join(part.strip() for part in match.group(1).splitlines()).strip("'")
 
 
 class FDroidRecipeTests(unittest.TestCase):

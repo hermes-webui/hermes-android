@@ -91,7 +91,11 @@ target unless the build artifacts are missing or expired.
    `fdroid/com.hermeswebui.android.fdroid.yml` into it as
    `metadata/com.hermeswebui.android.fdroid.yml`. The first supported release
    is `v1.1.8`: `versionName` / `CurrentVersion` are `1.1.8`,
-   `versionCode` / `CurrentVersionCode` are `10108`, and `commit` is `v1.1.8`.
+   `versionCode` / `CurrentVersionCode` are `10108`, and `commit` is the full
+   hash the `v1.1.8` tag points to (`git rev-parse 'v1.1.8^{commit}'`,
+   `8db4221fcc0ed5ad812c565a68a34449b6edaf1b`). fdroiddata requires a full
+   hash, not a tag or branch name. Title the merge request
+   `New app: Hermes WebUI` and fill in the repository's default template.
    Submit only this metadata file, not the APK or the Android source tree.
 5. Validate with F-Droid's tooling in the fdroiddata checkout:
 

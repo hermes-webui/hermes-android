@@ -14,7 +14,7 @@ Repo: https://github.com/hermes-webui/hermes-android.git
 Builds:
   - versionName: 1.1.8
     versionCode: 10108
-    commit: v1.1.8
+    commit: 8db4221fcc0ed5ad812c565a68a34449b6edaf1b
     subdir: app
     gradle:
       - yes

@@ -83,17 +83,63 @@ target unless the build artifacts are missing or expired.
 
 1. Release a version that contains the Play-free `release` build (Issue #141).
    Earlier tags still contain Google Play Core and fail F-Droid's scanner.
-2. Copy `fdroid/com.hermeswebui.android.fdroid.yml` into a fork of
-   [fdroiddata](https://gitlab.com/fdroid/fdroiddata) as
-   `metadata/com.hermeswebui.android.fdroid.yml`. Set the `Builds` entry,
-   `CurrentVersion`, and `CurrentVersionCode` to that first release, then open a
-   merge request. F-Droid review can take several weeks.
-3. After the merge, F-Droid tracks new `v<version>` tags automatically
+2. Sign in to GitLab and complete the privacy checks below before publishing.
+3. Use **Fork** on [fdroiddata](https://gitlab.com/fdroid/fdroiddata), not
+   **New project**. Wait for the import to finish and verify that the fork
+   points back to `fdroid/fdroiddata`.
+4. Create a submission branch from the fork's current default branch. Copy
+   `fdroid/com.hermeswebui.android.fdroid.yml` into it as
+   `metadata/com.hermeswebui.android.fdroid.yml`. The first supported release
+   is `v1.1.8`: `versionName` / `CurrentVersion` are `1.1.8`,
+   `versionCode` / `CurrentVersionCode` are `10108`, and `commit` is `v1.1.8`.
+   Submit only this metadata file, not the APK or the Android source tree.
+5. Validate with F-Droid's tooling in the fdroiddata checkout:
+
+   ```text
+   fdroid lint com.hermeswebui.android.fdroid
+   fdroid checkupdates com.hermeswebui.android.fdroid
+   ```
+
+   Read the actual results, not only the exit code. Confirm that tag checking
+   finds the expected version/code. Local checks do not prove that F-Droid's
+   build servers support the required SDK and Gradle versions.
+6. Review the commit's author and committer, push the submission branch, and
+   open a merge request targeting `fdroid/fdroiddata`'s default branch. Link
+   the source release and Android PR #142, describe the Play-free `release`
+   build, and report which checks were actually run. Read back the published
+   commit identity and merge request. Respond to pipeline and maintainer
+   feedback; F-Droid review can take several weeks.
+7. After the merge, F-Droid tracks new `v<version>` tags automatically
    (`AutoUpdateMode: Version`, `UpdateCheckMode: Tags`).
+   Publication still depends on successful F-Droid builds and indexing; do
+   not promise a fixed turnaround. Keep Android issue #141 open until the
+   listing is live, and link the submission merge request there.
 
 Keep the recipe, `fastlane/metadata/android/`, the README `Version code` line,
 and `val appVersionName` in `app/build.gradle.kts` aligned;
 `tools/tests/test_fdroid_metadata.py` checks them.
+
+### Public identity and privacy checks
+
+- In GitLab's **Edit profile**, use a public handle as the display name, keep
+  the public email empty, and select GitLab's private commit email. Do not
+  change the account's login email or publish it.
+- For a local fdroiddata checkout, set `git config --local user.name` to the
+  public handle and `git config --local user.email` to the exact private
+  commit email shown by GitLab. Do not rely on global Git configuration.
+  Browser/API-created commits can use GitLab profile defaults instead.
+- Before pushing, inspect `git show --no-patch --format=fuller HEAD` and the
+  staged diff. Both author and committer must use the intended public
+  identity. Check commit trailers, MR text, metadata, and attachments too.
+- Preserve existing upstream contributors' attribution. These checks cover
+  new contributions; do not rewrite upstream history to remove names.
+- Never include personal names, personal email addresses, local machine
+  paths, credentials, or device authorization codes in submission content.
+  Authenticate with `glab auth login --hostname gitlab.com --device` if using
+  the CLI; keep credentials in the OS keyring, not in Git remotes or files.
+- After publication, verify the live profile and commit metadata. A local
+  Git setting alone does not prove that a hosted commit is pseudonymous.
+  Stop before publishing if identity cannot be verified.
 
 ## Device Acceptance: GitHub APK (Phone + Tablet)
 

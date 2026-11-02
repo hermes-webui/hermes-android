@@ -316,6 +316,15 @@ git config user.email
 git status --short --branch
 ```
 
+For F-Droid submissions, follow the one-time setup and public-identity checks
+in `RELEASE.md`. Use a public handle and the hosting provider's private/noreply
+email for new commits, including both author and committer. Verify GitLab's
+display name and commit-email defaults before browser/API-created commits;
+local Git identity does not control those defaults. Keep personal names,
+personal emails, machine paths, credentials, and authorization codes out of
+new public content. Preserve upstream attribution and do not rewrite history.
+If the hosted identity cannot be verified, stop before publishing.
+
 Keep unrelated local changes out of commits. If a file is already modified and
 is not part of the current task, leave it unstaged and call it out in the final
 summary.

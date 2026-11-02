@@ -40,6 +40,11 @@ That workflow:
 5. Uploads both files plus their release metadata as workflow artifacts.
 6. Publishes the GitHub APK and Play production AAB in the same orchestration run.
 
+F-Droid needs no step here. The orchestrator creates the `v<version>` tag, and
+F-Droid's update checker finds it, builds the `release` build type from source,
+signs it, and publishes it, typically within a few days. This starts only after
+the one-time fdroiddata submission below has been merged.
+
 The GitHub publish workflow attaches only the `-github.apk` to the GitHub
 Release and writes human-readable generated GitHub release notes grouped by
 `.github/release.yml`. Build diagnostics stay in the Actions job summary rather
@@ -73,6 +78,22 @@ manually with the same Play AAB artifact metadata.
 
 Do not rerun `1 - Orchestration Release` just to retry one failed publish
 target unless the build artifacts are missing or expired.
+
+## F-Droid (one-time setup)
+
+1. Release a version that contains the Play-free `release` build (Issue #141).
+   Earlier tags still contain Google Play Core and fail F-Droid's scanner.
+2. Copy `fdroid/com.hermeswebui.android.fdroid.yml` into a fork of
+   [fdroiddata](https://gitlab.com/fdroid/fdroiddata) as
+   `metadata/com.hermeswebui.android.fdroid.yml`. Set the `Builds` entry,
+   `CurrentVersion`, and `CurrentVersionCode` to that first release, then open a
+   merge request. F-Droid review can take several weeks.
+3. After the merge, F-Droid tracks new `v<version>` tags automatically
+   (`AutoUpdateMode: Version`, `UpdateCheckMode: Tags`).
+
+Keep the recipe, `fastlane/metadata/android/`, the README `Version code` line,
+and `val appVersionName` in `app/build.gradle.kts` aligned;
+`tools/tests/test_fdroid_metadata.py` checks them.
 
 ## Device Acceptance: GitHub APK (Phone + Tablet)
 

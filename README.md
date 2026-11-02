@@ -164,10 +164,18 @@ When Hermes-Android is doing its job well, the experience should be simple:
 
 ## Availability
 
-Hermes-Android currently publishes through two release channels:
+Hermes-Android currently publishes through two release channels, with a third
+pending:
 
-- Google Play production via the official `release` build
+- Google Play production via the `play` build
 - GitHub APK distribution via the side-by-side `github` build
+- F-Droid (pending inclusion, [#141](https://github.com/hermes-webui/hermes-android/issues/141)):
+  F-Droid builds the Play-free `release` build from source at each `v<version>`
+  tag and signs it with its own key. After inclusion, no extra release step is
+  needed.
+
+Only the Play build contains Google Play libraries (Play Core in-app updates).
+The GitHub and F-Droid builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 
@@ -175,7 +183,9 @@ Current checked-in release metadata:
 - Version code: `10107`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
+- F-Droid application ID: `com.hermeswebui.android.fdroid`
 - Compile SDK / target SDK: `37`
+- License: [MIT](LICENSE)
 
 If you want access to the Play release, install from Google Play or sideload the
 GitHub APK from the [Releases page](https://github.com/hermes-webui/hermes-android/releases).

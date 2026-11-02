@@ -11,8 +11,6 @@ import android.os.Environment
 import android.provider.Settings
 import android.webkit.URLUtil
 import android.widget.Toast
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.IntentSenderRequest
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -21,11 +19,6 @@ import com.hermeswebui.android.MainActivity
 import com.hermeswebui.android.R
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.ui.MainViewModel
-import com.google.android.play.core.appupdate.AppUpdateInfo
-import com.google.android.play.core.appupdate.AppUpdateManager
-import com.google.android.play.core.appupdate.AppUpdateOptions
-import com.google.android.play.core.install.model.AppUpdateType
-import com.google.android.play.core.install.model.UpdateAvailability
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -37,8 +30,7 @@ class HermesAppUpdateCoordinator(
     private val activityScope: CoroutineScope,
     private val settingsRepository: SettingsRepository,
     private val viewModel: MainViewModel,
-    private val appUpdateManager: AppUpdateManager,
-    private val playUpdateLauncher: ActivityResultLauncher<IntentSenderRequest>,
+    private val playUpdateClient: PlayUpdateClient,
     private val updateChannel: String,
     private val githubReleasesApiUrl: String,
     private val githubReleasesPageUrl: String,
@@ -171,11 +163,7 @@ class HermesAppUpdateCoordinator(
 
     fun resumePlayUpdateIfNeeded() {
         if (updateChannel != "play") return
-        appUpdateManager.appUpdateInfo.addOnSuccessListener { updateInfo ->
-            if (updateInfo.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
-                launchPlayUpdate(updateInfo)
-            }
-        }
+        playUpdateClient.resumeUpdateInProgress()
     }
 
     fun onDownloadComplete(downloadId: Long) {
@@ -313,26 +301,25 @@ class HermesAppUpdateCoordinator(
     }
 
     private fun checkPlayAppUpdate(force: Boolean) {
-        appUpdateManager.appUpdateInfo
-            .addOnSuccessListener { updateInfo ->
-                val isAvailable = updateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
-                val canUpdate = updateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
-                if (isAvailable && canUpdate) {
-                    val version = updateInfo.availableVersionCode().toString()
-                    viewModel.setPlayUpdateAvailable(version)
-                    maybeShowPlayUpdateNotification(version, force)
-                } else if (force) {
+        playUpdateClient.checkForUpdate(
+            onAvailable = { version ->
+                viewModel.setPlayUpdateAvailable(version)
+                maybeShowPlayUpdateNotification(version, force)
+            },
+            onUpToDate = {
+                if (force) {
                     viewModel.clearAvailableAppUpdate("You're on the latest Google Play build.")
                     Toast.makeText(context, "No Google Play update found", Toast.LENGTH_SHORT).show()
                 }
-            }
-            .addOnFailureListener { error ->
+            },
+            onError = { errorMessage ->
                 if (force) {
-                    val message = error.message ?: "Could not check Google Play for updates."
+                    val message = errorMessage ?: "Could not check Google Play for updates."
                     viewModel.setAppUpdateStatus(message)
                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
             }
+        )
     }
 
     private fun maybeShowGitHubAppUpdateNotification(
@@ -603,27 +590,13 @@ class HermesAppUpdateCoordinator(
     }
 
     fun startPlayUpdateFlow() {
-        appUpdateManager.appUpdateInfo
-            .addOnSuccessListener { updateInfo ->
-                if (
-                    updateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE &&
-                    updateInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)
-                ) {
-                    launchPlayUpdate(updateInfo)
-                } else {
-                    Toast.makeText(context, "No Google Play update is available right now", Toast.LENGTH_SHORT).show()
-                }
-            }
-            .addOnFailureListener {
+        playUpdateClient.startUpdate(
+            onUnavailable = {
+                Toast.makeText(context, "No Google Play update is available right now", Toast.LENGTH_SHORT).show()
+            },
+            onError = {
                 Toast.makeText(context, "Could not start Google Play update", Toast.LENGTH_LONG).show()
             }
-    }
-
-    private fun launchPlayUpdate(updateInfo: AppUpdateInfo) {
-        appUpdateManager.startUpdateFlowForResult(
-            updateInfo,
-            playUpdateLauncher,
-            AppUpdateOptions.newBuilder(AppUpdateType.IMMEDIATE).build()
         )
     }
 }

@@ -45,7 +45,7 @@ Useful entry points:
 - `webui/VoiceCaptureLifecycleGate.kt` - new-request WebView microphone gate and proposed `hermes-app-foreground` host signal; a pending trusted permission result can be granted while started before resume
 - `webui/HermesWebUiScripts.kt` - document-start WebUI compatibility shims (hybrid viewport polyfill with generic collapse detection, microphone fallback, Enter-key newline behavior, sidebar settings injector, notification bridge script payloads); keep these scoped to the configured Hermes WebUI origin
 - `update/HermesAppUpdateCoordinator.kt` - app-update checks, update notifications, Play update launch, and GitHub APK download intents
-- `update/GitHubReleaseUpdateChecker.kt` + `update/AppVersionComparator.kt` + `update/AppUpdateCheckResult.kt` - GitHub-channel update check (Play channel uses Play Core in `MainActivity`)
+- `update/GitHubReleaseUpdateChecker.kt` + `update/AppVersionComparator.kt` + `update/AppUpdateCheckResult.kt` - GitHub-channel update check (Play channel uses Play Core through `update/PlayUpdateClient.kt`, implemented in `app/src/play/java` with a no-op FOSS twin in `app/src/foss/java`)
 - `update/AppUpdateDownloadPolicy.kt` - strict GitHub APK download host allowlist used by update download intents (`github.com` and `*.githubusercontent.com` only)
 
 Known Android WebView compatibility behavior lives in `MainActivity.kt`:
@@ -66,7 +66,7 @@ Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 - The active server profile (shown as **Current** in Settings) is the single source of truth for which server the main WebView loads. `SettingsRepository` keeps `server_url` and the active profile id in step (editing the Current profile's URL, manual saves, and a cold-start repair of a diverged `server_url`), and `server/SelectedServerNavigation.kt` decides the switch, Current-row reconnect, and cold-start URLs so a stale page on another origin (including the same host on a different port) is never restored.
 - `hermes://app/settings` is exported as a native recovery deep link and opens `SettingsScreen` without relying on the current WebView route.
 - WebUI browser notifications are handled through `HermesNotificationBridgeCoordinator` + `HermesNotificationPresenter`, with `MainActivity.kt` wiring Android `POST_NOTIFICATIONS`, the native notification channel, the document-start `Notification`/`ServiceWorkerRegistration.showNotification` compatibility facade, and trusted notification tap routing. Keep the bridge scoped to the configured Hermes WebUI route, reject subframes/non-WebUI origins, and validate notification tap URLs through the host allowlist before loading.
-- Native app update alerts share the existing `Hermes updates` notification channel but are selected by build channel. Automatic checks should run each time the app opens (while automatic checks are enabled), and manual Settings checks still run immediately. Keep the shared settings/notification UX common, with `BuildConfig.UPDATE_CHANNEL = "play"` using Google Play Core in-app updates, `"github"` checking GitHub Releases plus the `*-github.apk` asset for direct downloads and release-note excerpts, and `"none"` avoiding production update prompts in debug builds.
+- Native app update alerts share the existing `Hermes updates` notification channel but are selected by build channel. Automatic checks should run each time the app opens (while automatic checks are enabled), and manual Settings checks still run immediately. Keep the shared settings/notification UX common, with `BuildConfig.UPDATE_CHANNEL = "play"` using Google Play Core in-app updates, `"github"` checking GitHub Releases plus the `*-github.apk` asset for direct downloads and release-note excerpts, and `"none"` avoiding production update prompts in debug and F-Droid `release` builds.
 - Hermes WebUI implements its own conversation long-press menus from a touch timer (e.g. `static/sessions.js`, ~400ms) and renders them as `position:fixed` elements capped with `max-height: calc(100vh - 16px)`. Keep `isLongClickable = true` without a consuming long-click listener so Android text-selection handles remain available (Issue #35); do not add `contextmenu` synthesis, `touchcancel` guards, or a `startActionMode` override. Issue #6 ultimately proved the WebUI touch timer already works and the invisible menu was a viewport-unit collapse. If menus render tiny/clipped again, check the hybrid viewport repair, not gesture interception, z-index, opacity, or stacking.
 - Client-certificate settings support PKCS#12 (`.pfx`/`.p12`) files only. Keep certificate requests scoped to allowlisted hosts, select a usable private-key entry, and fail closed on unreadable, malformed, password-mismatched, or keyless stores; never let certificate parsing throw through `WebViewClient.onReceivedClientCertRequest`.
 - The `hermes-android-viewport-fix` style must not lock vertical page scrolling. Keep body overflow override scoped to horizontal overflow only; forcing `body { overflow: hidden }` clips expandable WebUI content such as generated update summaries inside Android WebView. The generic collapse detection handles update-summary panels and other viewport-unit-based elements automatically without explicit selectors; the approval/clarify prompt panels are the one exception, using the measured titlebar/composer-aware cap described above instead of generic repair.
@@ -155,13 +155,30 @@ This repository is the standalone Android app.
 - Treat `applicationId` and `namespace` as release-critical identity. Do not
   change either without an explicit user decision. The finalized pre-release
   identity is `com.hermeswebui.android`.
-- Preserve the channel identity split: Google Play builds use the official
-  `release` build type and `com.hermeswebui.android`; GitHub APK builds use the
+- Preserve the channel identity split: Google Play builds use the `play` build
+  type and `com.hermeswebui.android`; GitHub APK builds use the
   `github` build type, `com.hermeswebui.android.github`, and a `-github`
-  version name suffix so both channels can install side by side. Debug builds
+  version name suffix so both channels can install side by side. The
+  `release` build type is the F-Droid build: `com.hermeswebui.android.fdroid`,
+  `UPDATE_CHANNEL = "none"`, no `versionNameSuffix` (F-Droid checks the built
+  versionName against its recipe), and buildable unsigned without a keystore.
+  Debug builds
   use `applicationIdSuffix = ".debug"` (`com.hermeswebui.android.debug`) and
   display as "Hermes DEBUG" so test builds are visually distinct from release
   builds on the same device.
+- Keep Google Play, Play Services, and Firebase libraries out of every build
+  except `play`. Declare them only as `playImplementation`, put the code that
+  uses them under `app/src/play/java` behind a `main` interface (as with
+  `update/PlayUpdateClient.kt`), and add a no-op twin under `app/src/foss/java`.
+  `:app:verifyFossDependencies` (run in CI and by the orchestrator) and
+  `tools/tests/test_fdroid_metadata.py` enforce this. Do not reintroduce the
+  Foojay toolchain resolver plugin or other non-FOSS Gradle plugins; F-Droid's
+  scanner rejects them.
+- F-Droid builds from each `v<version>` tag using
+  `fdroid/com.hermeswebui.android.fdroid.yml` (submitted to fdroiddata) and the
+  store text in `fastlane/metadata/android/en-US/`. Its auto-update reads
+  `val appVersionName` in `app/build.gradle.kts` and the README `Version code`
+  line, so keep both formats intact.
 
 ## Product direction
 
@@ -264,6 +281,7 @@ Run from the repository root:
 .\gradlew.bat testDebugUnitTest --no-daemon
 .\gradlew.bat lintDebug --no-daemon
 .\gradlew.bat assembleDebug --no-daemon
+.\gradlew.bat verifyFossDependencies assembleRelease --no-daemon   # F-Droid build: Play-free, unsigned without a keystore
 ```
 
 For a local signed release build:

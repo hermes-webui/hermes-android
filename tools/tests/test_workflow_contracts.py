@@ -159,7 +159,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("python3 -m unittest discover -s tools/tests", workflow)
         self.assertIn("api-level: 36", workflow)
         self.assertIn("connectedDebugAndroidTest", workflow)
-        self.assertIn("test lintDebug :app:stageGithubReleaseApk :app:bundleRelease", workflow)
+        self.assertIn("test lintDebug :app:verifyFossDependencies :app:stageGithubReleaseApk :app:bundlePlay", workflow)
+        self.assertIn("app/build/outputs/bundle/play", workflow)
         self.assertIn("apksigner\" verify --verbose --print-certs", workflow)
         self.assertIn("jarsigner -verify", workflow)
 

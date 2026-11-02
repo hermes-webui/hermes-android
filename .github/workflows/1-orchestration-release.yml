@@ -165,9 +165,9 @@ jobs:
           GITHUB_RELEASES_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          ./gradlew test lintDebug :app:stageGithubReleaseApk :app:bundleRelease --no-daemon
+          ./gradlew test lintDebug :app:verifyFossDependencies :app:stageGithubReleaseApk :app:bundlePlay --no-daemon
 
-          src_aab="$(find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n 1)"
+          src_aab="$(find app/build/outputs/bundle/play -maxdepth 1 -type f -name '*.aab' | head -n 1)"
           test -n "$src_aab" || { echo "No release AAB found"; exit 1; }
           cp "$src_aab" "build/release/hermes-webui-v${{ steps.release_version.outputs.version_name }}.aab"
 

@@ -125,8 +125,7 @@ import com.hermeswebui.android.webview.HermesMediaPlaybackPolicy
 import com.hermeswebui.android.webview.HermesWebViewConfigurator
 import com.hermeswebui.android.webview.HermesWebViewDownloadListener
 import com.hermeswebui.android.update.HermesAppUpdateCoordinator
-import com.google.android.play.core.appupdate.AppUpdateManager
-import com.google.android.play.core.appupdate.AppUpdateManagerFactory
+import com.hermeswebui.android.update.createPlayUpdateClient
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -209,7 +208,6 @@ class MainActivity : ComponentActivity() {
     private var vpnReconnectWaitJob: Job? = null
     private var tailscaleLaunchFallbackJob: Job? = null
     private var activityVisible = false
-    private lateinit var appUpdateManager: AppUpdateManager
     private lateinit var appUpdateCoordinator: HermesAppUpdateCoordinator
     private lateinit var notificationBridgeCoordinator: HermesNotificationBridgeCoordinator
     private lateinit var notificationPresenter: HermesNotificationPresenter
@@ -330,7 +328,6 @@ class MainActivity : ComponentActivity() {
         val defaultUrl = getString(R.string.default_server_url)
         val defaultDashboardUrl = getString(R.string.default_dashboard_url)
         settingsRepository = SettingsRepository(applicationContext)
-        appUpdateManager = AppUpdateManagerFactory.create(this)
         viewModel = ViewModelProvider(
             this,
             MainViewModelFactory(settingsRepository, settingsRepository, defaultUrl, defaultDashboardUrl)
@@ -368,8 +365,7 @@ class MainActivity : ComponentActivity() {
             activityScope = lifecycleScope,
             settingsRepository = settingsRepository,
             viewModel = viewModel,
-            appUpdateManager = appUpdateManager,
-            playUpdateLauncher = playUpdateLauncher,
+            playUpdateClient = createPlayUpdateClient(this, playUpdateLauncher),
             updateChannel = BuildConfig.UPDATE_CHANNEL,
             githubReleasesApiUrl = BuildConfig.GITHUB_RELEASES_API_URL,
             githubReleasesPageUrl = BuildConfig.GITHUB_RELEASES_PAGE_URL,

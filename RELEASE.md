@@ -115,7 +115,10 @@ target unless the build artifacts are missing or expired.
    the source release and Android PR #142, describe the Play-free `release`
    build, and report which checks were actually run. Read back the published
    commit identity and merge request. Respond to pipeline and maintainer
-   feedback; F-Droid review can take several weeks.
+   feedback; F-Droid review can take several weeks. If the fork pipeline fails
+   with "The pipeline failed due to the user not being verified," do not add a
+   phone number or payment card. As fdroiddata's template instructs, leave an
+   MR note asking a maintainer to trigger CI.
 7. After the merge, F-Droid tracks new `v<version>` tags automatically
    (`AutoUpdateMode: Version`, `UpdateCheckMode: Tags`).
    Publication still depends on successful F-Droid builds and indexing; do

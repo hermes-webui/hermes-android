@@ -97,9 +97,12 @@ target unless the build artifacts are missing or expired.
 
    ```text
    fdroid lint com.hermeswebui.android.fdroid
+   fdroid rewritemeta com.hermeswebui.android.fdroid
    fdroid checkupdates com.hermeswebui.android.fdroid
    ```
 
+   `rewritemeta` applies F-Droid's canonical formatting, which fdroiddata CI
+   enforces; copy any change back to `fdroid/com.hermeswebui.android.fdroid.yml`.
    Read the actual results, not only the exit code. Confirm that tag checking
    finds the expected version/code. Local checks do not prove that F-Droid's
    build servers support the required SDK and Gradle versions.

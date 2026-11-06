@@ -11,6 +11,7 @@ import com.google.common.truth.Truth.assertThat
 import com.hermeswebui.android.core.security.UrlPolicy
 import com.hermeswebui.android.core.security.WebTrustPolicy
 import com.hermeswebui.android.data.SettingsRepository
+import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.server.SelectedServerNavigation
 import java.util.UUID
 import org.json.JSONArray
@@ -69,6 +70,36 @@ class SelectedServerSettingsInstrumentationTest {
         assertThat(SelectedServerNavigation.reconnectUrl(
             "$SERVER_B/session/current", settings.serverUrl, trust
         )).isEqualTo("$SERVER_B/session/current")
+    }
+
+    @Test
+    fun serverTypeRoundTripsWithoutChangingSelectionAndSurvivesLegacyEdits() {
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        val agent = repository.addProfile("Agent", SERVER_A, ServerType.AGENT)
+        val webui = repository.addProfile("WebUI", SERVER_B, ServerType.WEBUI)
+        var reopened = SettingsRepository(context)
+        assertThat(reopened.getActiveProfile()?.id).isEqualTo(agent.id)
+        assertThat(reopened.getProfiles().map { it.serverType })
+            .containsExactly(ServerType.AGENT, ServerType.WEBUI)
+        reopened.updateProfile(agent.id, "Renamed", SERVER_A)
+        reopened.updateProfile(webui.id, "Other", SERVER_B, ServerType.UNSPECIFIED)
+        reopened = SettingsRepository(context)
+        assertThat(reopened.getActiveProfile()?.serverType).isEqualTo(ServerType.AGENT)
+        assertThat(reopened.getProfiles().first { it.id == webui.id }.serverType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(reopened.getSettings(DEFAULT_SERVER, "").serverUrl).isEqualTo(SERVER_A)
+    }
+
+    @Test
+    fun migration14PreservesLegacyProfilesAndSelectionWithoutGuessingType() {
+        seedLegacyProfiles("profile-b")
+        val preferences = encryptedPreferences()
+        val before = preferences.getString("server_profiles", null)
+        check(preferences.edit().putInt("last_migration_version", 13).commit())
+        val reopened = SettingsRepository(context)
+        assertThat(reopened.getProfiles().all { it.serverType == ServerType.UNSPECIFIED }).isTrue()
+        assertThat(reopened.getActiveProfile()?.id).isEqualTo("profile-b")
+        assertThat(preferences.getString("server_profiles", null)).isEqualTo(before)
+        assertThat(preferences.getInt("last_migration_version", 0)).isEqualTo(14)
     }
 
     @Test

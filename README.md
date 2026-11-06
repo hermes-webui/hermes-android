@@ -80,6 +80,21 @@ actions are not an adapter for the official Webapp's gateway WebSocket
 protocol. Blob/data-URL exports and notification clicks that require a
 page-local JavaScript callback are not yet supported natively.
 
+### Launcher icon and server labels
+
+In **Application Settings > Application > Launcher icon**, choose the existing
+Hermes WebUI artwork or the official Hermes Agent artwork. This changes only
+the Android launcher entry, independently of the current server. Launchers may
+take a moment to refresh; a previously pinned home-screen shortcut may need
+to be pinned again.
+
+Long-press a saved server and choose **Edit**, then set its **Server type**:
+**Hermes Agent** has a blue badge and **Hermes WebUI** has a gold badge.
+New servers offer the same choice. **Not labeled** is the default for existing
+servers. These are manual, per-server labels, not automatic detection or a
+connection check; they never change navigation, trust, or frontend behavior.
+Official Agent artwork attribution is included in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+
 ## Why This Exists
 
 Hermes already has a strong web experience. Android should not fork that

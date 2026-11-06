@@ -80,6 +80,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.hermeswebui.android.launcher.LauncherIconManager
+import com.hermeswebui.android.data.ServerType
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -566,6 +570,8 @@ class MainActivity : ComponentActivity() {
         val uiState by viewModel.uiState.collectAsState()
         val serverProfiles by viewModel.serverProfiles.collectAsState()
         val snackbarHostState = remember { SnackbarHostState() }
+        val launcherIcons = remember { LauncherIconManager(this) }
+        var launcherIcon by remember(uiState.isSettingsVisible) { mutableStateOf(launcherIcons.selectedIcon()) }
         val vpnLaunchAppOptions = remember(uiState.isSettingsVisible) {
             if (uiState.isSettingsVisible) discoverLaunchableApps() else emptyList()
         }
@@ -766,12 +772,24 @@ class MainActivity : ComponentActivity() {
                     onDownloadDebugLog = { downloadLatestDebugLog() },
                     onViewGithubIssues = { openInExternalBrowser(HermesGithubIssuesListUrl) },
                     onNewGithubIssue = { openInExternalBrowser(HermesGithubNewIssueUrl) },
-                    onAddProfile = { name, url -> serverProfileCoordinator.handleAddServerProfile(name, url) },
+                    onAddProfile = { name, url, type -> serverProfileCoordinator.handleAddServerProfile(name, url, type) },
                     onDeleteProfile = { profileId -> serverProfileCoordinator.handleDeleteServerProfile(profileId) },
-                    onEditProfile = { profileId, newName, newUrl -> serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl) },
+                    onEditProfile = { profileId, newName, newUrl, type -> serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl, type) },
+                    onEditCurrentServer = { name, url, type -> saveSettings(url, name, type) },
                     onSwitchProfile = { profileId -> serverProfileCoordinator.handleSwitchServerProfile(profileId) },
                     onReconnectCurrentServer = { refreshConfiguredHermes(closeSettings = true) },
-                    onClearServerValidation = { viewModel.clearServerValidationState() }
+                    onClearServerValidation = { viewModel.clearServerValidationState() },
+                    launcherIcon = launcherIcon,
+                    onSetLauncherIcon = { choice ->
+                        try {
+                            launcherIcons.select(choice)
+                            launcherIcon = launcherIcons.selectedIcon()
+                        } catch (exception: RuntimeException) {
+                            android.util.Log.e("HermesLauncher", "Launcher icon selection failed", exception)
+                            launcherIcon = launcherIcons.selectedIcon()
+                            Toast.makeText(this@MainActivity, R.string.launcher_icon_error, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 )
             } // end if (isSettingsVisible)
 
@@ -1953,6 +1971,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveSettings(serverUrl: String) {
+        saveSettings(serverUrl, null, null)
+    }
+
+    private fun saveSettings(serverUrl: String, profileName: String?, serverType: ServerType?) {
         if (!serverUrlValidator.isValid(serverUrl)) {
             Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
@@ -1964,6 +1986,9 @@ class MainActivity : ComponentActivity() {
         }
         val persist = {
             viewModel.saveAppUrls(serverUrl, dashboardUrl)
+            if (profileName != null && serverType != null) {
+                viewModel.addServerProfile(profileName, serverUrl, serverType)
+            }
             urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
             installHermesWebUiDocumentStartFixes(webView, serverUrl)
             requestLocalNetworkPermissionIfNeeded(
@@ -1979,7 +2004,10 @@ class MainActivity : ComponentActivity() {
         serverProfileCoordinator.validateServerForPersistence(
             serverUrl = serverUrl,
             onFailure = { result ->
-                showServerValidationRecoveryDialog(serverUrl, result, "Save server", onUseHttpsUrl = ::saveSettings) { persist() }
+                showServerValidationRecoveryDialog(
+                    serverUrl, result, "Save server",
+                    onUseHttpsUrl = { saveSettings(it, profileName, serverType) }
+                ) { persist() }
             }
         ) { persist() }
     }

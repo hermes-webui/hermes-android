@@ -41,6 +41,21 @@ the edited URL without clearing session data, and origin/port changes perform
 the full session-clearing switch. Manual URL saves also refresh the Settings
 profile markers.
 
+Server profiles also persist an optional, manually chosen `ServerType`. Migration
+14 is additive: legacy JSON is not rewritten, and missing/unknown types display
+as unlabeled. Blue Agent and gold WebUI badges are cosmetic metadata only, not
+renderer detection, permission decisions, or a change to the selected server.
+Name/type edits with an unchanged URL do not probe or reload the server.
+
+`LauncherIconManager` selects between stable `WebUiLauncher` and `AgentLauncher`
+activity aliases. PackageManager component state is the sole persistence source:
+API 33+ changes the aliases atomically; earlier Android enables the replacement
+before disabling the previous entry. Both target the permanently enabled
+`MainActivity`, which retains share and recovery/session deep-link filters.
+The WebUI alias is enabled by default, both preserve the channel-specific app
+label, and the launcher choice is independent of server profiles. Launcher
+cache/pinned-shortcut refresh timing is outside the app's control.
+
 Voice capture, wake detection, STT, TTS, and re-arm behavior remain WebUI-owned.
 `VoiceCaptureLifecycleGate` denies new requests while not resumed; pending
 trusted RECORD_AUDIO results can be granted while started before resume.

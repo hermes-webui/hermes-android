@@ -7,6 +7,6 @@ data class ServerProfile(
     val name: String,
     val url: String,
     val createdAt: Long = System.currentTimeMillis(),
-    val isActive: Boolean = false
+    val isActive: Boolean = false,
+    val serverType: ServerType = ServerType.UNSPECIFIED
 )
-

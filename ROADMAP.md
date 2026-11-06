@@ -75,6 +75,12 @@
 - [x] Share-to-app intake for text
 - [x] Share-to-app intake for files
 - [x] Native launcher identity
+- [x] User-selected WebUI/official Agent launcher artwork and manual blue Agent /
+  gold WebUI server badges. Independent cosmetic choices; legacy servers stay
+  unlabeled. New opt-in feature: base RED reproduction is NOT APPLICABLE because
+  no selection or label contract existed on the base. GREEN coverage exercises
+  real API 36 launcher alias switching/launching, share and recovery resolution,
+  encrypted label persistence, legacy migration and Settings callbacks.
 - [x] Splash and app theme
 - [x] WebUI-owned Official Hermes Dashboard setting
 - [x] Official dashboard link route

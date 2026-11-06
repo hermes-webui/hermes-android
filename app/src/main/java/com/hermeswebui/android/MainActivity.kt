@@ -1979,6 +1979,13 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
             return
         }
+        if (profileName != null && serverType != null &&
+            settingsRepository.getProfiles().isEmpty() &&
+            serverUrl.trim() == viewModel.uiState.value.settings.serverUrl.trim()
+        ) {
+            viewModel.addServerProfile(profileName.trim(), serverUrl.trim(), serverType)
+            return
+        }
         val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
         if (dashboardUrl.isNotBlank() && !serverUrlValidator.isValid(dashboardUrl)) {
             Toast.makeText(this, "Dashboard URL must be blank or a valid http:// or https:// URL", Toast.LENGTH_LONG).show()

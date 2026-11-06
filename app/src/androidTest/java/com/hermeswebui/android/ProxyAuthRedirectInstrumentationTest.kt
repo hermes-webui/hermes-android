@@ -13,8 +13,15 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.core.content.FileProvider
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.filters.SdkSuppress
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -25,6 +32,7 @@ import androidx.test.rule.GrantPermissionRule
 import com.google.common.truth.Truth.assertThat
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.SettingsRepository
+import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.background.HermesDebugLoggingService
 import java.net.InetAddress
@@ -80,6 +88,32 @@ class ProxyAuthRedirectInstrumentationTest {
                     evaluateWebView(scenario, "window.__HERMES_UI_SURFACE__ === 'webapp'") == "true"
                 }
                 assertOfficialBackPreservesWorkspace(scenario)
+            }
+        }
+    }
+
+    @Test
+    fun labelingCurrentServerPreservesTheMountedWorkspace() {
+        withConfiguredServer(officialWebapp = true) { server, repository ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                eventually("Official workspace ready") {
+                    evaluateWebView(scenario, "window.__HERMES_UI_SURFACE__ === 'webapp'") == "true"
+                }
+                evaluateWebView(scenario, "window.__workspaceDraft = 'unsent';")
+                scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                compose.onNodeWithText("Current server").performTouchInput { longClick() }
+                compose.onNode(hasText("Hermes Agent") and hasAnyAncestor(isDialog()))
+                    .performScrollTo().performClick()
+                compose.onNodeWithText("Save").performClick()
+                eventually("Current server has the chosen label") {
+                    repository.getActiveProfile()?.serverType == ServerType.AGENT
+                }
+                scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                assertThat(evaluateWebView(scenario, "window.__workspaceDraft")).isEqualTo("\"unsent\"")
+                assertThat(repository.getActiveProfile()?.url).isEqualTo(server.baseUrl)
             }
         }
     }

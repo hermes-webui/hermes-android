@@ -80,7 +80,11 @@
   unlabeled. New opt-in feature: base RED reproduction is NOT APPLICABLE because
   no selection or label contract existed on the base. GREEN coverage exercises
   real API 36 launcher alias switching/launching, share and recovery resolution,
-  encrypted label persistence, legacy migration and Settings callbacks.
+  encrypted label persistence, legacy migration and Settings callbacks. The
+  launcher artwork was also visibly checked in the API 36 emulator after using
+  the native Settings choice. Labeling an unprofiled Current server lost an
+  in-memory draft RED on `ea10df1`; the production save-path regression is GREEN
+  after keeping unchanged-URL labels local, without a workspace reload.
 - [x] Splash and app theme
 - [x] WebUI-owned Official Hermes Dashboard setting
 - [x] Official dashboard link route

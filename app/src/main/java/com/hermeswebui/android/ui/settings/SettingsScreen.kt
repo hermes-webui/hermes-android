@@ -336,7 +336,7 @@ fun SettingsScreen(
                         color = primaryColor
                     )
                     Text(
-                        text = "Enter your Hermes server URL to get started.",
+                        text = "Enter your official Hermes Webapp or Hermes WebUI URL to get started.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = onSurfaceVar
                     )
@@ -350,7 +350,7 @@ fun SettingsScreen(
                         singleLine = true,
                         label = { Text("Hermes server URL") },
                         placeholder = { Text("https://hermes.example.com") },
-                        supportingText = { Text("HTTP or HTTPS. Host is automatically allowlisted.") }
+                        supportingText = { Text("Official Webapp or WebUI. HTTP or HTTPS; HTTPS is recommended for microphone access. Host is automatically allowlisted.") }
                     )
                     ServerValidationStatus(serverValidation = serverValidation)
                     Button(

@@ -50,6 +50,7 @@ Useful entry points:
 
 Known Android WebView compatibility behavior lives in `MainActivity.kt`:
 
+- The official Hermes Agent Webapp (v0.22.6+) can be the configured primary frontend, independently of Hermes WebUI. Identify it by `window.__HERMES_UI_SURFACE__ === 'webapp'`, never a generic title or Dashboard URL. Android Back opens native Settings without navigating workspace history; closing Settings must preserve the mounted WebView/sessionStorage. Keep WebUI-only Enter/sidebar/Clarify/workspace DOM shims and selector-specific viewport CSS out of this React workspace. Generic viewport repair, pinch zoom, uploads/downloads, notification facade, and microphone permission hosting are shared. Do not apply WebUI session URL/SSE/approval assumptions to the official gateway WebSocket protocol or emulate Electron. Live authenticated acceptance and remaining protocol/blob-download/notification-click gaps are tracked in `ROADMAP.md`.
 - The Compose root applies `WindowInsets.safeDrawing` so the WebView shell and native snackbar do not overlap the Android status or navigation bars.
 - Forced/algorithmic WebView darkening is disabled so Hermes WebUI keeps its own colors.
 - `network_security_config.xml` trusts both system and user-installed Android CAs so WebView can reach deployments signed by a CA installed by the device owner. This is app-wide, not per-profile; retain certificate-chain and hostname verification and never use `onReceivedSslError` to bypass validation.

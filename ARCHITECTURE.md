@@ -2,7 +2,7 @@
 
 ## Goals
 
-- Keep Hermes WebUI as primary UX surface for parity and maintainability.
+- Host Hermes WebUI or the official Hermes Webapp as the primary UX surface.
 - Treat the official Hermes Dashboard link as a WebUI-owned secondary surface.
 - Add native Android affordances around security, integration, and reliability.
 - Preserve clean boundaries so native enhancements can scale incrementally.
@@ -82,6 +82,34 @@ while the page is idle. Changes during the scan throttle window are deferred,
 not dropped.
 
 ## Runtime flow
+
+The official Hermes Agent Webapp (v0.22.6+) is an alternative primary server,
+not the secondary Dashboard. It uses the same configured-origin trust,
+encrypted server profiles, WebView cookie store, picker/download listeners,
+microphone gate, viewport repair, and notification facade. Its public
+`/api/status` is compatible with readiness probing; the root fallback also
+recognizes the explicit `window.__HERMES_UI_SURFACE__="webapp"` bootstrap
+instead of accepting a generic "Hermes" title. OAuth/proxy return completion
+accepts that marker with the renderer root, not a sign-in page. The root need
+not have hydrated yet: Webapp boot can finish asynchronously after page load.
+
+Android Back probes the current trusted document at execution time and opens
+native Settings directly for the official workspace. The callback is fenced
+against URL/server changes. Closing Settings leaves the same WebView mounted,
+including its sessionStorage and running workspace. Other frontends keep
+history-first Back behavior. WebUI's Enter interception, sidebar cloning,
+Clarify focus handling, workspace-button recovery, and selector-specific
+viewport CSS do not control the official renderer. Generic viewport-height
+repair and pinch zoom remain common; upstream owns official responsive and
+keyboard layout. No Electron bridge is synthesized.
+
+This is browser hosting, not protocol parity: official gateway WebSockets,
+profile/session hash routes and JavaScript notification-click callbacks are
+not the WebUI `/session/{id}`, SSE or approval contract. The native background
+and deep-link features below still describe WebUI only. Blob/data-URL
+downloads and delivery of notification clicks to retained page callbacks
+remain tracked in `ROADMAP.md`. Authenticated live Webapp acceptance is
+pending; loopback WebView fixtures cover the Android boundary only.
 
 1. App starts and loads encrypted WebUI settings (`SettingsRepository`). The bundled dashboard origin default is blank so WebUI owns dashboard auto-detect and persistence.
 2. WebView boots with hardened configuration, default HTTP cache behavior, DOM storage, and service-worker cache settings for WebUI-managed assets.

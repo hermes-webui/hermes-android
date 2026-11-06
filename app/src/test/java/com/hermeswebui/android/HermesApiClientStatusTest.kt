@@ -6,6 +6,30 @@ import java.net.ConnectException
 import org.junit.Test
 
 class HermesApiClientStatusTest {
+    @Test
+    fun `official webapp bootstrap is accepted without a WebUI title`() {
+        val result = HermesApiClient.interpretHermesRootResponse(
+            httpStatus = 200,
+            contentType = "text/html",
+            serverHeader = "uvicorn",
+            rawBody = """<html><head><title>Hermes</title><script>window.__HERMES_UI_SURFACE__="webapp";</script></head><body><div id="root"></div></body></html>"""
+        )
+
+        assertThat(result?.isReady).isTrue()
+    }
+
+    @Test
+    fun `official dashboard and a generic Hermes title are not webapp fingerprints`() {
+        for (body in listOf(
+            """<title>Hermes</title>""",
+            """<script>window.__HERMES_UI_SURFACE__="dashboard";</script>"""
+        )) {
+            assertThat(HermesApiClient.interpretHermesRootResponse(
+                200, "text/html", "uvicorn", body
+            )).isNull()
+        }
+    }
+
     private fun redirectResult(base: String, location: String) = HermesApiClient.interpretServerStatusResponse(
         httpStatus = 301,
         contentType = null,

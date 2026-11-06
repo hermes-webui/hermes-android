@@ -13,6 +13,7 @@
 |---|---|
 | Secure WebView shell | Done - HTTP/HTTPS navigation, host allowlist, hardened defaults, and system plus user-installed CA trust with normal certificate validation |
 | WebUI integration | Done - first-run WebUI URL setting, WebUI-owned dashboard config, session persistence, pull-to-refresh |
+| Official Hermes Webapp | Android host integration implemented locally - recognizes the v0.22.6 browser workspace, preserves server sign-in/return and workspace state, opens native Settings on Back, and excludes WebUI-only editor/sidebar changes. Authenticated live-device acceptance remains pending; this does not add an Electron or gateway-WebSocket client. |
 | WebView compatibility | Done - disables forced darkening, patches Android viewport-unit collapse, respects system-bar safe insets, uses browser-managed cache defaults, smooths reload rendering, restores touch-and-hold context-menu dispatch for conversation actions, and forces WebUI microphone input onto the Android-compatible MediaRecorder path |
 | Official dashboard link | Done - Android no longer writes WebUI's Official Hermes Dashboard config, opens explicitly configured dashboard-origin requests in a Chrome Custom Tab with minimal browser UI, and avoids persisting dashboard pages as startup state |
 | Android sharing | Done - share-to-app intake for text and files |
@@ -50,6 +51,21 @@
 - [x] HTTPS trust for Android system and user-installed CAs within this app, retaining certificate-chain and hostname validation
 
 ### Android integration
+
+- [~] Official Hermes Webapp hosting (v0.22.6+): automatic renderer recognition,
+  Back-to-Settings without a workspace reload, shared Android WebView
+  integrations, and WebUI-shim isolation. Authenticated live Webapp acceptance
+  remains pending; loopback fixtures do not establish upstream UI behavior.
+  Regression evidence: readiness fallback, sign-in-return persistence and
+  Back-to-Settings fail RED on base `0d5f33f`; document-start editor input
+  interception also fails with that base's scripts. These Android-boundary
+  regressions pass GREEN with the integration on the API 36 emulator, including
+  the checked-in dependency versions (the unrelated local AGP update is not
+  required).
+- [ ] Official Webapp follow-ups: gateway-WebSocket background monitoring and
+  session deep links, blob/data-URL export handoff, and notification-tap
+  delivery to page-local session-focus callbacks. Keep WebUI's existing
+  SSE/approval contracts separate.
 
 - [x] File upload support
 - [x] File download support

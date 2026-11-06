@@ -42,9 +42,42 @@ right on Android.
   </tr>
 </table>
 
-Requires a running
+Connect to either the official
+[Hermes Webapp](https://hermes-agent.nousresearch.com/docs/user-guide/desktop#use-the-desktop-workspace-from-a-browser)
+(Hermes Agent v0.22.6 or newer) or a separate
 [Hermes WebUI](https://github.com/nesquena/hermes-webui) instance. On first
-launch, enter the URL for your Hermes server.
+launch, enter that frontend's URL. The official Webapp does not require
+installing Hermes WebUI.
+
+### Official Hermes Webapp
+
+Enable the browser-hosted Desktop workspace on your Hermes host with
+`hermes config set webapp.enabled true`, then run `hermes webapp`. For access
+from Android, configure Desktop **Settings > Web Access** or follow the
+upstream Webapp guide to publish it through your trusted VPN/reverse proxy.
+Use the Webapp URL, not the separate admin Dashboard URL. Android does not
+enable Web Access or change server configuration for you.
+
+Add that URL in Android's server settings and sign in using the server's own
+page. Use HTTPS for remote access: microphone capture and other browser
+secure-context features are unavailable on ordinary LAN HTTP. Do not copy
+one-use sign-in links or tokens into saved server profiles.
+
+Android recognizes the official workspace's `__HERMES_UI_SURFACE__` marker.
+**Android Back opens Application Settings** from that workspace, even when
+its tab/hash navigation has populated browser history; Back from Settings
+returns to the same mounted workspace without reloading it. WebUI retains its
+existing history-first Back behavior and sidebar Application Settings entry.
+
+Both frontends use the native upload picker, trusted HTTP(S) downloads,
+microphone permission handling, system-bar insets, pinch zoom, and Android
+Notification API bridge. The official workspace keeps ownership of its React
+editors, mobile keyboard behavior, tabs, responsive layout, and voice UI;
+Android does not emulate Electron or inject WebUI's sidebar/editor repairs.
+WebUI-specific session deep links, background SSE monitoring and approval
+actions are not an adapter for the official Webapp's gateway WebSocket
+protocol. Blob/data-URL exports and notification clicks that require a
+page-local JavaScript callback are not yet supported natively.
 
 ## Why This Exists
 

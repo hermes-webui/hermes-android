@@ -12,6 +12,9 @@ import android.view.inspector.WindowInspector
 import android.widget.Button
 import android.widget.TextView
 import androidx.core.content.FileProvider
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.test.filters.SdkSuppress
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -43,9 +46,80 @@ import org.json.JSONObject
 @SdkSuppress(minSdkVersion = 29)
 class ProxyAuthRedirectInstrumentationTest {
     @get:Rule
+    val compose = createEmptyComposeRule()
+
+    @get:Rule
     val notifications: GrantPermissionRule = GrantPermissionRule.grant("android.permission.POST_NOTIFICATIONS")
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test
+    fun officialWebapp_signInReturnPersistsAndBackOpensSettingsWithoutNavigating() {
+        withConfiguredServer(officialWebapp = true) { server, repository ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Continue to server sign-in?")
+                clickDialogButton("Continue")
+                awaitLoginForm(scenario, server)
+                evaluateWebView(scenario, "document.getElementById('signin').click();")
+                eventually("Official workspace proves sign-in return and persists") {
+                    repository.getLastLoadedUrl() == "${server.baseUrl}/"
+                }
+                assertOfficialBackPreservesWorkspace(scenario)
+            }
+        }
+    }
+
+    @Test
+    fun officialWebapp_backOpensSettingsEvenWithWorkspaceHistory() {
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                eventually("Official workspace ready") {
+                    evaluateWebView(scenario, "window.__HERMES_UI_SURFACE__ === 'webapp'") == "true"
+                }
+                assertOfficialBackPreservesWorkspace(scenario)
+            }
+        }
+    }
+
+    @Test
+    fun webUi_backStillNavigatesHistoryBeforeOpeningSettings() {
+        withConfiguredServer { server, repository ->
+            repository.saveLastLoadedUrl("${server.baseUrl}/session/issue132")
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                eventually("WebUI document ready") {
+                    evaluateWebView(scenario, "document.querySelector('main.main') !== null") == "true"
+                }
+                evaluateWebView(scenario, "history.pushState(null, '', '#history-entry');")
+                awaitWebView(scenario) { it.url?.endsWith("#history-entry") == true && it.canGoBack() }
+                scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                eventually("WebUI history navigated") {
+                    evaluateWebView(scenario, "location.hash") == "\"\""
+                }
+                compose.onNodeWithText("Settings").assertDoesNotExist()
+            }
+        }
+    }
+
+    private fun assertOfficialBackPreservesWorkspace(scenario: ActivityScenario<MainActivity>) {
+        evaluateWebView(scenario, "history.pushState(null, '', '#/settings'); window.__workspaceDraft = 'unsent';")
+        awaitWebView(scenario) { it.url?.endsWith("#/settings") == true && it.canGoBack() }
+        val url = evaluateWebView(scenario, "location.href")
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(androidx.compose.ui.test.hasText("Settings"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Settings").assertIsDisplayed()
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        assertThat(evaluateWebView(scenario, "location.href")).isEqualTo(url)
+        assertThat(evaluateWebView(scenario, "window.__workspaceDraft")).isEqualTo("\"unsent\"")
+    }
 
     @Test
     fun statusRedirectRemainsReachableWithoutFollowingIt() = runBlocking {
@@ -250,12 +324,15 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
-    private fun withConfiguredServer(block: (ProxyServer, SettingsRepository) -> Unit) {
+    private fun withConfiguredServer(
+        officialWebapp: Boolean = false,
+        block: (ProxyServer, SettingsRepository) -> Unit
+    ) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
         val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
         val loggingWasEnabled = SettingsRepository(context).isDebugLoggingEnabled()
-        ProxyServer().use { server ->
+        ProxyServer(officialWebapp = officialWebapp).use { server ->
             try {
                 val repository = SettingsRepository(context)
                 repository.getProfiles().forEach { repository.deleteProfile(it.id) }
@@ -384,7 +461,8 @@ class ProxyAuthRedirectInstrumentationTest {
 
     private class ProxyServer(
         private val redirectCode: Int = 302,
-        private val locationOverride: String? = null
+        private val locationOverride: String? = null,
+        private val officialWebapp: Boolean = false
     ) : AutoCloseable {
         data class Request(val path: String, val host: String, val cookie: String)
         private val socket = ServerSocket(0, 20, InetAddress.getByName("127.0.0.1"))
@@ -438,10 +516,12 @@ class ProxyAuthRedirectInstrumentationTest {
                             "Set-Cookie: proxy_auth=ok; Path=/; HttpOnly; SameSite=Lax\r\nLocation: /auth/interstitial\r\n", "")
                         path == "/auth/interstitial" -> Triple("200 OK", "", """
                             <title>Completing authentication</title>
-                            <script>setTimeout(function(){location.href='/session/issue132';},250);</script>
+                            <script>setTimeout(function(){location.href='${if (officialWebapp) "/" else "/session/issue132"}';},250);</script>
                         """.trimIndent())
-                        path == "/session/issue132" && authenticated -> Triple("200 OK", "", """
-                            <title>Hermes signed in</title><div class="layout"><main class="main">Authenticated</main></div>
+                        (path == "/session/issue132" || (officialWebapp && path == "/")) && authenticated -> Triple("200 OK", "", """
+                            <title>Hermes signed in</title>
+                            ${if (officialWebapp) """<script>window.__HERMES_UI_SURFACE__="webapp";</script><div id="root"><main>Official workspace</main></div>"""
+                              else """<div class="layout"><main class="main">Authenticated</main></div>"""}
                             $FILE_INPUT
                         """.trimIndent())
                         else -> Triple("404 Not Found", "", "")

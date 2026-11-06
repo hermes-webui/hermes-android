@@ -3,6 +3,27 @@ package com.hermeswebui.android.webui
 import org.json.JSONObject
 
 object HermesWebUiScripts {
+    fun buildOfficialWebappProbeScript(trustedOrigin: String): String {
+        val quotedOrigin = JSONObject.quote(trustedOrigin)
+        return """
+            (function() {
+              return window.location.origin === $quotedOrigin &&
+                window.__HERMES_UI_SURFACE__ === 'webapp';
+            })();
+        """.trimIndent()
+    }
+
+    val hermesPageReadyScript = """
+        (function() {
+          var root = document.getElementById('root');
+          return !!(
+            (window.__HERMES_UI_SURFACE__ === 'webapp' && root) ||
+            window.__HERMES_WEBUI_BUNDLE_VERSION__ ||
+            (document.querySelector('.layout') && document.querySelector('main.main'))
+          );
+        })();
+    """.trimIndent()
+
     /**
      * Wraps a runtime fallback script with an execution-time origin check. WebView evaluates
      * JavaScript asynchronously, so the page may have navigated after the native route check.
@@ -214,7 +235,8 @@ object HermesWebUiScripts {
             var baselineCSS = [
               // Root sizing baseline
               'html, body { min-height: ' + px + ' !important; }',
-              'body { overflow-x: hidden !important; }',
+              'body { overflow-x: hidden !important; }'
+            ].concat(window.__HERMES_UI_SURFACE__ === 'webapp' ? [] : [
               // Flex container helpers - prevent min-height inheritance issues
               '.layout, .rail, .sidebar, #sessionList, .messages { min-height: 0 !important; }',
               // Settings page clip fix
@@ -232,7 +254,7 @@ object HermesWebUiScripts {
               // Force overflow visible (re-applied every scan) so a stray inline
               // repair or WebUI change can never re-clip the floating prompt surface.
               '.composer-flyout, .composer-wrap { overflow: visible !important; }'
-            ].filter(Boolean).join('\n');
+            ]).filter(Boolean).join('\n');
             if (style.textContent !== baselineCSS) {
               style.textContent = baselineCSS;
             }
@@ -569,6 +591,8 @@ object HermesWebUiScripts {
           };
 
           document.addEventListener('keydown', function(e) {
+            // The official React workspace owns editor input and mobile Enter behavior.
+            if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
             if (e.key !== 'Enter' && e.keyCode !== 13) return;
             if (e.shiftKey || e.isComposing) return;
             // Hardware keyboard attached: defer to WebUI's native handling so a plain
@@ -928,6 +952,8 @@ object HermesWebUiScripts {
           };
 
           var ensureEntry = function() {
+            // Cloning a React-owned settings node would bypass its component state.
+            if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
             try {
               var anchorInteractive = findSettingsAnchor();
               if (!anchorInteractive) return;
@@ -995,6 +1021,7 @@ object HermesWebUiScripts {
 
           var isClarifyInput = function(target) {
             return !!(
+              window.__HERMES_UI_SURFACE__ !== 'webapp' &&
               target &&
               target.id === 'clarifyInput' &&
               target.closest &&
@@ -1020,6 +1047,7 @@ object HermesWebUiScripts {
           };
 
           var rememberClarifyFocusIntent = function(event) {
+            if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
             var target = event.target;
             if (!target || !target.closest) return;
             var card = target.closest('.clarify-card.visible');
@@ -1036,6 +1064,7 @@ object HermesWebUiScripts {
           document.addEventListener('touchstart', rememberClarifyFocusIntent, true);
           document.addEventListener('click', rememberClarifyFocusIntent, true);
           document.addEventListener('keydown', function(event) {
+            if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
             if (event.key === 'Tab') {
               var card = document.querySelector('.clarify-card.visible');
               if (card) {
@@ -1081,6 +1110,7 @@ object HermesWebUiScripts {
 
           if (window.MutationObserver) {
             var resetCompletedPresentation = function() {
+              if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
               var cards = document.querySelectorAll('.clarify-card[' + PRESENTATION_HANDLED_ATTR + ']');
               for (var i = 0; i < cards.length; i++) {
                 var card = cards[i];
@@ -1168,6 +1198,7 @@ object HermesWebUiScripts {
                 };
                 window.addEventListener('click', function(event) {
                   try {
+                    if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
                     var target = event.target;
                     var button = target && target.closest ? target.closest('#btnWorkspacePanelToggle') : null;
                     if (!button) return;
@@ -1193,6 +1224,7 @@ object HermesWebUiScripts {
                 }, true);
                 window.addEventListener('click', function(event) {
                   try {
+                    if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
                     var target = event.target;
                     if (!target || !target.closest) return;
                     var rightPanel = document.querySelector('.rightpanel');

@@ -588,38 +588,7 @@ class MainActivity : ComponentActivity() {
                     backPressExitStage = 0
                     viewModel.closeSettings()
                 }
-                webView.canGoBack() -> {
-                    backPressExitStage = 0
-                    goBackInMainWebView()
-                }
-                else -> {
-                    val currentTime = System.currentTimeMillis()
-                    val withinWindow = currentTime - lastBackPressTime < BACK_PRESS_TIMEOUT_MS
-
-                    if (!withinWindow) {
-                        backPressExitStage = 0
-                    }
-
-                    when (backPressExitStage) {
-                        0 -> {
-                            // First back press: arm safety flow to open native settings.
-                            backPressExitStage = 1
-                            lastBackPressTime = currentTime
-                            Toast.makeText(this@MainActivity, "Press back again for Application Settings", Toast.LENGTH_SHORT).show()
-                        }
-                        1 -> {
-                            // Second back press: open native settings before allowing exit.
-                            backPressExitStage = 2
-                            lastBackPressTime = currentTime
-                            viewModel.openSettings()
-                            Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
-                        }
-                        else -> {
-                            // Third back press within timeout: exit app.
-                            onRequestExit()
-                        }
-                    }
-                }
+                else -> handleWebBackNavigation(onRequestExit)
             }
         }
 
@@ -1327,16 +1296,7 @@ class MainActivity : ComponentActivity() {
             !(proxyAuthNavigation.isPending(serverUrl) && matchesConfiguredWebUiRoute(url))
         ) return
 
-        view.evaluateJavascript(
-            """
-            (function() {
-              return !!(
-                window.__HERMES_WEBUI_BUNDLE_VERSION__ ||
-                (document.querySelector('.layout') && document.querySelector('main.main'))
-              );
-            })();
-            """.trimIndent()
-        ) { result ->
+        view.evaluateJavascript(HermesWebUiScripts.hermesPageReadyScript) { result ->
             // Ignore a delayed result from a page that navigated again while JavaScript ran.
             if (view.url == url) {
                 val proxyWasActive = proxyAuthNavigation.isPending(serverUrl)
@@ -1905,6 +1865,52 @@ class MainActivity : ComponentActivity() {
     private fun loadInMainWebView(url: String) {
         lastMainFrameHopUrl = url
         webView.loadUrl(url)
+    }
+
+    private fun handleWebBackNavigation(onRequestExit: () -> Unit) {
+        val url = webView.url
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        val origin = UrlOrigins.pageOrigin(serverUrl)
+        if (!matchesConfiguredWebUiRoute(url) || origin == null) {
+            handleWebUiBackNavigation(onRequestExit)
+            return
+        }
+        webView.evaluateJavascript(HermesWebUiScripts.buildOfficialWebappProbeScript(origin)) { result ->
+            if (webView.url != url || viewModel.uiState.value.settings.serverUrl != serverUrl ||
+                viewModel.uiState.value.isSettingsVisible
+            ) return@evaluateJavascript
+            if (result == "true") {
+                // The official workspace owns its tabs/hash routes. Never back into sign-in.
+                backPressExitStage = 0
+                viewModel.openSettings()
+            } else {
+                handleWebUiBackNavigation(onRequestExit)
+            }
+        }
+    }
+
+    private fun handleWebUiBackNavigation(onRequestExit: () -> Unit) {
+        if (webView.canGoBack()) {
+            backPressExitStage = 0
+            goBackInMainWebView()
+            return
+        }
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastBackPressTime >= BACK_PRESS_TIMEOUT_MS) backPressExitStage = 0
+        when (backPressExitStage) {
+            0 -> {
+                backPressExitStage = 1
+                lastBackPressTime = currentTime
+                Toast.makeText(this, "Press back again for Application Settings", Toast.LENGTH_SHORT).show()
+            }
+            1 -> {
+                backPressExitStage = 2
+                lastBackPressTime = currentTime
+                viewModel.openSettings()
+                Toast.makeText(this, "Press back again to exit", Toast.LENGTH_SHORT).show()
+            }
+            else -> onRequestExit()
+        }
     }
 
     private fun goBackInMainWebView() {

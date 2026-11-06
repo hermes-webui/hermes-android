@@ -82,7 +82,8 @@ page-local JavaScript callback are not yet supported natively.
 
 ### Launcher icon and server labels
 
-In **Application Settings > Application > Launcher icon**, choose the existing
+In **Application Settings > Appearance > Launcher icon**, near the bottom
+above About, choose the existing
 Hermes WebUI artwork or the official Hermes Agent artwork. This changes only
 the Android launcher entry, independently of the current server. Launchers may
 take a moment to refresh; a previously pinned home-screen shortcut may need

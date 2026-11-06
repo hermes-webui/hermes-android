@@ -8,6 +8,7 @@ import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.server.SelectedServerNavigation
 import com.hermeswebui.android.server.ServerProfileRules
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 @Suppress("DEPRECATION")
@@ -497,6 +498,16 @@ class SettingsRepository(context: Context) : SettingsStore {
             sharedPreferences.getString(KEY_SERVER_URL, null) != serverUrl
         ) return false
         var profiles = getProfiles()
+        val storedProfileCount = try {
+            JSONArray(sharedPreferences.getString(KEY_SERVER_PROFILES, "[]")).length()
+        } catch (_: JSONException) {
+            android.util.Log.e("HermesSettings", "Skipping automatic label: saved profiles are unreadable")
+            return false
+        }
+        if (storedProfileCount != profiles.size) {
+            android.util.Log.e("HermesSettings", "Skipping automatic label: saved profile rows are unreadable")
+            return false
+        }
         val profile = getActiveProfile()?.takeIf { it.url == serverUrl }
             ?: profiles.firstOrNull { it.url == serverUrl }
             ?: addProfile("Current server", serverUrl).also { profiles = getProfiles() }

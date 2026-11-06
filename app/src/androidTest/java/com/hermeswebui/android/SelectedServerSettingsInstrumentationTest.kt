@@ -103,6 +103,17 @@ class SelectedServerSettingsInstrumentationTest {
     }
 
     @Test
+    fun automaticDetectionNeverOverwritesUnreadableProfiles() {
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        val preferences = encryptedPreferences()
+        for (invalid in listOf("not json", """[{"id":"broken"}]""")) {
+            check(preferences.edit().putString("server_profiles", invalid).commit())
+            assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isFalse()
+            assertThat(preferences.getString("server_profiles", null)).isEqualTo(invalid)
+        }
+    }
+
+    @Test
     fun automaticTypePersistsButNeverOverridesManualLabelsOrFollowsAnEditedUrl() {
         repository.saveAppUrls(SERVER_A, DASHBOARD)
         assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isTrue()

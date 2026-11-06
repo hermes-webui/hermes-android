@@ -270,6 +270,7 @@ class SettingsScreenTest {
             "PRIVACY",
             "TROUBLESHOOTING",
             "ADVANCED",
+            "APPEARANCE",
             "ABOUT"
         ).forEach { heading ->
             composeTestRule.onNodeWithText(heading).assertExists()
@@ -277,6 +278,13 @@ class SettingsScreenTest {
 
         composeTestRule.onNodeWithText("Reset web session").assertDoesNotExist()
         composeTestRule.onNodeWithText("SECURITY").assertDoesNotExist()
+        val launcherY = composeTestRule.onNodeWithText("Launcher icon").fetchSemanticsNode().positionInRoot.y
+        assertThat(launcherY).isGreaterThan(
+            composeTestRule.onNodeWithText("ADVANCED").fetchSemanticsNode().positionInRoot.y
+        )
+        assertThat(launcherY).isLessThan(
+            composeTestRule.onNodeWithText("ABOUT").fetchSemanticsNode().positionInRoot.y
+        )
     }
 
     @Test

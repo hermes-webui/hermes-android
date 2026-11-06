@@ -46,6 +46,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -514,8 +515,6 @@ fun SettingsScreen(
                         .fillMaxWidth()
                 ) {
                     Column {
-                        LauncherIconPicker(launcherIcon, onSetLauncherIcon)
-                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
                         ListItem(
                             headlineContent = {
                                 Text(
@@ -1011,6 +1010,17 @@ fun SettingsScreen(
                     clientCertificateConfigured = clientCertificateUri.isNotBlank(),
                     onOpenClientCertificate = { showClientCertificateDialog = true }
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                SectionHeader("Appearance")
+                Surface(
+                    modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = surfaceColor
+                ) {
+                    LauncherIconPicker(launcherIcon, onSetLauncherIcon)
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

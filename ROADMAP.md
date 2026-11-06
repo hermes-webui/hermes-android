@@ -94,6 +94,9 @@
   Additional checks cover login-page non-detection, exact-origin probes,
   encrypted persistence, manual override/reset, URL edits and stale-server
   results. These loopback checks do not replace authenticated live acceptance.
+- [x] Keep cosmetic launcher choices near the bottom of Settings in Appearance,
+  above About, so server, connection, privacy and troubleshooting controls retain
+  priority. Layout-only move: behavior regression reproduction is NOT APPLICABLE.
 - [x] Splash and app theme
 - [x] WebUI-owned Official Hermes Dashboard setting
 - [x] Official dashboard link route

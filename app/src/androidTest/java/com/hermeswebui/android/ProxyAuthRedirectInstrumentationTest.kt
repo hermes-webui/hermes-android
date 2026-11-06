@@ -95,8 +95,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 eventually("WebUI document ready") {
                     evaluateWebView(scenario, "document.querySelector('main.main') !== null") == "true"
                 }
-                evaluateWebView(scenario, "history.pushState(null, '', '#history-entry');")
-                awaitWebView(scenario) { it.url?.endsWith("#history-entry") == true && it.canGoBack() }
+                pushHistoryFromTouch(scenario, "#history-entry")
                 scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
                 eventually("WebUI history navigated") {
                     evaluateWebView(scenario, "location.hash") == "\"\""
@@ -107,8 +106,8 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     private fun assertOfficialBackPreservesWorkspace(scenario: ActivityScenario<MainActivity>) {
-        evaluateWebView(scenario, "history.pushState(null, '', '#/settings'); window.__workspaceDraft = 'unsent';")
-        awaitWebView(scenario) { it.url?.endsWith("#/settings") == true && it.canGoBack() }
+        evaluateWebView(scenario, "window.__workspaceDraft = 'unsent';")
+        pushHistoryFromTouch(scenario, "#/settings")
         val url = evaluateWebView(scenario, "location.href")
         scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         compose.waitUntil(10_000) {
@@ -119,6 +118,22 @@ class ProxyAuthRedirectInstrumentationTest {
         scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         assertThat(evaluateWebView(scenario, "location.href")).isEqualTo(url)
         assertThat(evaluateWebView(scenario, "window.__workspaceDraft")).isEqualTo("\"unsent\"")
+    }
+
+    private fun pushHistoryFromTouch(scenario: ActivityScenario<MainActivity>, hash: String) {
+        // Chromium skips script-only history entries on Back until the page has user activation.
+        evaluateWebView(scenario, """
+            var historyButton = document.createElement('button');
+            historyButton.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:100';
+            historyButton.textContent = 'Open workspace panel';
+            historyButton.onclick = function() {
+              history.pushState(null, '', ${JSONObject.quote(hash)});
+              historyButton.remove();
+            };
+            document.body.appendChild(historyButton);
+        """.trimIndent())
+        tapWebViewCenter(scenario)
+        awaitWebView(scenario) { it.url?.endsWith(hash) == true && it.canGoBack() }
     }
 
     @Test

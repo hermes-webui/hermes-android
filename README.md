@@ -1,16 +1,17 @@
 # Hermes-Android
 
-Hermes-Android brings the Hermes WebUI experience to Android without turning it
+Hermes-Android brings the Hermes workspace to Android without turning it
 into a second product.
 
-It keeps Hermes WebUI as the real application surface and adds the Android
+It hosts the official Hermes Webapp or Hermes WebUI as the real application
+surface and adds the Android
 capabilities that matter on a phone or tablet: a hardened WebView, trusted
 navigation, native sharing, uploads and downloads, notifications, secure local
 settings, update delivery, and recovery paths when the mobile runtime gets in
 the way.
 
-If Hermes WebUI is the product, Hermes-Android is the native shell that makes
-it feel at home on Android.
+Hermes-Android is the native shell that makes the web frontend feel at home
+on Android.
 
 - Your Hermes workspace, on Android
 - Native where Android matters
@@ -130,7 +131,7 @@ first-class on Android.
 - Android-backed Hermes notifications and update alerts
 - Release packaging for both Play and GitHub channels
 
-## What Stays In Hermes WebUI
+## What Stays In The Web Frontend
 
 - Product behavior and feature workflows
 - Chat, sessions, workspace, routing, and API behavior
@@ -143,7 +144,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 
 ### Native Hermes, not a compromised wrapper
 
-- Kotlin + Jetpack Compose app shell around Hermes WebUI
+- Kotlin + Jetpack Compose app shell around the official Webapp or Hermes WebUI
 - Hardened WebView defaults with DOM storage and browser-managed HTTP and service-worker cache behavior
 - Pull-to-refresh, loading, offline, and recovery flows designed for Android
 - Deep link support for Hermes sessions through `hermes://session/{id}`
@@ -237,7 +238,7 @@ Requirements:
 
 - Android Studio with Android SDK 37
 - JDK 17 or newer compatible with Gradle
-- A reachable Hermes WebUI URL over HTTP or HTTPS
+- A reachable official Hermes Webapp or Hermes WebUI URL over HTTP or HTTPS
 
 ## Configuration
 

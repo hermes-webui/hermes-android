@@ -22,6 +22,13 @@
 
 ## Coordinator map
 
+`ServerSetupHelp` presents guided Hermes-chat setup prompts on first run and in
+an expandable Servers help panel. The two static `res/raw/setup_*_prompt.txt`
+payloads are copied to Android's clipboard with explicit success/failure feedback;
+they never run code or interpolate server URLs/credentials. README copy blocks
+must match the packaged prompts. Host installation and phone-side reachability
+remain external steps, not behavior proven by clipboard/UI tests.
+
 Production Play publication also commits the reviewed English description text
 from `store/google-play/en-US/` through the Publisher API, preserving title/video
 and verifying a fresh-edit readback. This is separate from release notes and

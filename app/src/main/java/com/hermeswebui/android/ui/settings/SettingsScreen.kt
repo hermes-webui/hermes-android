@@ -375,6 +375,7 @@ fun SettingsScreen(
                         )
                     }
                 }
+                ServerSetupHelp(initiallyExpanded = true)
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -503,6 +504,8 @@ fun SettingsScreen(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                ServerSetupHelp(initiallyExpanded = false)
 
                 // ── Application ───────────────────────────────────────────
                 SectionHeader("Application")

@@ -87,6 +87,8 @@ class SettingsScreenTest {
         }
 
         composeTestRule.onNodeWithText("This Hermes server is still in initial setup.").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Copy command to set up WebUI").assertExists()
+        composeTestRule.onNodeWithText("Copy command to set up Hermes WebApp").assertExists()
     }
 
     @Test
@@ -278,6 +280,10 @@ class SettingsScreenTest {
 
         composeTestRule.onNodeWithText("Reset web session").assertDoesNotExist()
         composeTestRule.onNodeWithText("SECURITY").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Copy command to set up WebUI").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Need help setting up a server?").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Copy command to set up WebUI").assertExists()
+        composeTestRule.onNodeWithText("Copy command to set up Hermes WebApp").assertExists()
         val launcherY = composeTestRule.onNodeWithText("Launcher icon").fetchSemanticsNode().positionInRoot.y
         assertThat(launcherY).isGreaterThan(
             composeTestRule.onNodeWithText("ADVANCED").fetchSemanticsNode().positionInRoot.y

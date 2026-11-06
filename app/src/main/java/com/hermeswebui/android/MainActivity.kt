@@ -80,6 +80,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.hermeswebui.android.launcher.LauncherIconManager
+import com.hermeswebui.android.data.ServerType
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
@@ -228,6 +232,7 @@ class MainActivity : ComponentActivity() {
     // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
     // configured server when this hop is exactly that origin (Issue #134).
     private var lastMainFrameHopUrl: String? = null
+    private var serverTypeDocumentGeneration = 0L
     private var proxySignInDialog: android.app.AlertDialog? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
@@ -566,6 +571,8 @@ class MainActivity : ComponentActivity() {
         val uiState by viewModel.uiState.collectAsState()
         val serverProfiles by viewModel.serverProfiles.collectAsState()
         val snackbarHostState = remember { SnackbarHostState() }
+        val launcherIcons = remember { LauncherIconManager(this) }
+        var launcherIcon by remember(uiState.isSettingsVisible) { mutableStateOf(launcherIcons.selectedIcon()) }
         val vpnLaunchAppOptions = remember(uiState.isSettingsVisible) {
             if (uiState.isSettingsVisible) discoverLaunchableApps() else emptyList()
         }
@@ -573,6 +580,10 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(uiState.pendingShareBanner) {
             val banner = uiState.pendingShareBanner ?: return@LaunchedEffect
             snackbarHostState.showSnackbar(banner)
+        }
+
+        LaunchedEffect(uiState.isSettingsVisible) {
+            if (uiState.isSettingsVisible && ::webView.isInitialized) detectLoadedServerType(webView)
         }
 
         // Auto-reload when the retry loop detects the server is back.
@@ -588,38 +599,7 @@ class MainActivity : ComponentActivity() {
                     backPressExitStage = 0
                     viewModel.closeSettings()
                 }
-                webView.canGoBack() -> {
-                    backPressExitStage = 0
-                    goBackInMainWebView()
-                }
-                else -> {
-                    val currentTime = System.currentTimeMillis()
-                    val withinWindow = currentTime - lastBackPressTime < BACK_PRESS_TIMEOUT_MS
-
-                    if (!withinWindow) {
-                        backPressExitStage = 0
-                    }
-
-                    when (backPressExitStage) {
-                        0 -> {
-                            // First back press: arm safety flow to open native settings.
-                            backPressExitStage = 1
-                            lastBackPressTime = currentTime
-                            Toast.makeText(this@MainActivity, "Press back again for Application Settings", Toast.LENGTH_SHORT).show()
-                        }
-                        1 -> {
-                            // Second back press: open native settings before allowing exit.
-                            backPressExitStage = 2
-                            lastBackPressTime = currentTime
-                            viewModel.openSettings()
-                            Toast.makeText(this@MainActivity, "Press back again to exit", Toast.LENGTH_SHORT).show()
-                        }
-                        else -> {
-                            // Third back press within timeout: exit app.
-                            onRequestExit()
-                        }
-                    }
-                }
+                else -> handleWebBackNavigation(onRequestExit)
             }
         }
 
@@ -797,12 +777,31 @@ class MainActivity : ComponentActivity() {
                     onDownloadDebugLog = { downloadLatestDebugLog() },
                     onViewGithubIssues = { openInExternalBrowser(HermesGithubIssuesListUrl) },
                     onNewGithubIssue = { openInExternalBrowser(HermesGithubNewIssueUrl) },
-                    onAddProfile = { name, url -> serverProfileCoordinator.handleAddServerProfile(name, url) },
+                    onAddProfile = { name, url, type -> serverProfileCoordinator.handleAddServerProfile(name, url, type) },
                     onDeleteProfile = { profileId -> serverProfileCoordinator.handleDeleteServerProfile(profileId) },
-                    onEditProfile = { profileId, newName, newUrl -> serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl) },
+                    onEditProfile = { profileId, newName, newUrl, type -> serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl, type) },
+                    onEditCurrentServer = { name, url, type ->
+                        val current = settingsRepository.getActiveProfile()
+                        if (current != null) {
+                            serverProfileCoordinator.handleEditServerProfile(current.id, name, url, type)
+                        } else {
+                            saveSettings(url, name, type)
+                        }
+                    },
                     onSwitchProfile = { profileId -> serverProfileCoordinator.handleSwitchServerProfile(profileId) },
                     onReconnectCurrentServer = { refreshConfiguredHermes(closeSettings = true) },
-                    onClearServerValidation = { viewModel.clearServerValidationState() }
+                    onClearServerValidation = { viewModel.clearServerValidationState() },
+                    launcherIcon = launcherIcon,
+                    onSetLauncherIcon = { choice ->
+                        try {
+                            launcherIcons.select(choice)
+                            launcherIcon = launcherIcons.selectedIcon()
+                        } catch (exception: RuntimeException) {
+                            android.util.Log.e("HermesLauncher", "Launcher icon selection failed", exception)
+                            launcherIcon = launcherIcons.selectedIcon()
+                            Toast.makeText(this@MainActivity, R.string.launcher_icon_error, Toast.LENGTH_LONG).show()
+                        }
+                    }
                 )
             } // end if (isSettingsVisible)
 
@@ -939,6 +938,7 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
+                    serverTypeDocumentGeneration++
                     handleMainWebViewPageStarted(url)
                 }
 
@@ -951,6 +951,7 @@ class MainActivity : ComponentActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
+                    detectLoadedServerType(view)
                     viewModel.onPageFinished(
                         url = url,
                         // Persist only trusted Hermes WebUI routes as the cold-start URL.
@@ -1327,16 +1328,7 @@ class MainActivity : ComponentActivity() {
             !(proxyAuthNavigation.isPending(serverUrl) && matchesConfiguredWebUiRoute(url))
         ) return
 
-        view.evaluateJavascript(
-            """
-            (function() {
-              return !!(
-                window.__HERMES_WEBUI_BUNDLE_VERSION__ ||
-                (document.querySelector('.layout') && document.querySelector('main.main'))
-              );
-            })();
-            """.trimIndent()
-        ) { result ->
+        view.evaluateJavascript(HermesWebUiScripts.hermesPageReadyScript) { result ->
             // Ignore a delayed result from a page that navigated again while JavaScript ran.
             if (view.url == url) {
                 val proxyWasActive = proxyAuthNavigation.isPending(serverUrl)
@@ -1889,6 +1881,36 @@ class MainActivity : ComponentActivity() {
         return currentWebTrustPolicy().isConfiguredWebUiRoute(url)
     }
 
+    private fun detectLoadedServerType(view: WebView?) {
+        if (view == null || view !== webView || !matchesConfiguredWebUiRoute(view.url)) return
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        val origin = UrlOrigins.pageOrigin(serverUrl) ?: return
+        val generation = serverTypeDocumentGeneration
+        fun isCurrentDocument() = !isDestroyed &&
+            generation == serverTypeDocumentGeneration &&
+            viewModel.uiState.value.settings.serverUrl == serverUrl &&
+            matchesConfiguredWebUiRoute(view.url)
+
+        fun probe(attempt: Int) {
+            if (!isCurrentDocument()) return
+            view.evaluateJavascript(HermesWebUiScripts.buildServerTypeProbeScript(origin)) { result ->
+                if (!isCurrentDocument()) return@evaluateJavascript
+                val type = when (result) {
+                    "\"agent\"" -> ServerType.AGENT
+                    "\"webui\"" -> ServerType.WEBUI
+                    else -> ServerType.UNSPECIFIED
+                }
+                if (type != ServerType.UNSPECIFIED) {
+                    viewModel.recordDetectedServerType(serverUrl, type)
+                } else if (attempt < 3) {
+                    // React/bundle markers may appear after onPageFinished; never guess from login HTML.
+                    view.postDelayed({ probe(attempt + 1) }, 1_000L)
+                }
+            }
+        }
+        probe(0)
+    }
+
     private fun matchesConfiguredDashboardRoute(url: String?): Boolean {
         return currentWebTrustPolicy().isConfiguredDashboardRoute(url)
     }
@@ -1905,6 +1927,52 @@ class MainActivity : ComponentActivity() {
     private fun loadInMainWebView(url: String) {
         lastMainFrameHopUrl = url
         webView.loadUrl(url)
+    }
+
+    private fun handleWebBackNavigation(onRequestExit: () -> Unit) {
+        val url = webView.url
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        val origin = UrlOrigins.pageOrigin(serverUrl)
+        if (!matchesConfiguredWebUiRoute(url) || origin == null) {
+            handleWebUiBackNavigation(onRequestExit)
+            return
+        }
+        webView.evaluateJavascript(HermesWebUiScripts.buildOfficialWebappProbeScript(origin)) { result ->
+            if (webView.url != url || viewModel.uiState.value.settings.serverUrl != serverUrl ||
+                viewModel.uiState.value.isSettingsVisible
+            ) return@evaluateJavascript
+            if (result == "true") {
+                // The official workspace owns its tabs/hash routes. Never back into sign-in.
+                backPressExitStage = 0
+                viewModel.openSettings()
+            } else {
+                handleWebUiBackNavigation(onRequestExit)
+            }
+        }
+    }
+
+    private fun handleWebUiBackNavigation(onRequestExit: () -> Unit) {
+        if (webView.canGoBack()) {
+            backPressExitStage = 0
+            goBackInMainWebView()
+            return
+        }
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastBackPressTime >= BACK_PRESS_TIMEOUT_MS) backPressExitStage = 0
+        when (backPressExitStage) {
+            0 -> {
+                backPressExitStage = 1
+                lastBackPressTime = currentTime
+                Toast.makeText(this, "Press back again for Application Settings", Toast.LENGTH_SHORT).show()
+            }
+            1 -> {
+                backPressExitStage = 2
+                lastBackPressTime = currentTime
+                viewModel.openSettings()
+                Toast.makeText(this, "Press back again to exit", Toast.LENGTH_SHORT).show()
+            }
+            else -> onRequestExit()
+        }
     }
 
     private fun goBackInMainWebView() {
@@ -1947,8 +2015,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveSettings(serverUrl: String) {
+        saveSettings(serverUrl, null, null)
+    }
+
+    private fun saveSettings(serverUrl: String, profileName: String?, serverType: ServerType?) {
         if (!serverUrlValidator.isValid(serverUrl)) {
             Toast.makeText(this, "Server URL must be a valid http:// or https:// URL", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (profileName != null && serverType != null &&
+            settingsRepository.getProfiles().isEmpty() &&
+            serverUrl.trim() == viewModel.uiState.value.settings.serverUrl.trim()
+        ) {
+            viewModel.addServerProfile(profileName.trim(), serverUrl.trim(), serverType)
             return
         }
         val dashboardUrl = viewModel.uiState.value.settings.dashboardUrl
@@ -1958,6 +2037,9 @@ class MainActivity : ComponentActivity() {
         }
         val persist = {
             viewModel.saveAppUrls(serverUrl, dashboardUrl)
+            if (profileName != null && serverType != null) {
+                viewModel.addServerProfile(profileName, serverUrl, serverType)
+            }
             urlPolicy = UrlPolicy(viewModel.uiState.value.settings.allowedHosts)
             installHermesWebUiDocumentStartFixes(webView, serverUrl)
             requestLocalNetworkPermissionIfNeeded(
@@ -1973,7 +2055,10 @@ class MainActivity : ComponentActivity() {
         serverProfileCoordinator.validateServerForPersistence(
             serverUrl = serverUrl,
             onFailure = { result ->
-                showServerValidationRecoveryDialog(serverUrl, result, "Save server", onUseHttpsUrl = ::saveSettings) { persist() }
+                showServerValidationRecoveryDialog(
+                    serverUrl, result, "Save server",
+                    onUseHttpsUrl = { saveSettings(it, profileName, serverType) }
+                ) { persist() }
             }
         ) { persist() }
     }

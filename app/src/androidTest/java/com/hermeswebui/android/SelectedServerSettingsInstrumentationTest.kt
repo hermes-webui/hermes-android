@@ -11,6 +11,7 @@ import com.google.common.truth.Truth.assertThat
 import com.hermeswebui.android.core.security.UrlPolicy
 import com.hermeswebui.android.core.security.WebTrustPolicy
 import com.hermeswebui.android.data.SettingsRepository
+import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.server.SelectedServerNavigation
 import java.util.UUID
 import org.json.JSONArray
@@ -69,6 +70,69 @@ class SelectedServerSettingsInstrumentationTest {
         assertThat(SelectedServerNavigation.reconnectUrl(
             "$SERVER_B/session/current", settings.serverUrl, trust
         )).isEqualTo("$SERVER_B/session/current")
+    }
+
+    @Test
+    fun serverTypeRoundTripsWithoutChangingSelectionAndSurvivesLegacyEdits() {
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        val agent = repository.addProfile("Agent", SERVER_A, ServerType.AGENT)
+        val webui = repository.addProfile("WebUI", SERVER_B, ServerType.WEBUI)
+        var reopened = SettingsRepository(context)
+        assertThat(reopened.getActiveProfile()?.id).isEqualTo(agent.id)
+        assertThat(reopened.getProfiles().map { it.serverType })
+            .containsExactly(ServerType.AGENT, ServerType.WEBUI)
+        reopened.updateProfile(agent.id, "Renamed", SERVER_A)
+        reopened.updateProfile(webui.id, "Other", SERVER_B, ServerType.UNSPECIFIED)
+        reopened = SettingsRepository(context)
+        assertThat(reopened.getActiveProfile()?.serverType).isEqualTo(ServerType.AGENT)
+        assertThat(reopened.getProfiles().first { it.id == webui.id }.serverType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(reopened.getSettings(DEFAULT_SERVER, "").serverUrl).isEqualTo(SERVER_A)
+    }
+
+    @Test
+    fun additiveMigrationsPreserveLegacyProfilesAndSelectionWithoutGuessingType() {
+        seedLegacyProfiles("profile-b")
+        val preferences = encryptedPreferences()
+        val before = preferences.getString("server_profiles", null)
+        check(preferences.edit().putInt("last_migration_version", 13).commit())
+        val reopened = SettingsRepository(context)
+        assertThat(reopened.getProfiles().all { it.serverType == ServerType.UNSPECIFIED }).isTrue()
+        assertThat(reopened.getActiveProfile()?.id).isEqualTo("profile-b")
+        assertThat(preferences.getString("server_profiles", null)).isEqualTo(before)
+        assertThat(preferences.getInt("last_migration_version", 0)).isEqualTo(15)
+    }
+
+    @Test
+    fun automaticDetectionNeverOverwritesUnreadableProfiles() {
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        val preferences = encryptedPreferences()
+        for (invalid in listOf("not json", """[{"id":"broken"}]""")) {
+            check(preferences.edit().putString("server_profiles", invalid).commit())
+            assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isFalse()
+            assertThat(preferences.getString("server_profiles", null)).isEqualTo(invalid)
+        }
+    }
+
+    @Test
+    fun automaticTypePersistsButNeverOverridesManualLabelsOrFollowsAnEditedUrl() {
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isTrue()
+        var profile = SettingsRepository(context).getActiveProfile()!!
+        assertThat(profile.serverType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(profile.effectiveServerType).isEqualTo(ServerType.AGENT)
+        assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isFalse()
+        repository.updateProfile(profile.id, "Manual", SERVER_A, ServerType.WEBUI)
+        repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)
+        profile = SettingsRepository(context).getActiveProfile()!!
+        assertThat(profile.effectiveServerType).isEqualTo(ServerType.WEBUI)
+        repository.updateProfile(profile.id, "Automatic", SERVER_A, ServerType.UNSPECIFIED)
+        assertThat(repository.getActiveProfile()?.effectiveServerType).isEqualTo(ServerType.AGENT)
+        repository.updateProfile(profile.id, "Moved", SERVER_B)
+        assertThat(repository.getActiveProfile()?.detectedServerType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isFalse()
+        assertThat(repository.recordDetectedServerType(SERVER_B, ServerType.UNSPECIFIED)).isFalse()
+        assertThat(repository.getActiveProfile()?.effectiveServerType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(repository.getProfiles()).hasSize(1)
     }
 
     @Test

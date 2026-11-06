@@ -1,0 +1,26 @@
+Bring the official Hermes Agent WebApp or Hermes WebUI to Android with a native-feeling companion. Your server's web frontend stays the real application; this app adds the Android capabilities that matter on a phone or tablet. The official WebApp does not require a separate Hermes WebUI installation.
+
+Features
+- Hardened WebView for your configured Hermes servers
+- Multiple server profiles with automatic blue Agent / gold WebUI badges and manual overrides
+- Android Back opens native Settings from the official WebApp without reloading your workspace
+- Choose official Hermes Agent or Hermes WebUI launcher artwork under Appearance
+- Share text, links and files from other apps into Hermes
+- Native file pickers, trusted HTTP(S) downloads and microphone permissions
+- Android-backed browser notifications; background activity and approval actions for Hermes WebUI
+- Encrypted local settings and PKCS#12 client-certificate support
+- OAuth/OIDC and reverse-proxy sign-in
+- Google Play in-app update delivery
+
+Requirements
+Connect to your own running official Hermes Agent browser-hosted Desktop workspace (v0.22.6 or newer, with Web Access enabled) or Hermes WebUI server. Enter its URL and sign in normally. Use HTTPS for microphone access. Android does not enable Web Access on the server.
+
+The official WebApp owns chat, tabs and voice behavior. Official gateway-WebSocket background monitoring, WebUI-style session deep links, blob/data-URL exports and notification clicks requiring a page-local JavaScript callback are not supported natively.
+
+This is a community Android companion, not an Electron replacement or an official Nous Research Android application. Google Play and F-Droid builds have separate package identities; each channel updates independently.
+
+This app does not provide AI models, hosted services or a managed Hermes instance. You are responsible for configuring and securing your server, AI providers and network access.
+
+Open-source Android app: https://github.com/hermes-webui/hermes-android
+Official Desktop/WebApp guide: https://hermes-agent.nousresearch.com/docs/user-guide/desktop
+Hermes WebUI: https://github.com/nesquena/hermes-webui

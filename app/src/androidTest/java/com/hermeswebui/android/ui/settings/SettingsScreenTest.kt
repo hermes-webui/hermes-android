@@ -76,9 +76,10 @@ class SettingsScreenTest {
                 onDownloadDebugLog = {},
                 onViewGithubIssues = {},
                 onNewGithubIssue = {},
-                onAddProfile = { _, _ -> },
+                onAddProfile = { _, _, _ -> },
                 onDeleteProfile = {},
-                onEditProfile = { _, _, _ -> },
+                onEditProfile = { _, _, _, _ -> },
+                onEditCurrentServer = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = {},
                 onClearServerValidation = {}
@@ -144,9 +145,10 @@ class SettingsScreenTest {
                 onDownloadDebugLog = {},
                 onViewGithubIssues = {},
                 onNewGithubIssue = {},
-                onAddProfile = { _, _ -> },
+                onAddProfile = { _, _, _ -> },
                 onDeleteProfile = {},
-                onEditProfile = { _, _, _ -> },
+                onEditProfile = { _, _, _, _ -> },
+                onEditCurrentServer = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = {},
                 onClearServerValidation = {}
@@ -210,9 +212,10 @@ class SettingsScreenTest {
                 onDownloadDebugLog = {},
                 onViewGithubIssues = {},
                 onNewGithubIssue = {},
-                onAddProfile = { _, _ -> },
+                onAddProfile = { _, _, _ -> },
                 onDeleteProfile = {},
-                onEditProfile = { _, _, _ -> },
+                onEditProfile = { _, _, _, _ -> },
+                onEditCurrentServer = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = { reconnectCount++ },
                 onClearServerValidation = {}
@@ -267,6 +270,7 @@ class SettingsScreenTest {
             "PRIVACY",
             "TROUBLESHOOTING",
             "ADVANCED",
+            "APPEARANCE",
             "ABOUT"
         ).forEach { heading ->
             composeTestRule.onNodeWithText(heading).assertExists()
@@ -274,6 +278,13 @@ class SettingsScreenTest {
 
         composeTestRule.onNodeWithText("Reset web session").assertDoesNotExist()
         composeTestRule.onNodeWithText("SECURITY").assertDoesNotExist()
+        val launcherY = composeTestRule.onNodeWithText("Launcher icon").fetchSemanticsNode().positionInRoot.y
+        assertThat(launcherY).isGreaterThan(
+            composeTestRule.onNodeWithText("ADVANCED").fetchSemanticsNode().positionInRoot.y
+        )
+        assertThat(launcherY).isLessThan(
+            composeTestRule.onNodeWithText("ABOUT").fetchSemanticsNode().positionInRoot.y
+        )
     }
 
     @Test
@@ -369,9 +380,10 @@ class SettingsScreenTest {
                 onDownloadDebugLog = {},
                 onViewGithubIssues = {},
                 onNewGithubIssue = {},
-                onAddProfile = { _, _ -> },
+                onAddProfile = { _, _, _ -> },
                 onDeleteProfile = {},
-                onEditProfile = { _, _, _ -> },
+                onEditProfile = { _, _, _, _ -> },
+                onEditCurrentServer = { _, _, _ -> },
                 onSwitchProfile = {},
                 onReconnectCurrentServer = {},
                 onClearServerValidation = {}

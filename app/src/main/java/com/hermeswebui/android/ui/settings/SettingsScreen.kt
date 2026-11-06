@@ -46,6 +46,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -79,6 +80,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.hermeswebui.android.R
 import com.hermeswebui.android.data.ServerProfile
+import com.hermeswebui.android.data.ServerType
+import com.hermeswebui.android.launcher.LauncherIcon
 import com.hermeswebui.android.ui.ServerValidationUiState
 import kotlin.math.roundToInt
 
@@ -140,13 +143,16 @@ fun SettingsScreen(
     onDownloadDebugLog: () -> Unit,
     onViewGithubIssues: () -> Unit,
     onNewGithubIssue: () -> Unit,
-    onAddProfile: (String, String) -> Unit,
+    onAddProfile: (String, String, ServerType) -> Unit,
     onDeleteProfile: (String) -> Unit,
-    onEditProfile: (String, String, String) -> Unit,
+    onEditProfile: (String, String, String, ServerType) -> Unit,
+    onEditCurrentServer: (String, String, ServerType) -> Unit,
     onSwitchProfile: (String) -> Unit,
     onReconnectCurrentServer: () -> Unit,
     onClearServerValidation: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    launcherIcon: LauncherIcon = LauncherIcon.WEBUI,
+    onSetLauncherIcon: (LauncherIcon) -> Unit = {}
 ) {
     BackHandler(onBack = onDismiss)
 
@@ -203,7 +209,7 @@ fun SettingsScreen(
     if (showAddProfileDialog) {
         AddServerProfileDialog(
             existingProfiles = serverProfiles,
-            onConfirm = { name, url -> onAddProfile(name, url); showAddProfileDialog = false },
+            onConfirm = { name, url, type -> onAddProfile(name, url, type); showAddProfileDialog = false },
             onDismiss = { showAddProfileDialog = false }
         )
     }
@@ -211,8 +217,9 @@ fun SettingsScreen(
         EditProfileDialog(
             currentName = editing.name,
             currentUrl = editing.url,
-            onConfirm = { newName, newUrl ->
-                onEditProfile(editing.id, newName, newUrl)
+            currentType = editing.serverType,
+            onConfirm = { newName, newUrl, type ->
+                onEditProfile(editing.id, newName, newUrl, type)
                 profileToEdit = null
             },
             onDismiss = { profileToEdit = null }
@@ -223,8 +230,8 @@ fun SettingsScreen(
         EditProfileDialog(
             currentName = "Current server",
             currentUrl = initialServerUrl,
-            onConfirm = { _, newUrl ->
-                onSave(newUrl)
+            onConfirm = { name, newUrl, type ->
+                onEditCurrentServer(name, newUrl, type)
                 editCurrentServerWithoutProfile = false
             },
             onDismiss = { editCurrentServerWithoutProfile = false }
@@ -336,7 +343,7 @@ fun SettingsScreen(
                         color = primaryColor
                     )
                     Text(
-                        text = "Enter your Hermes server URL to get started.",
+                        text = "Enter your official Hermes Webapp or Hermes WebUI URL to get started.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = onSurfaceVar
                     )
@@ -350,7 +357,7 @@ fun SettingsScreen(
                         singleLine = true,
                         label = { Text("Hermes server URL") },
                         placeholder = { Text("https://hermes.example.com") },
-                        supportingText = { Text("HTTP or HTTPS. Host is automatically allowlisted.") }
+                        supportingText = { Text("Official Webapp or WebUI. HTTP or HTTPS; HTTPS is recommended for microphone access. Host is automatically allowlisted.") }
                     )
                     ServerValidationStatus(serverValidation = serverValidation)
                     Button(
@@ -421,13 +428,16 @@ fun SettingsScreen(
                                         )
                                     },
                                     supportingContent = {
-                                        Text(
-                                            profile.url,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = onSurfaceVar
-                                        )
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                profile.url,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = onSurfaceVar
+                                            )
+                                            ServerTypeBadge(profile.effectiveServerType)
+                                        }
                                     },
                                     trailingContent = {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1003,6 +1013,17 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                SectionHeader("Appearance")
+                Surface(
+                    modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = surfaceColor
+                ) {
+                    LauncherIconPicker(launcherIcon, onSetLauncherIcon)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 AboutSettingsSection(
                     appVersionLabel = appVersionLabel,
                     appUpdateChannelLabel = appUpdateChannelLabel
@@ -1286,18 +1307,23 @@ internal fun ServerCurrentBadge() {
 internal fun EditProfileDialog(
     currentName: String,
     currentUrl: String,
-    onConfirm: (String, String) -> Unit,
-    onDismiss: () -> Unit
+    onConfirm: (String, String, ServerType) -> Unit,
+    onDismiss: () -> Unit,
+    currentType: ServerType = ServerType.UNSPECIFIED
 ) {
     var name by remember(currentName) { mutableStateOf(currentName) }
     var url by remember(currentUrl) { mutableStateOf(currentUrl) }
+    var type by remember(currentType) { mutableStateOf(currentType) }
     val isValidUrl = url.isNotBlank() && (url.startsWith("http://") || url.startsWith("https://"))
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit server") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1319,12 +1345,13 @@ internal fun EditProfileDialog(
                     },
                     isError = !isValidUrl && url.isNotBlank()
                 )
+                ServerTypePicker(type) { type = it }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         confirmButton = {
             Button(
-                onClick = { if (name.isNotBlank() && isValidUrl) onConfirm(name, url) },
+                onClick = { if (name.isNotBlank() && isValidUrl) onConfirm(name, url, type) },
                 enabled = name.isNotBlank() && isValidUrl
             ) { Text("Save") }
         }
@@ -1334,11 +1361,12 @@ internal fun EditProfileDialog(
 @Composable
 internal fun AddServerProfileDialog(
     existingProfiles: List<ServerProfile>,
-    onConfirm: (String, String) -> Unit,
+    onConfirm: (String, String, ServerType) -> Unit,
     onDismiss: () -> Unit
 ) {
     var profileName by remember { mutableStateOf("") }
     var profileUrl by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(ServerType.UNSPECIFIED) }
     val trimmedName = profileName.trim()
     val trimmedUrl = profileUrl.trim()
     val normalizedUrl = trimmedUrl.trimEnd('/').lowercase()
@@ -1355,7 +1383,10 @@ internal fun AddServerProfileDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add server") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 OutlinedTextField(
                     value = profileUrl,
                     onValueChange = { profileUrl = it },
@@ -1386,12 +1417,13 @@ internal fun AddServerProfileDialog(
                     },
                     isError = isDuplicateName
                 )
+                ServerTypePicker(type) { type = it }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         confirmButton = {
             Button(
-                onClick = { if (canSubmit) { onConfirm(trimmedName.ifBlank { trimmedUrl }, trimmedUrl); onDismiss() } },
+                onClick = { if (canSubmit) { onConfirm(trimmedName.ifBlank { trimmedUrl }, trimmedUrl, type); onDismiss() } },
                 enabled = canSubmit
             ) { Text("Add") }
         }

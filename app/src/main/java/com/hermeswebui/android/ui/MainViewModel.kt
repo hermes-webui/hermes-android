@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.hermeswebui.android.data.ServerType
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -315,9 +316,13 @@ class MainViewModel(
      }
 
      // Server profile management
-     fun addServerProfile(name: String, url: String): ServerProfile? {
+     fun recordDetectedServerType(serverUrl: String, type: ServerType) {
+         if (settingsRepositoryImpl?.recordDetectedServerType(serverUrl, type) == true) refreshProfiles()
+     }
+
+     fun addServerProfile(name: String, url: String, serverType: ServerType = ServerType.UNSPECIFIED): ServerProfile? {
          return settingsRepositoryImpl?.let {
-             val profile = it.addProfile(name, url)
+             val profile = it.addProfile(name, url, serverType)
              refreshProfiles()
              profile
          }
@@ -328,8 +333,8 @@ class MainViewModel(
          refreshProfiles()
      }
 
-     fun updateServerProfile(profileId: String, newName: String, newUrl: String) {
-         settingsRepositoryImpl?.updateProfile(profileId, newName, newUrl)
+     fun updateServerProfile(profileId: String, newName: String, newUrl: String, serverType: ServerType? = null) {
+         settingsRepositoryImpl?.updateProfile(profileId, newName, newUrl, serverType)
          refreshProfiles()
      }
 

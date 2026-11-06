@@ -1,16 +1,22 @@
 # Hermes-Android
 
-Hermes-Android brings the Hermes WebUI experience to Android without turning it
+Hermes-Android brings the Hermes workspace to Android without turning it
 into a second product.
 
-It keeps Hermes WebUI as the real application surface and adds the Android
+It hosts the official Hermes Webapp or Hermes WebUI as the real application
+surface and adds the Android
 capabilities that matter on a phone or tablet: a hardened WebView, trusted
 navigation, native sharing, uploads and downloads, notifications, secure local
 settings, update delivery, and recovery paths when the mobile runtime gets in
 the way.
 
-If Hermes WebUI is the product, Hermes-Android is the native shell that makes
-it feel at home on Android.
+Hermes-Android is the native shell that makes the web frontend feel at home
+on Android.
+
+**Now supporting the official Hermes Agent WebApp:** bring the browser-hosted
+Desktop workspace to Android with native sharing, file pickers, notifications,
+and Back-to-Settings navigation. No separate Hermes WebUI installation required.
+See [Official Hermes Webapp](#official-hermes-webapp) for setup and current limits.
 
 - Your Hermes workspace, on Android
 - Native where Android matters
@@ -42,9 +48,68 @@ right on Android.
   </tr>
 </table>
 
-Requires a running
+Connect to either the official
+[Hermes Webapp](https://hermes-agent.nousresearch.com/docs/user-guide/desktop#use-the-desktop-workspace-from-a-browser)
+(Hermes Agent v0.22.6 or newer) or a separate
 [Hermes WebUI](https://github.com/nesquena/hermes-webui) instance. On first
-launch, enter the URL for your Hermes server.
+launch, enter that frontend's URL. The official Webapp does not require
+installing Hermes WebUI.
+
+### Official Hermes Webapp
+
+Enable the browser-hosted Desktop workspace on your Hermes host with
+`hermes config set webapp.enabled true`, then run `hermes webapp`. For access
+from Android, configure Desktop **Settings > Web Access** or follow the
+upstream Webapp guide to publish it through your trusted VPN/reverse proxy.
+Use the Webapp URL, not the separate admin Dashboard URL. Android does not
+enable Web Access or change server configuration for you.
+
+Add that URL in Android's server settings and sign in using the server's own
+page. Use HTTPS for remote access: microphone capture and other browser
+secure-context features are unavailable on ordinary LAN HTTP. Do not copy
+one-use sign-in links or tokens into saved server profiles.
+
+Android recognizes the official workspace's `__HERMES_UI_SURFACE__` marker.
+**Android Back opens Application Settings** from that workspace, even when
+its tab/hash navigation has populated browser history; Back from Settings
+returns to the same mounted workspace without reloading it. WebUI retains its
+existing history-first Back behavior and sidebar Application Settings entry.
+
+Both frontends use the native upload picker, trusted HTTP(S) downloads,
+microphone permission handling, system-bar insets, pinch zoom, and Android
+Notification API bridge. The official workspace keeps ownership of its React
+editors, mobile keyboard behavior, tabs, responsive layout, and voice UI;
+Android does not emulate Electron or inject WebUI's sidebar/editor repairs.
+WebUI-specific session deep links, background SSE monitoring and approval
+actions are not an adapter for the official Webapp's gateway WebSocket
+protocol. Blob/data-URL exports and notification clicks that require a
+page-local JavaScript callback are not yet supported natively.
+
+### Launcher icon and server labels
+
+In **Application Settings > Appearance > Launcher icon**, near the bottom
+above About, choose the existing
+Hermes WebUI artwork or the official Hermes Agent artwork. This changes only
+the Android launcher entry, independently of the current server. Launchers may
+take a moment to refresh; a previously pinned home-screen shortcut may need
+to be pinned again.
+
+Servers default to **Automatic**: after the configured frontend loads,
+Android recognizes its explicit page marker and remembers a **blue Hermes Agent**
+or **gold Hermes WebUI** badge. Detection may need you to finish signing in first.
+Unknown/older pages stay unlabeled rather than being guessed from their URL,
+title, or `/api/status`.
+
+Long-press a server and choose **Edit > Server type** to override detection,
+or choose **Automatic** to use the detected type again. Existing manual choices
+are preserved. Detection and labels never change navigation, trust, frontend
+behavior, or your launcher icon, and label edits do not reload the workspace.
+Official Agent artwork attribution is included in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+
+Production Play description text is maintained in `store/google-play/en-US/`
+and submitted with production releases; F-Droid's channel-specific text lives
+under `fastlane/metadata/android/en-US/`. Publisher API readback verifies the
+committed Play text, not the timing of public storefront review/propagation.
 
 ## Why This Exists
 
@@ -97,7 +162,7 @@ first-class on Android.
 - Android-backed Hermes notifications and update alerts
 - Release packaging for both Play and GitHub channels
 
-## What Stays In Hermes WebUI
+## What Stays In The Web Frontend
 
 - Product behavior and feature workflows
 - Chat, sessions, workspace, routing, and API behavior
@@ -110,7 +175,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 
 ### Native Hermes, not a compromised wrapper
 
-- Kotlin + Jetpack Compose app shell around Hermes WebUI
+- Kotlin + Jetpack Compose app shell around the official Webapp or Hermes WebUI
 - Hardened WebView defaults with DOM storage and browser-managed HTTP and service-worker cache behavior
 - Pull-to-refresh, loading, offline, and recovery flows designed for Android
 - Deep link support for Hermes sessions through `hermes://session/{id}`
@@ -179,8 +244,8 @@ The GitHub and F-Droid builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 
-- Version name: `1.1.8`
-- Version code: `10108`
+- Version name: `1.1.9`
+- Version code: `10109`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - F-Droid application ID: `com.hermeswebui.android.fdroid`
@@ -204,7 +269,7 @@ Requirements:
 
 - Android Studio with Android SDK 37
 - JDK 17 or newer compatible with Gradle
-- A reachable Hermes WebUI URL over HTTP or HTTPS
+- A reachable official Hermes Webapp or Hermes WebUI URL over HTTP or HTTPS
 
 ## Configuration
 

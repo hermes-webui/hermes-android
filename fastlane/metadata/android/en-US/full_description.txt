@@ -1,18 +1,22 @@
-Hermes WebUI for Android brings your self-hosted Hermes WebUI workspace to Android without turning it into a second product. Hermes WebUI stays the real application; this app adds the Android capabilities that matter on a phone or tablet.
+Bring the official Hermes Agent WebApp or Hermes WebUI to Android with a native-feeling companion. Your server's web frontend stays the real application; this app adds the Android capabilities that matter on a phone or tablet. The official WebApp does not require a separate Hermes WebUI installation.
 
 <b>Features</b>
 <ul>
 <li>Hardened WebView that only loads the Hermes servers you configure</li>
-<li>Multiple server profiles with quick switching</li>
+<li>Multiple server profiles with quick switching and automatic blue Agent / gold WebUI badges</li>
+<li>Android Back opens native Settings from the official WebApp without reloading your workspace</li>
+<li>Choose official Hermes Agent or Hermes WebUI launcher artwork independently of your servers</li>
 <li>Share text, links, and files from other apps into Hermes</li>
 <li>Uploads, downloads, and voice input</li>
-<li>Native notifications for Hermes activity and approvals</li>
+<li>Android-backed browser notifications; background session activity and approval actions for Hermes WebUI</li>
 <li>Encrypted local settings and client-certificate (PKCS#12) support</li>
 <li>Sign-in through OAuth/OIDC and reverse-proxy login pages</li>
 </ul>
 
 <b>Requirements</b>
-This app requires a running Hermes WebUI server (https://github.com/nesquena/hermes-webui). On first launch, enter the URL of your server.
+This app requires either the official Hermes Agent browser-hosted Desktop workspace (v0.22.6 or newer, with Web Access enabled) or a Hermes WebUI server (https://github.com/nesquena/hermes-webui). Enter its URL and sign in normally. Use HTTPS for microphone access. Android does not enable Web Access on the server.
+
+The official WebApp owns its chat, tabs and voice UI. Official gateway-WebSocket background monitoring, WebUI-style session deep links, blob/data-URL exports and notification clicks requiring a page-local JavaScript callback are not supported natively.
 
 <b>Privacy</b>
 The app talks only to the Hermes servers you configure. This F-Droid build contains no Google libraries, analytics, or tracking, and it installs side by side with the Google Play and GitHub builds.

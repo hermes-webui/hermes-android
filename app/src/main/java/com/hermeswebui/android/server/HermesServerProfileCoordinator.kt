@@ -8,6 +8,7 @@ import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
+import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.ui.MainViewModel
@@ -72,7 +73,7 @@ class HermesServerProfileCoordinator(
         )
     }
 
-    fun handleAddServerProfile(name: String, url: String) {
+    fun handleAddServerProfile(name: String, url: String, serverType: ServerType = ServerType.UNSPECIFIED) {
         val trimmedName = name.trim()
         val trimmedUrl = url.trim()
 
@@ -101,11 +102,12 @@ class HermesServerProfileCoordinator(
                     trimmedUrl,
                     result,
                     "Add server",
-                    onUseHttpsUrl = { httpsUrl -> handleAddServerProfile(trimmedName, httpsUrl) }
+                    onUseHttpsUrl = { httpsUrl -> handleAddServerProfile(trimmedName, httpsUrl, serverType) }
                 ) {
                     val profile = viewModel.addServerProfile(
                         name = trimmedName.ifBlank { trimmedUrl },
-                        url = trimmedUrl
+                        url = trimmedUrl,
+                        serverType = serverType
                     )
                     if (profile != null) {
                         Toast.makeText(context, "Server profile \"${profile.name}\" added (readiness check skipped)", Toast.LENGTH_LONG).show()
@@ -117,7 +119,8 @@ class HermesServerProfileCoordinator(
         ) {
             val profile = viewModel.addServerProfile(
                 name = trimmedName.ifBlank { trimmedUrl },
-                url = trimmedUrl
+                url = trimmedUrl,
+                serverType = serverType
             )
             if (profile != null) {
                 Toast.makeText(context, "Server profile \"${profile.name}\" added", Toast.LENGTH_SHORT).show()
@@ -127,7 +130,7 @@ class HermesServerProfileCoordinator(
         }
     }
 
-    fun handleEditServerProfile(profileId: String, newName: String, newUrl: String) {
+    fun handleEditServerProfile(profileId: String, newName: String, newUrl: String, serverType: ServerType? = null) {
         val trimmedName = newName.trim()
         val trimmedUrl = newUrl.trim()
         if (!serverUrlValidator.isValid(trimmedUrl)) {
@@ -152,6 +155,11 @@ class HermesServerProfileCoordinator(
             }
             null -> Unit
         }
+        if (settingsRepository.getProfiles().any { it.id == profileId && it.url == trimmedUrl }) {
+            updateProfileAndFollowCurrent(profileId, trimmedName, trimmedUrl, serverType)
+            Toast.makeText(context, "Profile updated", Toast.LENGTH_SHORT).show()
+            return
+        }
         validateServerBeforePersist(
             trimmedUrl,
             onFailure = { result ->
@@ -159,22 +167,22 @@ class HermesServerProfileCoordinator(
                     trimmedUrl,
                     result,
                     "Save changes",
-                    onUseHttpsUrl = { httpsUrl -> handleEditServerProfile(profileId, trimmedName, httpsUrl) }
+                    onUseHttpsUrl = { httpsUrl -> handleEditServerProfile(profileId, trimmedName, httpsUrl, serverType) }
                 ) {
-                    updateProfileAndFollowCurrent(profileId, trimmedName, trimmedUrl)
+                    updateProfileAndFollowCurrent(profileId, trimmedName, trimmedUrl, serverType)
                     Toast.makeText(context, "Profile updated (readiness check skipped)", Toast.LENGTH_LONG).show()
                 }
             }
         ) {
-            updateProfileAndFollowCurrent(profileId, trimmedName, trimmedUrl)
+            updateProfileAndFollowCurrent(profileId, trimmedName, trimmedUrl, serverType)
             Toast.makeText(context, "Profile updated", Toast.LENGTH_SHORT).show()
         }
     }
 
     /** Editing the Current profile's URL reloads the WebView on the new server. */
-    private fun updateProfileAndFollowCurrent(profileId: String, name: String, url: String) {
+    private fun updateProfileAndFollowCurrent(profileId: String, name: String, url: String, serverType: ServerType?) {
         val previous = settingsRepository.getActiveProfile()?.takeIf { it.id == profileId }
-        viewModel.updateServerProfile(profileId, name, url)
+        viewModel.updateServerProfile(profileId, name, url, serverType)
         if (previous != null) viewModel.refreshSettingsFromRepository()
         when (SelectedServerNavigation.profileEditAction(previous, url)) {
             ServerProfileEditAction.NONE -> Unit

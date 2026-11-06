@@ -2,7 +2,7 @@
 
 ## Goals
 
-- Keep Hermes WebUI as primary UX surface for parity and maintainability.
+- Host Hermes WebUI or the official Hermes Webapp as the primary UX surface.
 - Treat the official Hermes Dashboard link as a WebUI-owned secondary surface.
 - Add native Android affordances around security, integration, and reliability.
 - Preserve clean boundaries so native enhancements can scale incrementally.
@@ -22,6 +22,12 @@
 
 ## Coordinator map
 
+Production Play publication also commits the reviewed English description text
+from `store/google-play/en-US/` through the Publisher API, preserving title/video
+and verifying a fresh-edit readback. This is separate from release notes and
+F-Droid's channel-specific `fastlane` text; API verification is not proof of
+public storefront propagation.
+
 Recent cleanup keeps `MainActivity` as the Android boundary while moving clustered responsibilities into small helpers:
 
 - `HermesNotificationBridgeCoordinator`: receives document-start WebUI notification bridge messages, tracks Android notification permission replies, and rejects untrusted origins.
@@ -40,6 +46,29 @@ cosmetic URL changes and renames do not reload, same-origin mount changes load
 the edited URL without clearing session data, and origin/port changes perform
 the full session-clearing switch. Manual URL saves also refresh the Settings
 profile markers.
+
+Server profiles persist a manual `serverType` override and a separate
+`detectedServerType`. Missing/unknown overrides mean Automatic. Additive migrations
+14/15 leave legacy JSON intact and preserve explicit manual choices. Main-frame
+page-finish and Settings-open probes read only the configured route's runtime
+markers (`__HERMES_UI_SURFACE__ === 'webapp'` or
+`__HERMES_WEBUI_BUNDLE_VERSION__`); unknown/login pages never guess a type or
+erase a previously detected badge. Bounded retries cover delayed initialization.
+Exact-origin script guards plus document-generation/configured-server checks
+fence asynchronous results after navigation or a server switch. Detection records
+the current server as a profile if none exists, without reloading or switching.
+URL edits clear detected metadata; manual overrides take display precedence.
+Blue Agent/gold WebUI badges never affect permissions, trust, or launcher choice.
+Name/type edits with an unchanged URL do not probe or reload the server.
+
+`LauncherIconManager` selects between stable `WebUiLauncher` and `AgentLauncher`
+activity aliases. PackageManager component state is the sole persistence source:
+API 33+ changes the aliases atomically; earlier Android enables the replacement
+before disabling the previous entry. Both target the permanently enabled
+`MainActivity`, which retains share and recovery/session deep-link filters.
+The WebUI alias is enabled by default, both preserve the channel-specific app
+label, and the launcher choice is independent of server profiles. Launcher
+cache/pinned-shortcut refresh timing is outside the app's control.
 
 Voice capture, wake detection, STT, TTS, and re-arm behavior remain WebUI-owned.
 `VoiceCaptureLifecycleGate` denies new requests while not resumed; pending
@@ -82,6 +111,34 @@ while the page is idle. Changes during the scan throttle window are deferred,
 not dropped.
 
 ## Runtime flow
+
+The official Hermes Agent Webapp (v0.22.6+) is an alternative primary server,
+not the secondary Dashboard. It uses the same configured-origin trust,
+encrypted server profiles, WebView cookie store, picker/download listeners,
+microphone gate, viewport repair, and notification facade. Its public
+`/api/status` is compatible with readiness probing; the root fallback also
+recognizes the explicit `window.__HERMES_UI_SURFACE__="webapp"` bootstrap
+instead of accepting a generic "Hermes" title. OAuth/proxy return completion
+accepts that marker with the renderer root, not a sign-in page. The root need
+not have hydrated yet: Webapp boot can finish asynchronously after page load.
+
+Android Back probes the current trusted document at execution time and opens
+native Settings directly for the official workspace. The callback is fenced
+against URL/server changes. Closing Settings leaves the same WebView mounted,
+including its sessionStorage and running workspace. Other frontends keep
+history-first Back behavior. WebUI's Enter interception, sidebar cloning,
+Clarify focus handling, workspace-button recovery, and selector-specific
+viewport CSS do not control the official renderer. Generic viewport-height
+repair and pinch zoom remain common; upstream owns official responsive and
+keyboard layout. No Electron bridge is synthesized.
+
+This is browser hosting, not protocol parity: official gateway WebSockets,
+profile/session hash routes and JavaScript notification-click callbacks are
+not the WebUI `/session/{id}`, SSE or approval contract. The native background
+and deep-link features below still describe WebUI only. Blob/data-URL
+downloads and delivery of notification clicks to retained page callbacks
+remain tracked in `ROADMAP.md`. Authenticated live Webapp acceptance is
+pending; loopback WebView fixtures cover the Android boundary only.
 
 1. App starts and loads encrypted WebUI settings (`SettingsRepository`). The bundled dashboard origin default is blank so WebUI owns dashboard auto-detect and persistence.
 2. WebView boots with hardened configuration, default HTTP cache behavior, DOM storage, and service-worker cache settings for WebUI-managed assets.

@@ -33,6 +33,9 @@ object HermesApiClient {
         "hermes-webui",
         "hermes webui"
     )
+    private val officialWebappMarker = Regex(
+        """window\.__HERMES_UI_SURFACE__\s*=\s*["']webapp["']"""
+    )
 
     enum class ServerReadinessStatus {
         READY,
@@ -510,7 +513,7 @@ object HermesApiClient {
         val hasHermesMarker = hermesRootMarkers.any { marker ->
             normalizedBody.contains(marker.lowercase())
         }
-        if (looksLikeHtml && hasHermesMarker) {
+        if (looksLikeHtml && (hasHermesMarker || officialWebappMarker.containsMatchIn(rawBody))) {
             return ServerReadinessResult(
                 isReady = true,
                 message = "Hermes server is reachable.",

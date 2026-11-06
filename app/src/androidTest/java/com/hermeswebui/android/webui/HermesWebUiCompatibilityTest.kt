@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.webkit.WebViewCompat
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import com.hermeswebui.android.core.security.UrlPolicy
@@ -37,6 +38,83 @@ class HermesWebUiCompatibilityTest {
     val composeTestRule = createAndroidComposeRule<ComponentActivity>()
 
     private lateinit var webView: WebView
+
+    @Test
+    fun serverTypeProbeRequiresExplicitFrontendMarkerAndExactOrigin() {
+        loadFixture("""<title>Hermes WebUI</title><div class="layout"><main class="main">Sign in</main></div>""")
+        val probe = HermesWebUiScripts.buildServerTypeProbeScript("https://hermes.test")
+        assertThat(evaluate(probe)).isEqualTo("\"unspecified\"")
+        evaluate("window.__HERMES_WEBUI_BUNDLE_VERSION__ = 'test';")
+        assertThat(evaluate(probe)).isEqualTo("\"webui\"")
+        evaluate("window.__HERMES_UI_SURFACE__ = 'webapp';")
+        assertThat(evaluate(probe)).isEqualTo("\"agent\"")
+        assertThat(evaluate(HermesWebUiScripts.buildServerTypeProbeScript("https://hermes.test:8471")))
+            .isEqualTo("\"unspecified\"")
+    }
+
+    @Test
+    fun officialWebapp_keepsReactEditorAndSidebarOwnedByThePage() {
+        loadFixture(body = """
+            <script>window.__HERMES_UI_SURFACE__ = 'webapp';</script>
+            <nav class="sidebar"><button id="settings">Settings</button></nav>
+            <textarea id="composer"></textarea>
+        """.trimIndent(), documentStartScripts = listOf(
+            HermesWebUiScripts.enterKeyNewlineScript,
+            HermesWebUiScripts.appSettingsEntryScript
+        ))
+        evaluate("""
+            window.__editorEvents = 0;
+            composer.addEventListener('keydown', function() { window.__editorEvents++; });
+            composer.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Enter', bubbles: true, cancelable: true
+            }));
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() { window.__sidebarSettled = true; });
+            });
+        """.trimIndent())
+
+        assertThat(awaitBoolean("window.__sidebarSettled === true", expected = true)).isTrue()
+        assertThat(evaluate("window.__editorEvents")).isEqualTo("1")
+        assertThat(evaluate("composer.value")).isEqualTo("\"\"")
+        assertThat(awaitBoolean(
+            "document.querySelector('[data-hermes-android-app-settings-entry]') === null",
+            expected = true
+        )).isTrue()
+    }
+
+    @Test
+    fun officialWebapp_probeRequiresExactOriginAndReadyPageRequiresRendererRoot() {
+        loadFixture("""
+            <script>window.__HERMES_UI_SURFACE__ = 'webapp';</script>
+        """.trimIndent())
+        assertThat(evaluate(HermesWebUiScripts.buildOfficialWebappProbeScript("https://hermes.test"))).isEqualTo("true")
+        assertThat(evaluate(HermesWebUiScripts.buildOfficialWebappProbeScript("https://hermes.test:8471"))).isEqualTo("false")
+        assertThat(evaluate(HermesWebUiScripts.hermesPageReadyScript)).isEqualTo("false")
+        evaluate("var root = document.createElement('div'); root.id = 'root'; document.body.appendChild(root);")
+        assertThat(evaluate(HermesWebUiScripts.hermesPageReadyScript)).isEqualTo("true")
+        evaluate("window.__HERMES_UI_SURFACE__ = 'dashboard';")
+        assertThat(evaluate(HermesWebUiScripts.hermesPageReadyScript)).isEqualTo("false")
+    }
+
+    @Test
+    fun officialWebapp_viewportPreservesUpstreamKeyboardSizingAndSidebarStyles() {
+        loadFixture("""
+            <script>window.__HERMES_UI_SURFACE__ = 'webapp';</script>
+            <style>
+              #root[data-browser-viewport] { height: var(--browser-viewport-height); }
+              .sidebar { min-height: 17px; }
+            </style>
+            <div id="root" data-browser-viewport style="--browser-viewport-height:300px">
+              <nav class="sidebar">Workspace</nav>
+            </div>
+        """.trimIndent())
+        evaluate(HermesWebUiScripts.viewportFixScript)
+        assertThat(awaitBoolean(
+            "document.getElementById('hermes-android-viewport-fix') !== null", expected = true
+        )).isTrue()
+        assertThat(evaluate("getComputedStyle(document.getElementById('root')).height")).isEqualTo("\"300px\"")
+        assertThat(evaluate("getComputedStyle(document.querySelector('.sidebar')).minHeight")).isEqualTo("\"17px\"")
+    }
 
     @After
     fun destroyWebView() {
@@ -528,12 +606,20 @@ class HermesWebUiCompatibilityTest {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun loadFixture(body: String, baseUrl: String = "https://hermes.test/", historyUrl: String? = null) {
+    private fun loadFixture(
+        body: String,
+        baseUrl: String = "https://hermes.test/",
+        historyUrl: String? = null,
+        documentStartScripts: List<String> = emptyList()
+    ) {
         val loaded = CountDownLatch(1)
         composeTestRule.setContent {
             WebViewHost { view ->
                 webView = view
                 view.settings.javaScriptEnabled = true
+                documentStartScripts.forEach { script ->
+                    WebViewCompat.addDocumentStartJavaScript(view, script, setOf("https://hermes.test"))
+                }
                 view.isFocusable = true
                 view.isFocusableInTouchMode = true
                 view.webViewClient = object : WebViewClient() {

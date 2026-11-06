@@ -39,6 +39,17 @@ That workflow:
 4. Builds, signs, and verifies `hermes-webui-v<version>-github.apk` and `hermes-webui-v<version>.aab`.
 5. Uploads both files plus their release metadata as workflow artifacts.
 6. Publishes the GitHub APK and Play production AAB in the same orchestration run.
+7. Updates the production Play `en-US` short/full descriptions from
+   `store/google-play/en-US/`, preserving the existing title and video, then reads
+   them back through a fresh Publisher API edit. Public storefront visibility can
+   still depend on Google review/propagation. A listing failure fails the publish
+   job even if the AAB has already been submitted; inspect the step before retrying.
+   To retry only the listing with authorized service-account credentials, run
+   `python tools/publish_play_listing.py --credentials <credential-file>`.
+
+F-Droid descriptions remain separate under `fastlane/metadata/android/en-US/`
+because their privacy/channel wording differs from Play. Update both when
+frontend support changes; beta publication does not change the production listing.
 
 F-Droid needs no step here. The orchestrator creates the `v<version>` tag, and
 F-Droid's update checker finds it, builds the `release` build type from source,

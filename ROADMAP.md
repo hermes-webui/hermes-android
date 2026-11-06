@@ -9,10 +9,17 @@
 
 ## Status snapshot
 
+Release v1.1.9 is being prepared for official Hermes Agent WebApp hosting,
+automatic server badges and selectable launcher artwork. Play/F-Droid store
+descriptions now describe both frontends; production listing publication and
+public release verification remain pending. F-Droid's separate submission
+remains tracked by #141 and fdroiddata merge request 55480.
+
 | Surface | Status |
 |---|---|
 | Secure WebView shell | Done - HTTP/HTTPS navigation, host allowlist, hardened defaults, and system plus user-installed CA trust with normal certificate validation |
 | WebUI integration | Done - first-run WebUI URL setting, WebUI-owned dashboard config, session persistence, pull-to-refresh |
+| Official Hermes Webapp | Android host integration implemented locally - recognizes the v0.22.6 browser workspace, preserves server sign-in/return and workspace state, opens native Settings on Back, and excludes WebUI-only editor/sidebar changes. Authenticated live-device acceptance remains pending; this does not add an Electron or gateway-WebSocket client. |
 | WebView compatibility | Done - disables forced darkening, patches Android viewport-unit collapse, respects system-bar safe insets, uses browser-managed cache defaults, smooths reload rendering, restores touch-and-hold context-menu dispatch for conversation actions, and forces WebUI microphone input onto the Android-compatible MediaRecorder path |
 | Official dashboard link | Done - Android no longer writes WebUI's Official Hermes Dashboard config, opens explicitly configured dashboard-origin requests in a Chrome Custom Tab with minimal browser UI, and avoids persisting dashboard pages as startup state |
 | Android sharing | Done - share-to-app intake for text and files |
@@ -51,6 +58,21 @@
 
 ### Android integration
 
+- [~] Official Hermes Webapp hosting (v0.22.6+): automatic renderer recognition,
+  Back-to-Settings without a workspace reload, shared Android WebView
+  integrations, and WebUI-shim isolation. Authenticated live Webapp acceptance
+  remains pending; loopback fixtures do not establish upstream UI behavior.
+  Regression evidence: readiness fallback, sign-in-return persistence and
+  Back-to-Settings fail RED on base `0d5f33f`; document-start editor input
+  interception also fails with that base's scripts. These Android-boundary
+  regressions pass GREEN with the integration on the API 36 emulator, including
+  the checked-in dependency versions (the unrelated local AGP update is not
+  required).
+- [ ] Official Webapp follow-ups: gateway-WebSocket background monitoring and
+  session deep links, blob/data-URL export handoff, and notification-tap
+  delivery to page-local session-focus callbacks. Keep WebUI's existing
+  SSE/approval contracts separate.
+
 - [x] File upload support
 - [x] File download support
 - [x] Microphone capture support for WebUI voice input
@@ -59,6 +81,28 @@
 - [x] Share-to-app intake for text
 - [x] Share-to-app intake for files
 - [x] Native launcher identity
+- [x] User-selected WebUI/official Agent launcher artwork and manual blue Agent /
+  gold WebUI server badges. Independent cosmetic choices; legacy servers stay
+  unlabeled. New opt-in feature: base RED reproduction is NOT APPLICABLE because
+  no selection or label contract existed on the base. GREEN coverage exercises
+  real API 36 launcher alias switching/launching, share and recovery resolution,
+  encrypted label persistence, legacy migration and Settings callbacks. The
+  launcher artwork was also visibly checked in the API 36 emulator after using
+  the native Settings choice. Labeling an unprofiled Current server lost an
+  in-memory draft RED on `ea10df1`; the production save-path regression is GREEN
+  after keeping unchanged-URL labels local, without a workspace reload.
+- [x] Automatic server badges: use explicit frontend runtime markers on the
+  configured page, persist per server after sign-in, and retain manual overrides
+  plus an Automatic reset. Detection does not select launcher artwork or affect
+  connection/trust behavior. The real MainActivity/frontend-marker regression
+  fails RED on base `0ae51f4` and passes GREEN on the API 36 emulator for both
+  frontends, including visible badges and preserved workspace drafts.
+  Additional checks cover login-page non-detection, exact-origin probes,
+  encrypted persistence, manual override/reset, URL edits and stale-server
+  results. These loopback checks do not replace authenticated live acceptance.
+- [x] Keep cosmetic launcher choices near the bottom of Settings in Appearance,
+  above About, so server, connection, privacy and troubleshooting controls retain
+  priority. Layout-only move: behavior regression reproduction is NOT APPLICABLE.
 - [x] Splash and app theme
 - [x] WebUI-owned Official Hermes Dashboard setting
 - [x] Official dashboard link route

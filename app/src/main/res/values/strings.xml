@@ -1,5 +1,13 @@
 <resources>
     <string name="app_name">Hermes WebUI</string>
+    <string name="launcher_icon_title">Launcher icon</string>
+    <string name="launcher_icon_hint">Changes only this Android app\'s launcher icon, not the selected server. Your launcher may take a moment to refresh.</string>
+    <string name="launcher_icon_error">Could not change the launcher icon. Please try again.</string>
+    <string name="server_type_title">Server type</string>
+    <string name="server_type_hint">Automatic detects the frontend after its page loads, including after sign-in. Choose a type to override detection. This only changes the label.</string>
+    <string name="server_type_unspecified">Automatic</string>
+    <string name="server_type_agent">Hermes Agent</string>
+    <string name="server_type_webui">Hermes WebUI</string>
     <string name="default_server_url">https://hermes.example.com</string>
     <string name="default_dashboard_url"></string>
     <string name="action_edit_server_url">Edit server URL</string>

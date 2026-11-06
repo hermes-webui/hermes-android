@@ -8,6 +8,7 @@ import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.server.SelectedServerNavigation
 import com.hermeswebui.android.server.ServerProfileRules
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 @Suppress("DEPRECATION")
@@ -60,7 +61,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 13 // Increment this when adding new migrations
+        val currentMigrationVersion = 15 // Increment this when adding new migrations
 
         if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
@@ -161,6 +162,14 @@ class SettingsRepository(context: Context) : SettingsStore {
             }
         }
 
+        if (lastMigrationVersion < 14) {
+            // Migration 14 is additive: missing serverType reads as UNSPECIFIED. Do not rewrite
+            // legacy JSON (including an unreadable document) merely to add a cosmetic label.
+            sharedPreferences.edit { putInt(KEY_LAST_MIGRATION_VERSION, 14) }
+        }
+
+        // Migration 15 is additive: absent detectedServerType remains unknown until a
+        // configured frontend supplies its runtime marker. Preserve manual overrides.
         sharedPreferences.edit {
             putInt(KEY_LAST_MIGRATION_VERSION, currentMigrationVersion)
         }
@@ -400,7 +409,7 @@ class SettingsRepository(context: Context) : SettingsStore {
     fun getLastLoadedUrl(): String? = sharedPreferences.getString(KEY_LAST_URL, null)
 
     // Server Profile CRUD operations
-    fun addProfile(name: String, url: String): ServerProfile {
+    fun addProfile(name: String, url: String, serverType: ServerType = ServerType.UNSPECIFIED): ServerProfile {
         val profiles = getProfiles().toMutableList()
 
         // Fresh installs can have a configured server URL but no profile rows yet.
@@ -422,7 +431,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         val currentUrl = sharedPreferences.getString(KEY_SERVER_URL, null).orEmpty()
         val isCurrent = profiles.none { it.isActive } &&
             normalizeProfileUrl(currentUrl) == normalizeProfileUrl(url)
-        val profile = ServerProfile(name = name, url = url, isActive = isCurrent)
+        val profile = ServerProfile(name = name, url = url, isActive = isCurrent, serverType = serverType)
         profiles.add(profile)
         saveProfiles(profiles)
         if (isCurrent) setActiveProfile(profile.id)
@@ -439,11 +448,19 @@ class SettingsRepository(context: Context) : SettingsStore {
         }
     }
 
-    fun updateProfile(profileId: String, newName: String, newUrl: String) {
+    fun updateProfile(
+        profileId: String,
+        newName: String,
+        newUrl: String,
+        serverType: ServerType? = null
+    ) {
         val profiles = getProfiles().map { profile ->
             if (profile.id == profileId) profile.copy(
                 name = newName.trim().ifBlank { newUrl },
-                url = newUrl.trim()
+                url = newUrl.trim(),
+                serverType = serverType ?: profile.serverType,
+                detectedServerType = if (profile.url.trim() == newUrl.trim()) profile.detectedServerType
+                    else ServerType.UNSPECIFIED
             )
             else profile
         }
@@ -476,6 +493,31 @@ class SettingsRepository(context: Context) : SettingsStore {
         return getProfiles().firstOrNull { it.id == activeId }
     }
 
+    fun recordDetectedServerType(serverUrl: String, type: ServerType): Boolean {
+        if (type == ServerType.UNSPECIFIED ||
+            sharedPreferences.getString(KEY_SERVER_URL, null) != serverUrl
+        ) return false
+        var profiles = getProfiles()
+        val storedProfileCount = try {
+            JSONArray(sharedPreferences.getString(KEY_SERVER_PROFILES, "[]")).length()
+        } catch (_: JSONException) {
+            android.util.Log.e("HermesSettings", "Skipping automatic label: saved profiles are unreadable")
+            return false
+        }
+        if (storedProfileCount != profiles.size) {
+            android.util.Log.e("HermesSettings", "Skipping automatic label: saved profile rows are unreadable")
+            return false
+        }
+        val profile = getActiveProfile()?.takeIf { it.url == serverUrl }
+            ?: profiles.firstOrNull { it.url == serverUrl }
+            ?: addProfile("Current server", serverUrl).also { profiles = getProfiles() }
+        if (profile.detectedServerType == type) return false
+        saveProfiles(profiles.map {
+            if (it.id == profile.id) it.copy(detectedServerType = type) else it
+        })
+        return true
+    }
+
     private fun saveProfiles(profiles: List<ServerProfile>) {
         val jsonArray = JSONArray()
         profiles.forEach { profile ->
@@ -485,6 +527,8 @@ class SettingsRepository(context: Context) : SettingsStore {
                 put("url", profile.url)
                 put("createdAt", profile.createdAt)
                 put("isActive", profile.isActive)
+                put("serverType", profile.serverType.storedValue)
+                put("detectedServerType", profile.detectedServerType.storedValue)
             }
             jsonArray.put(obj)
         }
@@ -546,7 +590,9 @@ class SettingsRepository(context: Context) : SettingsStore {
                         name = obj.getString("name"),
                         url = obj.getString("url"),
                         createdAt = obj.getLong("createdAt"),
-                        isActive = id == activeId
+                        isActive = id == activeId,
+                        serverType = ServerType.fromStoredValue(obj.optString("serverType")),
+                        detectedServerType = ServerType.fromStoredValue(obj.optString("detectedServerType"))
                     )
                 }
             } catch (e: Exception) {

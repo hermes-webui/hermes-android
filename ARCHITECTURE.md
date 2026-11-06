@@ -22,6 +22,12 @@
 
 ## Coordinator map
 
+Production Play publication also commits the reviewed English description text
+from `store/google-play/en-US/` through the Publisher API, preserving title/video
+and verifying a fresh-edit readback. This is separate from release notes and
+F-Droid's channel-specific `fastlane` text; API verification is not proof of
+public storefront propagation.
+
 Recent cleanup keeps `MainActivity` as the Android boundary while moving clustered responsibilities into small helpers:
 
 - `HermesNotificationBridgeCoordinator`: receives document-start WebUI notification bridge messages, tracks Android notification permission replies, and rejects untrusted origins.

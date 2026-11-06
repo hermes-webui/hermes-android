@@ -37,8 +37,14 @@ jobs:
   publish-play:
     name: Publish Play Store ${{ inputs.track }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
+      - name: Check out reviewed release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
@@ -142,3 +148,11 @@ jobs:
           status: completed
           releaseName: Hermes WebUI Android v${{ inputs.version_name }}
           whatsNewDirectory: build/release/play-whatsnew
+
+      - name: Publish and verify production listing descriptions
+        if: inputs.track == 'production'
+        shell: bash
+        run: |
+          python3 -m pip install -r tools/requirements-play-listing.txt
+          python3 tools/publish_play_listing.py \
+            --credentials signing/google-play-service-account.json

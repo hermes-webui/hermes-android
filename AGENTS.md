@@ -249,6 +249,11 @@ and ends with:
 `Report issues through the in-app bug report tool.`
 Keep `RELEASE.md` aligned with the workflow operator path whenever release
 automation changes.
+Production Play descriptions live in `store/google-play/en-US/` and are published
+by `tools/publish_play_listing.py` after AAB submission, with fresh-edit API
+readback. Preserve existing title/video. Keep F-Droid-specific descriptions under
+`fastlane/metadata/android/en-US/`; do not publish their channel/privacy wording
+to Play or claim API-committed text is already visible on the public storefront.
 
 Separate from release publishing, CI uses `.github/workflows/0-ci-build-and-test.yml` to gate pull requests and direct `main` pushes without signing secrets. Each check runs as its own job so a failure names the gate that broke: `docs-render`, `docs-links`, `release-tooling-tests`, `webui-script-syntax`, `webui-script-lint`, `unit-tests`, `android-lint`, and `debug-build`. Keep every job's `timeout-minutes` set; an untimed job can burn the six-hour runner default. Pull requests and direct `main` pushes that change Android source or build inputs also run the complete unfiltered `connectedDebugAndroidTest` suite on Android API 35 and 36. Release builds run the full API 36 suite again, then verify APK and AAB signatures before upload. Keep contributor verification steps aligned with these gates when changing build/test flow.
 

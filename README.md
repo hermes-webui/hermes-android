@@ -13,6 +13,11 @@ the way.
 Hermes-Android is the native shell that makes the web frontend feel at home
 on Android.
 
+**Now supporting the official Hermes Agent WebApp:** bring the browser-hosted
+Desktop workspace to Android with native sharing, file pickers, notifications,
+and Back-to-Settings navigation. No separate Hermes WebUI installation required.
+See [Official Hermes Webapp](#official-hermes-webapp) for setup and current limits.
+
 - Your Hermes workspace, on Android
 - Native where Android matters
 - WebUI where Hermes matters
@@ -100,6 +105,11 @@ or choose **Automatic** to use the detected type again. Existing manual choices
 are preserved. Detection and labels never change navigation, trust, frontend
 behavior, or your launcher icon, and label edits do not reload the workspace.
 Official Agent artwork attribution is included in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+
+Production Play description text is maintained in `store/google-play/en-US/`
+and submitted with production releases; F-Droid's channel-specific text lives
+under `fastlane/metadata/android/en-US/`. Publisher API readback verifies the
+committed Play text, not the timing of public storefront review/propagation.
 
 ## Why This Exists
 
@@ -234,8 +244,8 @@ The GitHub and F-Droid builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 
-- Version name: `1.1.8`
-- Version code: `10108`
+- Version name: `1.1.9`
+- Version code: `10109`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - F-Droid application ID: `com.hermeswebui.android.fdroid`

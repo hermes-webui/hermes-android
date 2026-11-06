@@ -1,1 +1,1 @@
-Native Android companion for your self-hosted Hermes WebUI server
+Bring Hermes Agent WebApp or Hermes WebUI to Android with native integration

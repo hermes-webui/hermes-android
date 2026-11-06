@@ -1,0 +1,1 @@
+Support the official Hermes Agent WebApp as your primary Android workspace, without a separate Hermes WebUI installation. Back opens native Settings while preserving your workspace. Automatically distinguish Agent and WebUI servers with blue/gold badges, with manual overrides. Choose your launcher artwork under Appearance near the bottom of Settings.

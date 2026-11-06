@@ -9,6 +9,12 @@
 
 ## Status snapshot
 
+Release v1.1.9 is being prepared for official Hermes Agent WebApp hosting,
+automatic server badges and selectable launcher artwork. Play/F-Droid store
+descriptions now describe both frontends; production listing publication and
+public release verification remain pending. F-Droid's separate submission
+remains tracked by #141 and fdroiddata merge request 55480.
+
 | Surface | Status |
 |---|---|
 | Secure WebView shell | Done - HTTP/HTTPS navigation, host allowlist, hardened defaults, and system plus user-installed CA trust with normal certificate validation |

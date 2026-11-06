@@ -1,5 +1,13 @@
 <resources>
     <string name="app_name">Hermes WebUI</string>
+    <string name="setup_help_title">Need help setting up a server?</string>
+    <string name="setup_help_hide">Hide server setup help</string>
+    <string name="setup_help_instructions">Already have Hermes Agent? Copy one of these guided commands and paste it into your existing Hermes chat on the computer or server running Hermes. These are prompts for Hermes, not terminal commands. Android only copies the text; nothing is installed or run on your phone.</string>
+    <string name="setup_copy_webui">Copy command to set up WebUI</string>
+    <string name="setup_copy_webapp">Copy command to set up Hermes WebApp</string>
+    <string name="setup_help_next">Choose the official WebApp for the Desktop workspace without a separate WebUI installation. Choose WebUI for the community web interface. Follow the setup and sign-in steps, then paste the reusable server URL above (or use Add server). Never save a temporary sign-in link. Prefer HTTPS and a trusted VPN; localhost on your phone is not your server.</string>
+    <string name="setup_copy_success">Setup prompt copied. Paste it into your existing Hermes chat, not a terminal.</string>
+    <string name="setup_copy_failed">Could not copy the setup prompt. Please try again or copy it from the README.</string>
     <string name="launcher_icon_title">Launcher icon</string>
     <string name="launcher_icon_hint">Changes only this Android app\'s launcher icon, not the selected server. Your launcher may take a moment to refresh.</string>
     <string name="launcher_icon_error">Could not change the launcher icon. Please try again.</string>

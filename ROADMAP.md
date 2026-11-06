@@ -9,10 +9,22 @@
 
 ## Status snapshot
 
-Release v1.1.9 is being prepared for official Hermes Agent WebApp hosting,
-automatic server badges and selectable launcher artwork. Play/F-Droid store
-descriptions now describe both frontends; production listing publication and
-public release verification remain pending. F-Droid's separate submission
+- [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
+  for community WebUI and official WebApp; explain host-vs-phone access,
+  authentication, HTTPS and reusable URLs. Include the requested AGP 9.5.1
+  update. API 36 tests verify both exact Android clipboard payloads and first-run/
+  configured Settings availability (10 tests). Base RED is NOT APPLICABLE:
+  this adds opt-in copy actions with no prior contract, not a regression fix.
+  Host setup and phone connectivity are external, unexecuted steps.
+- [ ] Onboarding follow-up recommendation: consider scanning a reusable server
+  URL QR code to reduce typing, with URL validation and explicit user confirmation;
+  never encode credentials or temporary sign-in tokens.
+
+Release v1.1.9 shipped official Hermes Agent WebApp hosting, automatic server
+badges and selectable launcher artwork. GitHub publication and Play production
+submission succeeded; Play descriptions were verified through a fresh Publisher
+API edit, not the public storefront. Release v1.1.10 adds guided setup help and
+the requested Gradle plugin update; publication is pending. F-Droid's separate submission
 remains tracked by #141 and fdroiddata merge request 55480.
 
 | Surface | Status |

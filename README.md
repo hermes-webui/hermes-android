@@ -111,6 +111,48 @@ and submitted with production releases; F-Droid's channel-specific text lives
 under `fastlane/metadata/android/en-US/`. Publisher API readback verifies the
 committed Play text, not the timing of public storefront review/propagation.
 
+### Copy a guided setup command
+
+Already running Hermes Agent? On first launch, use **Copy command to set up
+WebUI** or **Copy command to set up Hermes WebApp** below the connection form.
+After connecting, expand **Need help setting up a server?** under Servers.
+Paste the copied text into your existing **Hermes chat on the computer/server
+that runs Hermes**, not a terminal. Android only copies the prompt: it does not
+install software, run a shell command, or change your server.
+
+Choose the official WebApp for the Desktop workspace without a separate WebUI
+installation, or WebUI for the community web interface. Follow Hermes' guidance,
+then paste the reusable server URL into Android and sign in. A URL beginning
+with `localhost` or `127.0.0.1` points to the phone when opened on the phone.
+Prefer authenticated HTTPS over a trusted VPN; never save temporary sign-in links.
+These prompts guide an existing agent, not a guaranteed unattended installer.
+If you do not have Hermes Agent yet, start with the
+[official installation guide](https://hermes-agent.nousresearch.com/docs/getting-started/installation).
+
+**Copy command to set up WebUI** (paste into Hermes chat):
+
+```text
+Help me set up Hermes WebUI for the Hermes-Android app on my phone. Work on the computer/server that runs my existing Hermes Agent, not on the Android phone. First check the operating system, existing Hermes/WebUI installations, active profile, ports and network access. Preserve my models, credentials, conversations and configuration; do not reinstall or overwrite a working setup.
+
+Read https://github.com/nesquena/hermes-webui and its docs/onboarding-agent-checklist.md for current instructions. Reuse an existing WebUI installation. If it is missing, explain the installation plan and ask before installing dependencies or downloading/running installers. The documented bootstrap uses git clone https://github.com/nesquena/hermes-webui.git hermes-webui, then cd hermes-webui and python3 bootstrap.py; native Windows needs a supported alternative such as WSL2. Check compatibility instead of blindly running these commands.
+
+Help me choose safe phone access using an existing trusted VPN such as Tailscale, an SSH tunnel, or an authenticated HTTPS reverse proxy. Localhost/127.0.0.1 on my phone is the phone, not this server. Keep authentication enabled. Do not expose an unauthenticated service, open router ports, disable TLS verification or change firewall/network settings without explaining the risks and asking me first. Prefer HTTPS for microphone and browser features.
+
+Verify the server's health and sign-in locally, then guide me through a phone-side connection check; do not claim phone reachability from a localhost check. Give me the reusable server URL to paste into Hermes-Android, simple sign-in steps and how to stop/restart the service. Never include passwords, API keys, bearer tokens or one-use login links in the saved URL or your response. If access or a check is unavailable, state what remains unverified.
+```
+
+**Copy command to set up Hermes WebApp** (paste into Hermes chat):
+
+```text
+Help me enable the official Hermes Agent WebApp (the browser-hosted Desktop workspace) for the Hermes-Android app on my phone. This is not the admin Dashboard and does not require the separate Hermes WebUI repository. Work on the computer/server running my existing Hermes Agent, not on the Android phone. Check the installed version, active profile, gateway state and network access first. Preserve my credentials, conversations, models and working configuration.
+
+Read https://hermes-agent.nousresearch.com/docs/user-guide/desktop and the linked Webapp configuration/authentication documentation for the installed version. The basic host commands are hermes config set webapp.enabled true and hermes webapp. Explain the plan and ask before updating Hermes, downloading/building dependencies or restarting a gateway that may have active chats. Use the existing profile and do not install Hermes WebUI as a substitute.
+
+For phone access, prefer Desktop Settings > Web Access with authenticated HTTPS through my existing trusted VPN/reverse proxy. A same-host proxy can keep the Webapp on loopback and use webapp.public_url; other topologies need their documented configuration. Do not blindly bind to 0.0.0.0: non-loopback access requires the documented sign-in gate. Do not expose unauthenticated access, forward router ports, disable TLS verification or change firewall/network settings without explaining risks and asking first. WebApp access can run commands and access files as the host user.
+
+Verify hermes webapp --status and the sign-in flow, then guide me through a phone-side connection check. Localhost/127.0.0.1 on my phone is not this server. Give me the reusable HTTP(S) server URL to save in Hermes-Android and simple sign-in steps. Keep temporary one-use sign-in links, passwords, API keys and tokens private and out of the saved URL and your response. Prefer HTTPS for microphone and browser features. If any setup or phone check cannot be verified, say what remains.
+```
+
 ## Why This Exists
 
 Hermes already has a strong web experience. Android should not fork that
@@ -244,8 +286,8 @@ The GitHub and F-Droid builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 
-- Version name: `1.1.9`
-- Version code: `10109`
+- Version name: `1.1.10`
+- Version code: `10110`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - F-Droid application ID: `com.hermeswebui.android.fdroid`

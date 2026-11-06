@@ -1,0 +1,2 @@
+Copy guided setup prompts for Hermes WebUI or the official Hermes Agent WebApp from first-run setup and server settings.
+Paste into your existing Hermes chat for safe setup guidance, then save the reusable server URL in Android.

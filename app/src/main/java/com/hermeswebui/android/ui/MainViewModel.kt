@@ -316,6 +316,10 @@ class MainViewModel(
      }
 
      // Server profile management
+     fun recordDetectedServerType(serverUrl: String, type: ServerType) {
+         if (settingsRepositoryImpl?.recordDetectedServerType(serverUrl, type) == true) refreshProfiles()
+     }
+
      fun addServerProfile(name: String, url: String, serverType: ServerType = ServerType.UNSPECIFIED): ServerProfile? {
          return settingsRepositoryImpl?.let {
              val profile = it.addProfile(name, url, serverType)

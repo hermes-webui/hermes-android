@@ -68,11 +68,46 @@ class ProxyAuthRedirectInstrumentationTest {
                 awaitText("Continue to server sign-in?")
                 clickDialogButton("Continue")
                 awaitLoginForm(scenario, server)
+                assertThat(repository.getProfiles()).isEmpty()
                 evaluateWebView(scenario, "document.getElementById('signin').click();")
                 eventually("Official workspace proves sign-in return and persists") {
                     repository.getLastLoadedUrl() == "${server.baseUrl}/"
                 }
                 assertOfficialBackPreservesWorkspace(scenario)
+            }
+        }
+    }
+
+    @Test
+    fun automaticallyLabelsBothFrontendsWithoutChangingManualSelectionOrReloading() {
+        for (official in listOf(true, false)) {
+            withConfiguredServer(officialWebapp = official) { server, repository ->
+                if (!official) repository.saveLastLoadedUrl("${server.baseUrl}/session/issue132")
+                instrumentation.runOnMainSync {
+                    CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+                }
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    eventually("Automatic profile created after frontend marker") {
+                        repository.getProfiles().isNotEmpty()
+                    }
+                    val profile = repository.getProfiles().single()
+                    assertThat(profile.serverType).isEqualTo(ServerType.UNSPECIFIED)
+                    evaluateWebView(scenario, "window.__workspaceDraft = 'unsent';")
+                    scenario.onActivity {
+                        val originalIntent = it.intent
+                        instrumentation.callActivityOnNewIntent(it, Intent(
+                            Intent.ACTION_VIEW, android.net.Uri.parse("hermes://app/settings")
+                        ))
+                        it.intent = originalIntent
+                    }
+                    compose.waitForIdle()
+                    compose.onNode(hasText("Current server") and
+                        hasText(if (official) "Hermes Agent" else "Hermes WebUI"))
+                        .assertIsDisplayed()
+                    scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                    assertThat(evaluateWebView(scenario, "window.__workspaceDraft")).isEqualTo("\"unsent\"")
+                    assertThat(repository.getProfiles()).hasSize(1)
+                }
             }
         }
     }
@@ -570,7 +605,7 @@ class ProxyAuthRedirectInstrumentationTest {
                         (path == "/session/issue132" || (officialWebapp && path == "/")) && authenticated -> Triple("200 OK", "", """
                             <title>Hermes signed in</title>
                             ${if (officialWebapp) """<script>window.__HERMES_UI_SURFACE__="webapp";</script><div id="root"><main>Official workspace</main></div>"""
-                              else """<div class="layout"><main class="main">Authenticated</main></div>"""}
+                              else """<script>window.__HERMES_WEBUI_BUNDLE_VERSION__="fixture";</script><div class="layout"><main class="main">Authenticated</main></div>"""}
                             $FILE_INPUT
                         """.trimIndent())
                         else -> Triple("404 Not Found", "", "")

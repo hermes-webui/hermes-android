@@ -40,6 +40,19 @@ class HermesWebUiCompatibilityTest {
     private lateinit var webView: WebView
 
     @Test
+    fun serverTypeProbeRequiresExplicitFrontendMarkerAndExactOrigin() {
+        loadFixture("""<title>Hermes WebUI</title><div class="layout"><main class="main">Sign in</main></div>""")
+        val probe = HermesWebUiScripts.buildServerTypeProbeScript("https://hermes.test")
+        assertThat(evaluate(probe)).isEqualTo("\"unspecified\"")
+        evaluate("window.__HERMES_WEBUI_BUNDLE_VERSION__ = 'test';")
+        assertThat(evaluate(probe)).isEqualTo("\"webui\"")
+        evaluate("window.__HERMES_UI_SURFACE__ = 'webapp';")
+        assertThat(evaluate(probe)).isEqualTo("\"agent\"")
+        assertThat(evaluate(HermesWebUiScripts.buildServerTypeProbeScript("https://hermes.test:8471")))
+            .isEqualTo("\"unspecified\"")
+    }
+
+    @Test
     fun officialWebapp_keepsReactEditorAndSidebarOwnedByThePage() {
         loadFixture(body = """
             <script>window.__HERMES_UI_SURFACE__ = 'webapp';</script>

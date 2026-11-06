@@ -3,6 +3,18 @@ package com.hermeswebui.android.webui
 import org.json.JSONObject
 
 object HermesWebUiScripts {
+    fun buildServerTypeProbeScript(trustedOrigin: String): String {
+        val quotedOrigin = JSONObject.quote(trustedOrigin)
+        return """
+            (function() {
+              if (window.location.origin !== $quotedOrigin) return 'unspecified';
+              if (window.__HERMES_UI_SURFACE__ === 'webapp') return 'agent';
+              if (window.__HERMES_WEBUI_BUNDLE_VERSION__) return 'webui';
+              return 'unspecified';
+            })();
+        """.trimIndent()
+    }
+
     fun buildOfficialWebappProbeScript(trustedOrigin: String): String {
         val quotedOrigin = JSONObject.quote(trustedOrigin)
         return """

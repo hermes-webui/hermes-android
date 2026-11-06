@@ -435,7 +435,7 @@ fun SettingsScreen(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = onSurfaceVar
                                             )
-                                            ServerTypeBadge(profile.serverType)
+                                            ServerTypeBadge(profile.effectiveServerType)
                                         }
                                     },
                                     trailingContent = {

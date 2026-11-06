@@ -41,10 +41,18 @@ the edited URL without clearing session data, and origin/port changes perform
 the full session-clearing switch. Manual URL saves also refresh the Settings
 profile markers.
 
-Server profiles also persist an optional, manually chosen `ServerType`. Migration
-14 is additive: legacy JSON is not rewritten, and missing/unknown types display
-as unlabeled. Blue Agent and gold WebUI badges are cosmetic metadata only, not
-renderer detection, permission decisions, or a change to the selected server.
+Server profiles persist a manual `serverType` override and a separate
+`detectedServerType`. Missing/unknown overrides mean Automatic. Additive migrations
+14/15 leave legacy JSON intact and preserve explicit manual choices. Main-frame
+page-finish and Settings-open probes read only the configured route's runtime
+markers (`__HERMES_UI_SURFACE__ === 'webapp'` or
+`__HERMES_WEBUI_BUNDLE_VERSION__`); unknown/login pages never guess a type or
+erase a previously detected badge. Bounded retries cover delayed initialization.
+Exact-origin script guards plus document-generation/configured-server checks
+fence asynchronous results after navigation or a server switch. Detection records
+the current server as a profile if none exists, without reloading or switching.
+URL edits clear detected metadata; manual overrides take display precedence.
+Blue Agent/gold WebUI badges never affect permissions, trust, or launcher choice.
 Name/type edits with an unchanged URL do not probe or reload the server.
 
 `LauncherIconManager` selects between stable `WebUiLauncher` and `AgentLauncher`

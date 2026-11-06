@@ -85,6 +85,15 @@
   the native Settings choice. Labeling an unprofiled Current server lost an
   in-memory draft RED on `ea10df1`; the production save-path regression is GREEN
   after keeping unchanged-URL labels local, without a workspace reload.
+- [x] Automatic server badges: use explicit frontend runtime markers on the
+  configured page, persist per server after sign-in, and retain manual overrides
+  plus an Automatic reset. Detection does not select launcher artwork or affect
+  connection/trust behavior. The real MainActivity/frontend-marker regression
+  fails RED on base `0ae51f4` and passes GREEN on the API 36 emulator for both
+  frontends, including visible badges and preserved workspace drafts.
+  Additional checks cover login-page non-detection, exact-origin probes,
+  encrypted persistence, manual override/reset, URL edits and stale-server
+  results. These loopback checks do not replace authenticated live acceptance.
 - [x] Splash and app theme
 - [x] WebUI-owned Official Hermes Dashboard setting
 - [x] Official dashboard link route

@@ -90,7 +90,7 @@ class SelectedServerSettingsInstrumentationTest {
     }
 
     @Test
-    fun migration14PreservesLegacyProfilesAndSelectionWithoutGuessingType() {
+    fun additiveMigrationsPreserveLegacyProfilesAndSelectionWithoutGuessingType() {
         seedLegacyProfiles("profile-b")
         val preferences = encryptedPreferences()
         val before = preferences.getString("server_profiles", null)
@@ -99,7 +99,29 @@ class SelectedServerSettingsInstrumentationTest {
         assertThat(reopened.getProfiles().all { it.serverType == ServerType.UNSPECIFIED }).isTrue()
         assertThat(reopened.getActiveProfile()?.id).isEqualTo("profile-b")
         assertThat(preferences.getString("server_profiles", null)).isEqualTo(before)
-        assertThat(preferences.getInt("last_migration_version", 0)).isEqualTo(14)
+        assertThat(preferences.getInt("last_migration_version", 0)).isEqualTo(15)
+    }
+
+    @Test
+    fun automaticTypePersistsButNeverOverridesManualLabelsOrFollowsAnEditedUrl() {
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isTrue()
+        var profile = SettingsRepository(context).getActiveProfile()!!
+        assertThat(profile.serverType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(profile.effectiveServerType).isEqualTo(ServerType.AGENT)
+        assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isFalse()
+        repository.updateProfile(profile.id, "Manual", SERVER_A, ServerType.WEBUI)
+        repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)
+        profile = SettingsRepository(context).getActiveProfile()!!
+        assertThat(profile.effectiveServerType).isEqualTo(ServerType.WEBUI)
+        repository.updateProfile(profile.id, "Automatic", SERVER_A, ServerType.UNSPECIFIED)
+        assertThat(repository.getActiveProfile()?.effectiveServerType).isEqualTo(ServerType.AGENT)
+        repository.updateProfile(profile.id, "Moved", SERVER_B)
+        assertThat(repository.getActiveProfile()?.detectedServerType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(repository.recordDetectedServerType(SERVER_A, ServerType.AGENT)).isFalse()
+        assertThat(repository.recordDetectedServerType(SERVER_B, ServerType.UNSPECIFIED)).isFalse()
+        assertThat(repository.getActiveProfile()?.effectiveServerType).isEqualTo(ServerType.UNSPECIFIED)
+        assertThat(repository.getProfiles()).hasSize(1)
     }
 
     @Test

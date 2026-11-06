@@ -88,11 +88,16 @@ the Android launcher entry, independently of the current server. Launchers may
 take a moment to refresh; a previously pinned home-screen shortcut may need
 to be pinned again.
 
-Long-press a saved server and choose **Edit**, then set its **Server type**:
-**Hermes Agent** has a blue badge and **Hermes WebUI** has a gold badge.
-New servers offer the same choice. **Not labeled** is the default for existing
-servers. These are manual, per-server labels, not automatic detection or a
-connection check; they never change navigation, trust, or frontend behavior.
+Servers default to **Automatic**: after the configured frontend loads,
+Android recognizes its explicit page marker and remembers a **blue Hermes Agent**
+or **gold Hermes WebUI** badge. Detection may need you to finish signing in first.
+Unknown/older pages stay unlabeled rather than being guessed from their URL,
+title, or `/api/status`.
+
+Long-press a server and choose **Edit > Server type** to override detection,
+or choose **Automatic** to use the detected type again. Existing manual choices
+are preserved. Detection and labels never change navigation, trust, frontend
+behavior, or your launcher icon, and label edits do not reload the workspace.
 Official Agent artwork attribution is included in [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
 ## Why This Exists

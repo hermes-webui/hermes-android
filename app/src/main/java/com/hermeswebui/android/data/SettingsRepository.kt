@@ -60,7 +60,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 14 // Increment this when adding new migrations
+        val currentMigrationVersion = 15 // Increment this when adding new migrations
 
         if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
@@ -167,6 +167,8 @@ class SettingsRepository(context: Context) : SettingsStore {
             sharedPreferences.edit { putInt(KEY_LAST_MIGRATION_VERSION, 14) }
         }
 
+        // Migration 15 is additive: absent detectedServerType remains unknown until a
+        // configured frontend supplies its runtime marker. Preserve manual overrides.
         sharedPreferences.edit {
             putInt(KEY_LAST_MIGRATION_VERSION, currentMigrationVersion)
         }
@@ -455,7 +457,9 @@ class SettingsRepository(context: Context) : SettingsStore {
             if (profile.id == profileId) profile.copy(
                 name = newName.trim().ifBlank { newUrl },
                 url = newUrl.trim(),
-                serverType = serverType ?: profile.serverType
+                serverType = serverType ?: profile.serverType,
+                detectedServerType = if (profile.url.trim() == newUrl.trim()) profile.detectedServerType
+                    else ServerType.UNSPECIFIED
             )
             else profile
         }
@@ -488,6 +492,21 @@ class SettingsRepository(context: Context) : SettingsStore {
         return getProfiles().firstOrNull { it.id == activeId }
     }
 
+    fun recordDetectedServerType(serverUrl: String, type: ServerType): Boolean {
+        if (type == ServerType.UNSPECIFIED ||
+            sharedPreferences.getString(KEY_SERVER_URL, null) != serverUrl
+        ) return false
+        var profiles = getProfiles()
+        val profile = getActiveProfile()?.takeIf { it.url == serverUrl }
+            ?: profiles.firstOrNull { it.url == serverUrl }
+            ?: addProfile("Current server", serverUrl).also { profiles = getProfiles() }
+        if (profile.detectedServerType == type) return false
+        saveProfiles(profiles.map {
+            if (it.id == profile.id) it.copy(detectedServerType = type) else it
+        })
+        return true
+    }
+
     private fun saveProfiles(profiles: List<ServerProfile>) {
         val jsonArray = JSONArray()
         profiles.forEach { profile ->
@@ -498,6 +517,7 @@ class SettingsRepository(context: Context) : SettingsStore {
                 put("createdAt", profile.createdAt)
                 put("isActive", profile.isActive)
                 put("serverType", profile.serverType.storedValue)
+                put("detectedServerType", profile.detectedServerType.storedValue)
             }
             jsonArray.put(obj)
         }
@@ -560,7 +580,8 @@ class SettingsRepository(context: Context) : SettingsStore {
                         url = obj.getString("url"),
                         createdAt = obj.getLong("createdAt"),
                         isActive = id == activeId,
-                        serverType = ServerType.fromStoredValue(obj.optString("serverType"))
+                        serverType = ServerType.fromStoredValue(obj.optString("serverType")),
+                        detectedServerType = ServerType.fromStoredValue(obj.optString("detectedServerType"))
                     )
                 }
             } catch (e: Exception) {

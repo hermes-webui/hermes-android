@@ -232,6 +232,7 @@ class MainActivity : ComponentActivity() {
     // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
     // configured server when this hop is exactly that origin (Issue #134).
     private var lastMainFrameHopUrl: String? = null
+    private var serverTypeDocumentGeneration = 0L
     private var proxySignInDialog: android.app.AlertDialog? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
@@ -581,6 +582,10 @@ class MainActivity : ComponentActivity() {
             snackbarHostState.showSnackbar(banner)
         }
 
+        LaunchedEffect(uiState.isSettingsVisible) {
+            if (uiState.isSettingsVisible && ::webView.isInitialized) detectLoadedServerType(webView)
+        }
+
         // Auto-reload when the retry loop detects the server is back.
         LaunchedEffect(Unit) {
             viewModel.autoReloadEvent.collect {
@@ -775,7 +780,14 @@ class MainActivity : ComponentActivity() {
                     onAddProfile = { name, url, type -> serverProfileCoordinator.handleAddServerProfile(name, url, type) },
                     onDeleteProfile = { profileId -> serverProfileCoordinator.handleDeleteServerProfile(profileId) },
                     onEditProfile = { profileId, newName, newUrl, type -> serverProfileCoordinator.handleEditServerProfile(profileId, newName, newUrl, type) },
-                    onEditCurrentServer = { name, url, type -> saveSettings(url, name, type) },
+                    onEditCurrentServer = { name, url, type ->
+                        val current = settingsRepository.getActiveProfile()
+                        if (current != null) {
+                            serverProfileCoordinator.handleEditServerProfile(current.id, name, url, type)
+                        } else {
+                            saveSettings(url, name, type)
+                        }
+                    },
                     onSwitchProfile = { profileId -> serverProfileCoordinator.handleSwitchServerProfile(profileId) },
                     onReconnectCurrentServer = { refreshConfiguredHermes(closeSettings = true) },
                     onClearServerValidation = { viewModel.clearServerValidationState() },
@@ -926,6 +938,7 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
+                    serverTypeDocumentGeneration++
                     handleMainWebViewPageStarted(url)
                 }
 
@@ -938,6 +951,7 @@ class MainActivity : ComponentActivity() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
+                    detectLoadedServerType(view)
                     viewModel.onPageFinished(
                         url = url,
                         // Persist only trusted Hermes WebUI routes as the cold-start URL.
@@ -1865,6 +1879,36 @@ class MainActivity : ComponentActivity() {
 
     private fun matchesConfiguredWebUiRoute(url: String?): Boolean {
         return currentWebTrustPolicy().isConfiguredWebUiRoute(url)
+    }
+
+    private fun detectLoadedServerType(view: WebView?) {
+        if (view == null || view !== webView || !matchesConfiguredWebUiRoute(view.url)) return
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        val origin = UrlOrigins.pageOrigin(serverUrl) ?: return
+        val generation = serverTypeDocumentGeneration
+        fun isCurrentDocument() = !isDestroyed &&
+            generation == serverTypeDocumentGeneration &&
+            viewModel.uiState.value.settings.serverUrl == serverUrl &&
+            matchesConfiguredWebUiRoute(view.url)
+
+        fun probe(attempt: Int) {
+            if (!isCurrentDocument()) return
+            view.evaluateJavascript(HermesWebUiScripts.buildServerTypeProbeScript(origin)) { result ->
+                if (!isCurrentDocument()) return@evaluateJavascript
+                val type = when (result) {
+                    "\"agent\"" -> ServerType.AGENT
+                    "\"webui\"" -> ServerType.WEBUI
+                    else -> ServerType.UNSPECIFIED
+                }
+                if (type != ServerType.UNSPECIFIED) {
+                    viewModel.recordDetectedServerType(serverUrl, type)
+                } else if (attempt < 3) {
+                    // React/bundle markers may appear after onPageFinished; never guess from login HTML.
+                    view.postDelayed({ probe(attempt + 1) }, 1_000L)
+                }
+            }
+        }
+        probe(0)
     }
 
     private fun matchesConfiguredDashboardRoute(url: String?): Boolean {

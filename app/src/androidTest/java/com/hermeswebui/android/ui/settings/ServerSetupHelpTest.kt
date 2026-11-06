@@ -23,7 +23,9 @@ class ServerSetupHelpTest {
             R.string.setup_copy_webui to R.raw.setup_webui_prompt,
             R.string.setup_copy_webapp to R.raw.setup_webapp_prompt
         )) {
+            waitForClipboardAccess()
             compose.onNodeWithText(compose.activity.getString(label)).assertIsDisplayed().performClick()
+            waitForClipboardAccess()
             compose.runOnIdle {
                 val activity = compose.activity
                 assertThat(activity.hasWindowFocus()).isTrue()
@@ -31,6 +33,12 @@ class ServerSetupHelpTest {
                 val expected = activity.resources.openRawResource(resource).bufferedReader().use { it.readText().trim() }
                 assertThat(clipboard.primaryClip?.getItemAt(0)?.text?.toString()).isEqualTo(expected)
             }
+        }
+    }
+
+    private fun waitForClipboardAccess() {
+        compose.waitUntil(timeoutMillis = 10_000) {
+            compose.runOnIdle { compose.activity.hasWindowFocus() }
         }
     }
 

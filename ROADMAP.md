@@ -16,6 +16,9 @@
   configured Settings availability (10 tests). Base RED is NOT APPLICABLE:
   this adds opt-in copy actions with no prior contract, not a regression fix.
   Host setup and phone connectivity are external, unexecuted steps.
+  The new clipboard test initially failed on CI API 36 because clipboard access
+  was asserted before native window focus; it now waits for focus before clicks
+  and reads, retaining the exact payload assertions.
 - [ ] Onboarding follow-up recommendation: consider scanning a reusable server
   URL QR code to reduce typing, with URL validation and explicit user confirmation;
   never encode credentials or temporary sign-in tokens.

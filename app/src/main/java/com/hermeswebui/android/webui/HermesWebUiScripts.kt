@@ -1496,6 +1496,154 @@ object HermesWebUiScripts {
      * consume it; a future consumer must stop existing capture/playback on foreground loss and
      * require explicit re-arm. The flag also exposes state to a document still booting.
      */
+    /**
+     * Issue #180: image paste for the Hermes Agent Webapp and Hermes WebUI.
+     *
+     * - `navigator.clipboard.read()` is tried natively first; only when it rejects with
+     *   `NotAllowedError`/`SecurityError` (Android WebView never grants `clipboard-read`) and the page
+     *   has transient user activation does it ask the host through the scoped message bridge.
+     * - `window.__hermesAndroidDeliverImage` turns an image committed by the keyboard (Gboard) into a
+     *   synthetic `paste` event carrying a `File` on the focused element, so the page's normal paste
+     *   handler receives it.
+     */
+    fun buildClipboardImageScript(bridgeName: String): String {
+        val quotedBridgeName = JSONObject.quote(bridgeName)
+        return """
+            (function() {
+              if (window.__hermesAndroidClipboardInstalled) return;
+              var nativeBridge = window[$quotedBridgeName];
+              if (!nativeBridge || typeof nativeBridge.postMessage !== 'function') return;
+              window.__hermesAndroidClipboardInstalled = true;
+
+              var makeDomException = function(message, name) {
+                try { return new DOMException(message, name); } catch (_) {
+                  var error = new Error(message);
+                  error.name = name;
+                  return error;
+                }
+              };
+
+              var extensionFor = function(type) {
+                if (type === 'image/jpeg') return 'jpg';
+                return String(type || 'image/png').split('/')[1] || 'png';
+              };
+
+              var decode = function(base64) {
+                var binary = atob(base64);
+                var bytes = new Uint8Array(binary.length);
+                for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                return bytes;
+              };
+
+              var pending = {};
+              var nextId = 1;
+
+              nativeBridge.onmessage = function(event) {
+                var response = null;
+                try { response = JSON.parse(event && event.data ? String(event.data) : '{}'); } catch (_) {}
+                if (!response) return;
+                var id = String(response.id || '');
+                var resolve = pending[id];
+                if (resolve) {
+                  delete pending[id];
+                  resolve(response);
+                }
+              };
+
+              var requestNativeClipboard = function() {
+                return new Promise(function(resolve) {
+                  var id = 'clip-' + (nextId++);
+                  pending[id] = resolve;
+                  nativeBridge.postMessage(JSON.stringify({ id: id, type: 'readClipboard' }));
+                  window.setTimeout(function() {
+                    if (!pending[id]) return;
+                    delete pending[id];
+                    resolve({ ok: false, error: 'timeout' });
+                  }, 15000);
+                });
+              };
+
+              var nativeRead = function() {
+                var activation = navigator.userActivation;
+                if (activation && !activation.isActive) {
+                  return Promise.reject(makeDomException('Read permission denied.', 'NotAllowedError'));
+                }
+                if (typeof ClipboardItem !== 'function') {
+                  return Promise.reject(makeDomException('Clipboard items are not supported.', 'NotAllowedError'));
+                }
+                return requestNativeClipboard().then(function(response) {
+                  if (!response.ok) {
+                    throw makeDomException('Read permission denied.', 'NotAllowedError');
+                  }
+                  var items = [];
+                  (response.images || []).forEach(function(image) {
+                    var data = {};
+                    data[image.type] = new Blob([decode(image.data)], { type: image.type });
+                    items.push(new ClipboardItem(data));
+                  });
+                  if (response.text) {
+                    items.push(new ClipboardItem({
+                      'text/plain': new Blob([response.text], { type: 'text/plain' })
+                    }));
+                  }
+                  return items;
+                });
+              };
+
+              var clipboard = navigator.clipboard;
+              var proto = clipboard && Object.getPrototypeOf(clipboard);
+              var originalRead = proto && proto.read;
+              if (typeof originalRead === 'function') {
+                try {
+                  Object.defineProperty(proto, 'read', {
+                    configurable: true,
+                    writable: true,
+                    value: function() {
+                      var self = this;
+                      var args = arguments;
+                      var attempt;
+                      try { attempt = Promise.resolve(originalRead.apply(self, args)); }
+                      catch (error) { attempt = Promise.reject(error); }
+                      return attempt.catch(function(error) {
+                        var name = error && error.name;
+                        if (name !== 'NotAllowedError' && name !== 'SecurityError') throw error;
+                        return nativeRead();
+                      });
+                    }
+                  });
+                } catch (_) {}
+              }
+
+              window.__hermesAndroidDeliverImage = function(type, base64) {
+                try {
+                  var file = new File([decode(base64)], 'pasted-image.' + extensionFor(type), { type: type });
+                  var transfer = new DataTransfer();
+                  transfer.items.add(file);
+                  var target = document.activeElement || document.body;
+                  return target.dispatchEvent(new ClipboardEvent('paste', {
+                    clipboardData: transfer,
+                    bubbles: true,
+                    cancelable: true
+                  }));
+                } catch (_) {
+                  return false;
+                }
+              };
+            })();
+        """.trimIndent()
+    }
+
+    /** Runtime call that hands a keyboard-committed image to the installed page shim. */
+    fun buildDeliverImageScript(mimeType: String, base64: String): String {
+        val quotedType = JSONObject.quote(mimeType)
+        val quotedData = JSONObject.quote(base64)
+        return """
+            if (typeof window.__hermesAndroidDeliverImage === 'function') {
+              window.__hermesAndroidDeliverImage($quotedType, $quotedData);
+            }
+        """.trimIndent()
+    }
+
     fun buildAppForegroundScript(active: Boolean): String {
         return """
             (function() {

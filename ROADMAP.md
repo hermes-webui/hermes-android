@@ -27,6 +27,13 @@
   over a deep link, never to an existing configured user) and reopenable from
   Settings. Unit tests cover the launch gate and links; Compose and activity tests
   cover paging, swipe, Back, Skip, Get started, the Settings entry and each launch case.
+- [x] Image paste ([Issue #180](https://github.com/hermes-webui/hermes-android/issues/180)):
+  the official Hermes Agent Webapp's **Paste image** action no longer fails with
+  "Read permission denied", and Gboard's clipboard can insert images into the
+  composer. Raster images only (PNG, JPEG, GIF, WebP, up to 8 MB); the same
+  host support is shared with Hermes WebUI, which is not yet verified against a
+  live server. Pasting over plain `http://` hosts (where browsers hide
+  `navigator.clipboard`) is not covered.
 - [ ] Onboarding follow-up recommendation: consider scanning a reusable server
   URL QR code to reduce typing, with URL validation and explicit user confirmation;
   never encode credentials or temporary sign-in tokens.

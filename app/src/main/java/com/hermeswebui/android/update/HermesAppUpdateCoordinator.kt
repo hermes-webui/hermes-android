@@ -108,8 +108,7 @@ class HermesAppUpdateCoordinator(
     }
 
     fun checkForAppUpdates(force: Boolean) {
-        if (!settingsRepository.shouldCheckForAppUpdates(System.currentTimeMillis(), force)) return
-        settingsRepository.markAppUpdateChecked(System.currentTimeMillis())
+        if (!settingsRepository.shouldCheckForAppUpdates(force)) return
         viewModel.setAppUpdateStatus(if (force) "Checking ${appUpdateChannelLabel()}..." else null)
 
         when (updateChannel) {

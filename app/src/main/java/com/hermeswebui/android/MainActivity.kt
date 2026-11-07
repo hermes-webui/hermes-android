@@ -81,6 +81,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import com.hermeswebui.android.launcher.LauncherIconManager
 import com.hermeswebui.android.data.ServerType
@@ -130,10 +131,12 @@ import com.hermeswebui.android.webview.HermesWebViewConfigurator
 import com.hermeswebui.android.webview.HermesWebViewDownloadListener
 import com.hermeswebui.android.update.HermesAppUpdateCoordinator
 import com.hermeswebui.android.update.createPlayUpdateClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.net.InetAddress
@@ -573,8 +576,17 @@ class MainActivity : ComponentActivity() {
         val snackbarHostState = remember { SnackbarHostState() }
         val launcherIcons = remember { LauncherIconManager(this) }
         var launcherIcon by remember(uiState.isSettingsVisible) { mutableStateOf(launcherIcons.selectedIcon()) }
-        val vpnLaunchAppOptions = remember(uiState.isSettingsVisible) {
-            if (uiState.isSettingsVisible) discoverLaunchableApps() else emptyList()
+        // queryIntentActivities + loadLabel for every launcher app is too slow for the frame that
+        // opens Settings, so resolve it off the main thread (keyed so it refreshes on each open).
+        val vpnLaunchAppOptions by produceState<List<VpnLaunchAppOption>>(
+            initialValue = emptyList(),
+            key1 = uiState.isSettingsVisible
+        ) {
+            value = if (uiState.isSettingsVisible) {
+                withContext(Dispatchers.Default) { discoverLaunchableApps() }
+            } else {
+                emptyList()
+            }
         }
 
         LaunchedEffect(uiState.pendingShareBanner) {

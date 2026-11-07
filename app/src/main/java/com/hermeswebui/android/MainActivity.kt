@@ -101,6 +101,8 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.hermeswebui.android.background.DebugLogBootstrap
 import com.hermeswebui.android.background.HermesForegroundServiceCoordinator
+import com.hermeswebui.android.core.network.HardwareKeyboardState
+import com.hermeswebui.android.core.network.LocalNetworkPolicy
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.ProxyAuthNavigation
 import com.hermeswebui.android.core.security.UrlOrigins
@@ -139,7 +141,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
-import java.net.InetAddress
 
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
@@ -1373,7 +1374,11 @@ class MainActivity : ComponentActivity() {
         onGranted: () -> Unit,
         onDenied: (() -> Unit)? = null
     ) {
-        if (!shouldRequestLocalNetworkPermission(url) || hasLocalNetworkPermission()) {
+        val decision = LocalNetworkPolicy.preflightDecision(
+            isLocalHost = shouldRequestLocalNetworkPermission(url),
+            hasPermission = hasLocalNetworkPermission()
+        )
+        if (decision == LocalNetworkPolicy.PreflightDecision.PROCEED) {
             onGranted()
             return
         }
@@ -1393,20 +1398,7 @@ class MainActivity : ComponentActivity() {
     private fun shouldRequestLocalNetworkPermission(url: String): Boolean {
         val host = runCatching { url.toUri().host?.trim().orEmpty() }.getOrDefault("")
         if (host.isBlank()) return false
-        val normalizedHost = host.lowercase()
-        if (normalizedHost == "localhost" || normalizedHost.endsWith(".local")) return true
-        val strippedBrackets = normalizedHost.removePrefix("[").removeSuffix("]")
-        return isLikelyLocalAddress(strippedBrackets)
-    }
-
-    private fun isLikelyLocalAddress(host: String): Boolean {
-        return runCatching {
-            val address = InetAddress.getByName(host)
-            address.isAnyLocalAddress ||
-                address.isLoopbackAddress ||
-                address.isLinkLocalAddress ||
-                address.isSiteLocalAddress
-        }.getOrDefault(false)
+        return LocalNetworkPolicy.isLikelyLocalNetworkHost(host)
     }
 
     private fun isLocalNetworkPermissionError(error: WebResourceError?): Boolean {
@@ -1747,8 +1739,7 @@ class MainActivity : ComponentActivity() {
 
     private fun isHardwareKeyboardAttached(): Boolean {
         val config = resources.configuration
-        return config.keyboard != Configuration.KEYBOARD_NOKEYS &&
-            config.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO
+        return HardwareKeyboardState.isAttached(config.keyboard, config.hardKeyboardHidden)
     }
 
     /**

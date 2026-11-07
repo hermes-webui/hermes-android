@@ -1,12 +1,16 @@
 ## What changed
 
 <!-- Short, user-facing summary a tester installing the APK or Play internal build can understand.
-The PR title becomes the release-note entry. Use `Fixes #123` to close an issue, or `Related #123`. -->
+Lead with the user-visible outcome, break multi-part changes into a list, and say what is
+deliberately unaffected. The PR title becomes the release-note entry.
+End with `Fixes #123.` to close an issue, or `Related #123.` -->
 
 ## Testing
 
-<!-- Commands you ran and their results. State plainly anything you could not verify
-(for example, no emulator available). -->
+<!-- Name each test class and what it proves, plus the commands you ran and their results.
+Include: (1) a mutation check - what you deliberately broke, that the test failed, and that you
+restored it; (2) any manual emulator/device check; (3) a "Not covered:" line for anything you did
+not verify (for example, no emulator, no live server). Never hide a failing or skipped check. -->
 
 - [ ] `.\gradlew.bat testDebugUnitTest --no-daemon`
 - [ ] `.\gradlew.bat lintDebug --no-daemon`

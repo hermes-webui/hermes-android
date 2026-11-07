@@ -28,6 +28,7 @@ Useful entry points:
 - `domain/ShareIntentParser.kt` - Android share-sheet parsing
 - `domain/SharedFileHandoff.kt` - staged share-sheet files; `onShowFileChooser` auto-delivers them only when the main WebView's top-level URL is the configured WebUI route. Other pages (proxy sign-in, OAuth providers) get the normal picker and must not consume or receive the staged files (Issue #136); never equate navigation consent with attachment trust
 - `ui/MainViewModel.kt` - app state orchestration (paired with `ui/MainViewModelFactory.kt`)
+- `webview/ClipboardImagePolicy.kt` + `webview/HermesClipboardBridgeCoordinator.kt` + `webview/HermesWebView.kt` - image paste (Issue #180). Android WebView never grants `clipboard-read`, so a document-start shim wraps `navigator.clipboard.read()` and falls back to a scoped `WebMessageListener` only after a native `NotAllowedError`/`SecurityError` and with transient user activation. `HermesWebView` advertises image MIME types to the IME (Gboard) only on the configured Hermes route and `MainActivity.deliverCommittedImage` re-checks trust, enforces the 8 MB cap, and dispatches a synthetic `paste` event with a `File`. Raster types only (never SVG), no `addJavascriptInterface`, no new permission; keep the trust check ahead of the clipboard read (`WebViewSecurityContractTest` pins it). Shared by the Webapp and WebUI; do not gate on surface.
 - `ui/web/WebShell.kt` - Compose WebView host and refresh/error UX
 - `ui/settings/SettingsScreen.kt` + `ui/settings/SettingsSections.kt` - native settings surface and task-based section components (opened via `hermes://app/settings` and the injected WebUI sidebar entry)
 - `ui/onboarding/WelcomeScreen.kt` + `ui/onboarding/WelcomeGate.kt` - first-run welcome guide (Issue #176): a swipeable pager, shown once only to a brand-new user (no server configured, not seen, plain launcher open) and reopenable from Settings (`WelcomeGuideEntry`). Never show it over a deep link, share intent or the `hermes://app/settings` recovery link, and never to an existing configured user. It is informational: external pages come only from the fixed `WelcomeLinks` list and open in the browser, with no network call, JavaScript bridge or new permission. It reuses the setup prompts via `copySetupPrompt`; do not claim clipboard copies verify host installation or phone connectivity.
@@ -113,6 +114,59 @@ When a user references GitHub issues (e.g., by URL or issue number), agents shou
 - Attach the PR to the issue in the PR body by including a closing keyword such as `Fixes #123` or `Closes #123`; use `Related #123` when the PR contributes without fully resolving the issue.
 - Before closing any issue, always add a comment documenting the outcome, even when the issue is closed by a merged PR, manually, or through an automatic closing keyword. A concise copy of the associated PR's `What changed` and `Testing` sections is acceptable; otherwise include the root cause, what changed, and how it was verified. Post it before closing with a file-based markdown body, such as `gh issue comment <issue-number> --body-file <path-to-markdown>` or `gh api repos/<owner>/<repo>/issues/<number>/comments --input <path-to-markdown>`.
 - After posting the comment and closing the issue, verify both the rendered comment and final issue state with normal `gh issue view` output, and fix any markdown formatting regression immediately. If a closing PR automatically closes the issue before the comment can be posted, add the comment immediately afterward and still verify both.
+
+### Required PR and issue-comment structure
+
+Every agent (Claude, Codex, Copilot, or any other) must write PRs and
+issue-closing comments in this shape. `.github/pull_request_template.md` is the
+PR skeleton; fill it in, do not replace it.
+
+**PR body**, in this order:
+
+1. `## What changed` - written for someone installing the APK, not for a
+   reviewer reading the diff. Lead with the user-visible outcome, then a short
+   list or numbered breakdown when there are several parts. State what is
+   deliberately *not* affected (for example "never interrupts the recovery
+   link", "no new permission or JavaScript bridge"). End with the closing
+   keyword line (`Fixes #123.` or `Related #123.`).
+2. `## Testing` - name each test class and what it proves, with counts when
+   useful, plus the commands run and their results (`testDebugUnitTest`,
+   `lintDebug`, markdown check, emulator API level, what CI covers).
+   Always include:
+   - a **mutation check**: which guard or behavior was deliberately broken, that
+     the matching test failed, and that the source was restored (every new guard
+     or test must be shown to fail, per the QA workflow below);
+   - any manual on-device or emulator check, stated plainly;
+   - a **Not covered** line listing what was not verified (for example external
+     link taps, no live server, no emulator). Never imply coverage you did not
+     run, and never hide a failing or skipped check.
+3. QA checklist and Live QA summary from the template (mark items not
+   applicable rather than deleting them).
+4. Last line: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+   when Claude Code authored it; other agents use their own equivalent
+   attribution line.
+
+**Issue-closing comment** (posted before closing, via `--body-file`):
+
+```markdown
+## Outcome
+
+Shipped in #<PR>. <One sentence on the user-visible result.>
+
+**What changed:**
+- <User-facing bullets, same wording as the PR's What changed>
+
+**Verification:** <Tests added/updated and where they ran (emulator API, CI),
+the mutation check result, any manual check, and what is not tested.>
+```
+
+For a bug, add a short **Root cause** line before **What changed**. For work
+declined or redirected (for example a WebUI-owned fix), say so and name the
+correct repository instead of closing silently.
+
+Both artifacts must stay free of server URLs, hostnames, credentials, and
+local machine paths. Verify the rendered result with `gh pr view` /
+`gh issue view` after posting.
 
 ### PR and release-note quality
 

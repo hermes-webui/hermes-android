@@ -51,7 +51,9 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertRegex(workflow, r"api-level:\s*\[35, 36\]")
         self.assertIn("connectedDebugAndroidTest", workflow)
         self.assertNotIn("testInstrumentationRunnerArguments.class", workflow)
-        self.assertIn("if: needs.changes.outputs.android_app == 'true'", workflow)
+        # The emulator matrix always reports and short-circuits its steps (see
+        # test_android_ui_smoke_always_reports_and_fails_safe), never a job-level skip.
+        self.assertNotIn("if: needs.changes.outputs.android_app == 'true'", workflow)
 
     def test_ci_reports_each_quality_gate_as_its_own_job(self) -> None:
         workflow = read_workflow("0-ci-build-and-test.yml")
@@ -142,6 +144,33 @@ class WorkflowContractTests(unittest.TestCase):
                 "${{ always() }}",
                 msg=f"{job} is a required check and must not be conditionally skipped",
             )
+
+    def test_android_ui_smoke_always_reports_and_fails_safe(self) -> None:
+        """The emulator matrix uses the docs-only pattern, so it could be required safely."""
+        block = ci_job_blocks(read_workflow("0-ci-build-and-test.yml"))["android-ui-smoke"]
+        header = block.split("\n    steps:\n", 1)[0]
+        directives = "\n".join(
+            line for line in header.splitlines() if not line.strip().startswith("#")
+        )
+        self.assertIn("if: ${{ always() }}", directives)
+        self.assertNotIn("android_app", directives, msg="must not skip at job level")
+        self.assertIn("timeout-minutes:", directives)
+        self.assertIn("No-Android-change short-circuit", block)
+        self.assertIn("needs.changes.outputs.android_app == 'false'", block)
+        # Every real step is guarded with `!= 'false'` so an empty output (failed detector)
+        # runs the suite instead of passing it vacuously.
+        steps = block.split("\n      - ")[1:]
+        unguarded = [
+            step.splitlines()[0]
+            for step in steps
+            if "android_app" not in step
+        ]
+        self.assertEqual(unguarded, [], msg="unguarded emulator steps")
+        for step in steps:
+            if step.startswith("name: No-Android-change"):
+                continue
+            self.assertNotIn("android_app == 'true'", step)
+            self.assertIn("android_app != 'false'", step)
 
     def test_every_ci_job_declares_a_timeout(self) -> None:
         workflow = read_workflow("0-ci-build-and-test.yml")

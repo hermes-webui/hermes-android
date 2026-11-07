@@ -78,7 +78,7 @@ class CiSpeedContractTests(unittest.TestCase):
     def test_ci_gate_script_passes_success_and_skipped_only(self) -> None:
         ok = {job: "success" for job in GATING_JOBS}
         self.assertEqual(0, self._run_gate(ok).returncode)
-        # The emulator matrix is skipped when no Android files changed.
+        # A skipped result is still accepted defensively (the matrix now short-circuits its steps).
         self.assertEqual(0, self._run_gate({**ok, "android-ui-smoke": "skipped"}).returncode)
         for bad in ("failure", "cancelled"):
             with self.subTest(result=bad):

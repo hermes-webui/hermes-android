@@ -1,0 +1,150 @@
+package com.hermeswebui.android
+
+import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
+import java.io.File
+import org.junit.Test
+
+/**
+ * Source-level guards for invariants that otherwise live only in AGENTS.md prose. These are
+ * deliberately blunt: they fail on the shape of the code, not on behavior, so a future change
+ * that reintroduces a documented regression is stopped before it reaches a device.
+ *
+ * - Issue #127: certificate validation is never bypassed in the WebView.
+ * - Issue #7: Android never writes the WebUI dashboard configuration.
+ * - Issues #6 / #35: no long-press interception that would break text selection.
+ * - Declared permissions that WebUI voice, notifications and LAN access depend on.
+ */
+class WebViewSecurityContractTest {
+    private val mainDir: File = listOf(File("src/main"), File("app/src/main"))
+        .firstOrNull { it.isDirectory }
+        ?: error("Run from the repository root or the app module")
+
+    private val manifest: String = File(mainDir, "AndroidManifest.xml").readText()
+
+    private val kotlinSources: Map<String, String> = File(mainDir, "java")
+        .walkTopDown()
+        .filter { it.isFile && it.extension == "kt" }
+        .associate { it.relativeTo(mainDir).invariantSeparatorsPath to it.readText() }
+
+    /** Sources with `//` and block comments removed so prose that mentions a rule cannot trip it. */
+    private val codeOnly: Map<String, String> = kotlinSources.mapValues { (_, text) -> stripComments(text) }
+
+    @Test
+    fun `sources were found so the guards cannot pass vacuously`() {
+        assertThat(kotlinSources.keys.any { it.endsWith("MainActivity.kt") }).isTrue()
+        assertThat(kotlinSources.size).isGreaterThan(20)
+    }
+
+    @Test
+    fun `ssl errors are always cancelled and never proceeded`() {
+        val overrides = codeOnly.flatMap { (path, text) ->
+            bodiesOf(text, "override fun onReceivedSslError(").map { path to it }
+        }
+        assertThat(overrides).isNotEmpty()
+        overrides.forEach { (path, body) ->
+            assertWithMessage("$path onReceivedSslError").that(body).contains("cancel()")
+            assertWithMessage("$path onReceivedSslError").that(body).doesNotContain("proceed")
+        }
+    }
+
+    @Test
+    fun `the ssl error handler type is only used by the cancelling override`() {
+        // Any other use of SslErrorHandler could call proceed() from somewhere this guard does not see.
+        val uses = codeOnly.values.sumOf { text ->
+            text.lines()
+                .filterNot { it.trimStart().startsWith("import ") }
+                .sumOf { Regex("""\bSslErrorHandler\b""").findAll(it).count() }
+        }
+        val overrides = codeOnly.values.sumOf { Regex("""override fun onReceivedSslError\(""").findAll(it).count() }
+        assertThat(uses).isEqualTo(overrides)
+    }
+
+    @Test
+    fun `android never touches the WebUI dashboard config endpoint`() {
+        codeOnly.forEach { (path, text) ->
+            assertWithMessage(path).that(text).doesNotContain("dashboard/config")
+        }
+    }
+
+    @Test
+    fun `no long click interception or synthesized context menu`() {
+        val forbidden = listOf(
+            "setOnLongClickListener",
+            "OnLongClickListener",
+            "startActionMode",
+            "onCreateActionMode",
+            "contextmenu",
+            "touchcancel"
+        )
+        codeOnly.forEach { (path, text) ->
+            forbidden.forEach { token ->
+                assertWithMessage("$path must not use $token").that(text).doesNotContain(token)
+            }
+        }
+        val mainActivity = codeOnly.entries.single { it.key.endsWith("/MainActivity.kt") }.value
+        assertThat(mainActivity).contains("isLongClickable = true")
+    }
+
+    @Test
+    fun `manifest declares the permissions WebUI features depend on`() {
+        val declared = Regex("""<uses-permission[^>]*android:name="([^"]+)"""")
+            .findAll(manifest)
+            .map { it.groupValues[1] }
+            .toSet()
+        listOf(
+            "android.permission.INTERNET",
+            "android.permission.RECORD_AUDIO",
+            "android.permission.MODIFY_AUDIO_SETTINGS",
+            "android.permission.POST_NOTIFICATIONS",
+            "android.permission.ACCESS_LOCAL_NETWORK"
+        ).forEach { assertWithMessage(it).that(declared).contains(it) }
+    }
+
+    @Test
+    fun `manifest does not request broad storage access`() {
+        // Downloads use the shared Download folder through DownloadManager (Issue #130).
+        val declared = Regex("""<uses-permission[^>]*android:name="([^"]+)"""")
+            .findAll(manifest)
+            .map { it.groupValues[1] }
+            .toSet()
+        assertThat(declared).containsNoneOf(
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.WRITE_EXTERNAL_STORAGE",
+            "android.permission.MANAGE_EXTERNAL_STORAGE"
+        )
+    }
+
+    private fun stripComments(text: String): String {
+        val noBlock = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL).replace(text, "")
+        // Skip `://` so URLs inside string literals survive.
+        return Regex("""(?<!:)//[^\n]*""").replace(noBlock, "")
+    }
+
+    /** Returns the brace-balanced bodies of every function that starts with [signature]. */
+    private fun bodiesOf(text: String, signature: String): List<String> {
+        val bodies = mutableListOf<String>()
+        var from = 0
+        while (true) {
+            val start = text.indexOf(signature, from)
+            if (start < 0) break
+            val open = text.indexOf('{', start)
+            if (open < 0) break
+            var depth = 0
+            var end = open
+            while (end < text.length) {
+                when (text[end]) {
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) break
+                    }
+                }
+                end++
+            }
+            bodies += text.substring(open, minOf(end + 1, text.length))
+            from = end
+        }
+        return bodies
+    }
+}

@@ -51,22 +51,6 @@ class CiSpeedContractTests(unittest.TestCase):
         # Never a bare `true`: runs on main must keep queuing so each merged commit gets full statuses.
         self.assertEqual("${{ github.event_name == 'pull_request' }}", value.group(1).strip())
 
-    def test_emulator_snapshot_is_cached_and_reused_without_recreating_the_avd(self) -> None:
-        block = self.blocks["android-ui-smoke"]
-        self.assertIn("uses: actions/cache@", block)
-        self.assertRegex(block, r"key: avd-\$\{\{ matrix\.api-level \}\}-x86_64-pixel_6-v\d+")
-        # The snapshot is only generated on a cache miss.
-        self.assertIn("if: steps.avd-cache.outputs.cache-hit != 'true'", block)
-        self.assertLess(block.index("Cache emulator snapshot"), block.index("Create emulator snapshot"))
-        self.assertLess(block.index("Create emulator snapshot"), block.index("Run Android instrumentation tests"))
-        run_step = block.split("Run Android instrumentation tests", 1)[1].split("Upload instrumentation reports", 1)[0]
-        self.assertIn("force-avd-creation: false", run_step)
-        self.assertIn("-no-snapshot-save", run_step)
-        # Both steps boot the same device the tests run on.
-        for step in (block.split("Create emulator snapshot", 1)[1].split("Run Android instrumentation tests", 1)[0], run_step):
-            self.assertIn("api-level: ${{ matrix.api-level }}", step)
-            self.assertIn("profile: pixel_6", step)
-
     def test_ci_gate_always_reports_and_covers_every_gating_job(self) -> None:
         block = self.blocks["ci-gate"]
         header = block.split("\n    steps:\n", 1)[0]

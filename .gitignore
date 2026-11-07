@@ -20,3 +20,7 @@ app/release/
 /node_modules/
 /package-lock.json
 .eslintcache
+
+# Live-QA harness: server URL and run reports are local-only (see tools/qa/README.md).
+/tools/qa/.env.qa
+/tools/qa/out/

@@ -87,6 +87,27 @@ class WebViewSecurityContractTest {
     }
 
     @Test
+    fun `switching servers wipes the old session before loading the new host`() {
+        // A session from one server must never carry over to another: cookies, web storage, cache,
+        // form data and history are all cleared, and the wipe runs before the profile changes.
+        val mainActivity = codeOnly.entries.single { it.key.endsWith("MainActivity.kt") }.value
+        val wipe = bodiesOf(mainActivity, "private fun clearWebViewStateForServerSwitch(").single()
+        listOf(
+            "removeAllCookies(",
+            "WebStorage.getInstance().deleteAllData()",
+            "clearHistory()",
+            "clearCache(true)",
+            "clearFormData()"
+        ).forEach { call -> assertWithMessage("server-switch wipe").that(wipe).contains(call) }
+
+        val switchBody = bodiesOf(mainActivity, "private fun performServerProfileSwitch(").single()
+        val wipeAt = switchBody.indexOf("clearWebViewStateForServerSwitch()")
+        val switchAt = switchBody.indexOf("viewModel.switchServerProfile(")
+        assertThat(wipeAt).isAtLeast(0)
+        assertThat(switchAt).isGreaterThan(wipeAt)
+    }
+
+    @Test
     fun `manifest declares the permissions WebUI features depend on`() {
         val declared = Regex("""<uses-permission[^>]*android:name="([^"]+)"""")
             .findAll(manifest)

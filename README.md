@@ -298,8 +298,8 @@ The GitHub and F-Droid builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 
-- Version name: `1.1.11`
-- Version code: `10111`
+- Version name: `1.2.0`
+- Version code: `10200`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - F-Droid application ID: `com.hermeswebui.android.fdroid`

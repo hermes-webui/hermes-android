@@ -200,7 +200,7 @@ object HermesApiClient {
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             conn.disconnect()
 
-            if (code in setOf(401, 403, 404)) {
+            if (shouldProbeRootAfterStatusFailure(code)) {
                 val rootFallback = probeHermesRootPage(baseUrl)
                 if (rootFallback != null) {
                     return@withContext rootFallback.copy(
@@ -538,12 +538,21 @@ object HermesApiClient {
      * unit tests without an Android runtime simply probe without credentials.
      */
     private fun HttpURLConnection.applySessionCookie(baseUrl: String, sessionCookie: String?) {
-        val cookie = sessionCookie?.takeIf { it.isNotBlank() }
-            ?: runCatching { CookieManager.getInstance().getCookie(baseUrl) }.getOrNull()?.takeIf { it.isNotBlank() }
+        val cookie = resolveSessionCookie(sessionCookie) {
+            runCatching { CookieManager.getInstance().getCookie(baseUrl) }.getOrNull()
+        }
         if (cookie != null) {
             setRequestProperty("Cookie", cookie)
         }
     }
+
+    /** Explicit non-blank cookie wins; otherwise the lazily read shared-store cookie; else null (#75). */
+    internal fun resolveSessionCookie(explicit: String?, sharedCookie: () -> String?): String? =
+        explicit?.takeIf { it.isNotBlank() } ?: sharedCookie()?.takeIf { it.isNotBlank() }
+
+    /** Whether a failed /api/status should fall back to fingerprinting the root page (#61). */
+    internal fun shouldProbeRootAfterStatusFailure(httpStatus: Int): Boolean =
+        httpStatus == 401 || httpStatus == 403 || httpStatus == 404
 
     /** HTTP statuses that mean "sign-in required", not "feature unavailable". */
     private fun isAuthChallengeStatus(httpStatus: Int?): Boolean = httpStatus == 401 || httpStatus == 403

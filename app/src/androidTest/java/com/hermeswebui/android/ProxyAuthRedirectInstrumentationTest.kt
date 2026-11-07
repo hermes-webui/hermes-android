@@ -569,6 +569,41 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
+    /** Issue #170: a cold start from hermes://session/{id} must open the session, not the saved route. */
+    @Test
+    fun sessionDeepLink_onColdStart_opensSessionInsteadOfSavedRoute() {
+        withConfiguredServer { server, repository ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            repository.saveLastLoadedUrl("${server.baseUrl}/session/issue132")
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("hermes://session/issue170"))
+                .setClass(context, MainActivity::class.java)
+            ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+                awaitWebView(scenario) { it.url == "${server.baseUrl}/session/issue170" }
+                // The session id is one encoded path segment on the configured origin, never a new route.
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
+            }
+        }
+    }
+
+    /** Issue #170: hermes://app/settings is the native recovery link and must work from a cold start. */
+    @Test
+    fun settingsDeepLink_onColdStart_opensNativeSettings() {
+        withConfiguredServer { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("hermes://app/settings"))
+                .setClass(context, MainActivity::class.java)
+            ActivityScenario.launch<MainActivity>(intent).use {
+                compose.waitUntil(20_000) {
+                    compose.onAllNodesWithText("Advanced connection options").fetchSemanticsNodes().isNotEmpty()
+                }
+            }
+        }
+    }
+
     /** Issue #81: Settings must open and render, including the plural-backed polling description. */
     @Test
     fun settingsLaunchedFromDeepLink_rendersWithoutCrashingIncludingPollingPlural() {

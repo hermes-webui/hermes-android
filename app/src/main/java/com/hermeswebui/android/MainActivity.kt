@@ -454,6 +454,11 @@ class MainActivity : ComponentActivity() {
             preflightConfiguredStartupServer(settings.serverUrl)
             appUpdateCoordinator.scheduleAutomaticAppUpdateCheck()
         }
+        // Issue #170: a cold start from the native recovery link must open Settings like onNewIntent
+        // does. Skip on recreation so a rotation or process restart does not reopen it.
+        if (savedInstanceState == null && isSettingsDeepLink(intent.data)) {
+            viewModel.openSettings()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -539,17 +544,26 @@ class MainActivity : ComponentActivity() {
      * session route (see DeepLinkRoutes).
      * Returns true if the intent was consumed, false if it should fall through.
      */
+    private fun isSettingsDeepLink(data: Uri?): Boolean =
+        data != null && data.scheme == "hermes" && data.host == "app" && data.path == "/settings"
+
+    private fun sessionIdFromDeepLink(data: Uri?): String? =
+        if (data != null && data.scheme == "hermes" && data.host == "session") {
+            data.lastPathSegment?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+
     private fun handleDeepLink(intent: Intent): Boolean {
         val data = intent.data ?: return false
         if (data.scheme != "hermes") return false
 
-        if (data.host == "app" && data.path == "/settings") {
+        if (isSettingsDeepLink(data)) {
             viewModel.openSettings()
             return true
         }
 
-        if (data.host != "session") return false
-        val sessionId = data.lastPathSegment?.takeIf { it.isNotBlank() } ?: return false
+        val sessionId = sessionIdFromDeepLink(data) ?: return false
         val serverUrl = viewModel.uiState.value.settings.serverUrl
         if (serverUrl.isBlank()) {
             Toast.makeText(this, "Configure a server URL in Settings first", Toast.LENGTH_LONG).show()
@@ -2081,7 +2095,10 @@ class MainActivity : ComponentActivity() {
 
     private fun preflightConfiguredStartupServer(serverUrl: String) {
         val lastLoadedUrl = settingsRepository.getLastLoadedUrl()
+        // A cold-start session deep link (#170) shares the notification-tap override slot, so
+        // startupUrl still requires a trusted configured WebUI route before honoring it.
         val notificationUrl = notificationPresenter.notificationTargetUrl(intent)
+            ?: sessionIdFromDeepLink(intent.data)?.let { DeepLinkRoutes.sessionUrl(serverUrl, it) }
         // Restore only trusted Hermes WebUI routes; fall back to the server root for
         // dashboard-origin pages and for stale non-WebUI URLs (e.g. OAuth provider pages
         // persisted by older builds mid-flow).

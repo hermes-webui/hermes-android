@@ -494,6 +494,16 @@ object HermesWebUiScripts {
 
             if (window.visualViewport) {
               window.visualViewport.addEventListener('resize', schedulePolyfill, { passive: true });
+              // An overlay keyboard or a pan moves the visible area (offsetTop changes) without resizing
+              // it, so only a scroll event tells us a visible prompt card needs to be re-fit (#164).
+              // Scoped to an open prompt so ordinary pinch/pan never schedules extra scans.
+              window.visualViewport.addEventListener('scroll', function() {
+                try {
+                  if (document.querySelector('.approval-card.visible:not(.collapsed), .clarify-card.visible:not(.collapsed)')) {
+                    schedulePolyfill();
+                  }
+                } catch (e) {}
+              }, { passive: true });
             }
 
             // MutationObserver for DOM changes

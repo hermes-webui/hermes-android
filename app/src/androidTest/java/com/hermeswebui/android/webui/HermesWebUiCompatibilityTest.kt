@@ -1084,9 +1084,10 @@ class HermesWebUiCompatibilityTest {
         val first = assertPromptReachable(sel, minTested = 6)
         assertThat(first.getJSONObject("m").getDouble("shift")).isGreaterThan(0.0)
         assertStable(sel, first)
-        // offsetTop-only change has no scroll listener, so a manual rescan is required.
-        evaluate("window.__fakeVv.offsetTop = 120; 0")
-        rescan()
+        // A visual viewport that only pans (offsetTop changes, no resize) fires a scroll event; the shim
+        // must re-fit the card from that alone, with no manual rescan (#164).
+        evaluate("window.__fakeVv.offsetTop = 120; window.__fakeVv.dispatchEvent(new Event('scroll')); 0")
+        awaitPromptReachable(sel)
         val moved = assertPromptReachable(sel, minTested = 6)
         assertThat(moved.getJSONObject("m").getDouble("promptTop")).isAtLeast(120.0)
         // The visual viewport can shrink on its own (an overlay keyboard fires no window resize), so the

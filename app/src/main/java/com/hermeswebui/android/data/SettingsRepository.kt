@@ -162,16 +162,16 @@ class SettingsRepository(context: Context) : SettingsStore {
             }
         }
 
-        if (lastMigrationVersion < 14) {
-            // Migration 14 is additive: missing serverType reads as UNSPECIFIED. Do not rewrite
-            // legacy JSON (including an unreadable document) merely to add a cosmetic label.
-            sharedPreferences.edit { putInt(KEY_LAST_MIGRATION_VERSION, 14) }
-        }
-
+        // Migration 14 is additive: missing serverType reads as UNSPECIFIED. Do not rewrite
+        // legacy JSON (including an unreadable document) merely to add a cosmetic label.
         // Migration 15 is additive: absent detectedServerType remains unknown until a
         // configured frontend supplies its runtime marker. Preserve manual overrides.
-        sharedPreferences.edit {
-            putInt(KEY_LAST_MIGRATION_VERSION, currentMigrationVersion)
+        // Neither needs data changes, so only the version marker is written once at the end,
+        // and not at all when the stored version is already current.
+        if (lastMigrationVersion < currentMigrationVersion) {
+            sharedPreferences.edit {
+                putInt(KEY_LAST_MIGRATION_VERSION, currentMigrationVersion)
+            }
         }
     }
 
@@ -322,15 +322,11 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED, enabled) }
     }
 
-    fun shouldCheckForAppUpdates(@Suppress("UNUSED_PARAMETER") nowMs: Long, force: Boolean = false): Boolean {
+    fun shouldCheckForAppUpdates(force: Boolean = false): Boolean {
         if (force) return true
         if (!isAppUpdateAlertsEnabled()) return false
         if (!isAutomaticAppUpdateChecksEnabled()) return false
         return true
-    }
-
-    fun markAppUpdateChecked(nowMs: Long) {
-        sharedPreferences.edit { putLong(KEY_APP_UPDATE_LAST_CHECK_MS, nowMs) }
     }
 
     fun shouldNotifyAppUpdate(version: String, force: Boolean = false): Boolean {
@@ -402,8 +398,19 @@ class SettingsRepository(context: Context) : SettingsStore {
         }
     }
 
+    // Navigation callbacks persist the same final URL more than once per load. Each write is an
+    // AES-SIV key + AES-GCM value encryption, so skip writes that cannot change the stored value.
+    // Reads stay uncached because another repository instance (debug logging service) may read it.
+    @Volatile private var lastSavedUrl: String? = null
+
     override fun saveLastLoadedUrl(url: String) {
+        val known = lastSavedUrl ?: sharedPreferences.getString(KEY_LAST_URL, null)
+        if (known == url) {
+            lastSavedUrl = url
+            return
+        }
         sharedPreferences.edit { putString(KEY_LAST_URL, url) }
+        lastSavedUrl = url
     }
 
     fun getLastLoadedUrl(): String? = sharedPreferences.getString(KEY_LAST_URL, null)
@@ -558,7 +565,6 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_BACKGROUND_ACTIVITY_FULL_TEXT_ENABLED = "background_activity_full_text_enabled"
         private const val KEY_APP_UPDATE_ALERTS_ENABLED = "app_update_alerts_enabled"
         private const val KEY_AUTOMATIC_APP_UPDATE_CHECKS_ENABLED = "automatic_app_update_checks_enabled"
-        private const val KEY_APP_UPDATE_LAST_CHECK_MS = "app_update_last_check_ms"
         private const val KEY_APP_UPDATE_LAST_NOTIFIED_VERSION = "app_update_last_notified_version"
         private const val KEY_PENDING_GITHUB_UPDATE_DOWNLOAD_ID = "pending_github_update_download_id"
         private const val KEY_PENDING_GITHUB_UPDATE_CLEANUP_DOWNLOAD_ID = "pending_github_update_cleanup_download_id"

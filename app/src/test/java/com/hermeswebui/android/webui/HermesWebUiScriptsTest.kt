@@ -108,6 +108,43 @@ class HermesWebUiScriptsTest {
     }
 
     @Test
+    fun `viewport fix script evaluates the exclusion contract once and after cheap filters`() {
+        val script = HermesWebUiScripts.viewportFixScript
+
+        // Exclusion check runs after the numeric collapse filters, not before getBoundingClientRect.
+        val collapsed = script.substringAfter("function isCollapsedElement(")
+            .substringBefore("function updateRepair(")
+        assertThat(collapsed.indexOf("getBoundingClientRect"))
+            .isLessThan(collapsed.indexOf("shouldSkipRepairForElement(el)"))
+        assertThat(collapsed.indexOf("if (scrollHeight < 80) return false;"))
+            .isLessThan(collapsed.indexOf("shouldSkipRepairForElement(el)"))
+
+        // The scan loop only pays for the exclusion check on already-repaired elements.
+        val scan = script.substringAfter("var elements = document.querySelectorAll('*');")
+            .substringBefore("function schedulePolyfill()")
+        assertThat(scan.split("shouldSkipRepairForElement(el)").size - 1).isEqualTo(1)
+        assertThat(scan.indexOf("el.getAttribute(REPAIRED_ATTR)"))
+            .isLessThan(scan.indexOf("shouldSkipRepairForElement(el)"))
+        assertThat(scan).contains("clearRepair(el);")
+        assertThat(scan).contains("clearRepairIfHidden(el);")
+    }
+
+    @Test
+    fun `app settings entry script skips the anchor search only for a verified Settings placement`() {
+        val script = HermesWebUiScripts.appSettingsEntryScript
+
+        assertThat(script).contains("placementStillVerified")
+        assertThat(script).contains("verified.compact !== isCompactLayout()")
+        assertThat(script).contains("verified.container.nextElementSibling !== verified.entry")
+        assertThat(script).contains("isNodeVisible(verified.interactive)")
+        // Help fallback placement is never cached.
+        assertThat(script).contains("if (!matchesSettingsNode(interactive)) return;")
+        // The WebApp guard still runs before any fast path.
+        assertThat(script.indexOf("__HERMES_UI_SURFACE__ === 'webapp'"))
+            .isLessThan(script.indexOf("if (placementStillVerified()) return;"))
+    }
+
+    @Test
     fun `viewport fix script skips chat descendants but keeps chat container repairable`() {
         val script = HermesWebUiScripts.viewportFixScript
 

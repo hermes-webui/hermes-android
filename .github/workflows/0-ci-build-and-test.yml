@@ -14,8 +14,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Queue newer runs instead of canceling active ones so CI statuses are stable.
-  cancel-in-progress: false
+  # A new push to a pull request supersedes its older run, so cancel that one. Runs on main keep
+  # queuing instead, so every merged commit gets a complete, stable set of statuses.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -343,6 +344,29 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # Booting a fresh emulator costs about two minutes per job. The first run creates the AVD and
+      # a quick-boot snapshot; later runs restore it from the cache. Bump the -v1 suffix to rebuild.
+      - name: Cache emulator snapshot
+        id: avd-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ matrix.api-level }}-x86_64-pixel_6-v1
+
+      - name: Create emulator snapshot (cache miss only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated AVD snapshot for caching."
+
       - name: Run Android instrumentation tests
         # Keep unfiltered: includes encrypted selected-server persistence/navigation
         # and Android WebView/service regressions, not upstream WebUI voice behavior.
@@ -351,6 +375,8 @@ jobs:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: ./gradlew --no-daemon connectedDebugAndroidTest
 
       - name: Upload instrumentation reports
@@ -362,3 +388,39 @@ jobs:
             app/build/reports/androidTests/connected/
             app/build/outputs/androidTest-results/connected/
           if-no-files-found: warn
+
+  # One stable status name for the branch ruleset (Issues #105, #156), so matrix job names such as
+  # "Android instrumentation (API 36)" never have to be listed there. It always reports. It passes
+  # only when every gating job succeeded or was legitimately skipped (the emulator matrix is skipped
+  # when no Android files changed). A failed or cancelled job fails it. docs-links is informational
+  # and deliberately not part of the gate.
+  ci-gate:
+    name: CI gate
+    needs:
+      - changes
+      - docs-render
+      - release-tooling-tests
+      - webui-script-syntax
+      - webui-script-lint
+      - unit-tests
+      - android-lint
+      - debug-build
+      - android-ui-smoke
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every gating job to have passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          for name, job in sorted(needs.items()):
+              print(f"{name}: {job['result']}")
+          bad = {name: job["result"] for name, job in needs.items() if job["result"] not in ("success", "skipped")}
+          if bad:
+              print(f"Failing gates: {bad}")
+              sys.exit(1)
+          PY

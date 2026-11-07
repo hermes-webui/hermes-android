@@ -330,3 +330,12 @@ tasks.register("printReleaseVersionName") {
         println(appVersionName)
     }
 }
+
+// The contract tests (VoiceCaptureOwnershipContractTest, WebViewSecurityContractTest) read
+// AndroidManifest.xml and the Kotlin sources straight from disk. Declare them as inputs so Gradle's
+// up-to-date check and the build cache never reuse a passing result after those files change.
+tasks.withType<Test>().configureEach {
+    inputs.dir("src/main")
+        .withPropertyName("mainSourceSetForContractTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}

@@ -705,6 +705,213 @@ class HermesWebUiCompatibilityTest {
         assertThat(evaluate("JSON.stringify(window.__gumConstraints)")).isEqualTo("\"{\\\"video\\\":true}\"")
     }
 
+    /**
+     * Stands in for the Android `addJavascriptInterface`/WebMessage bridge: records every message the
+     * facade posts and answers like HermesNotificationBridgeCoordinator would.
+     */
+    private fun notificationBridgeStub(permission: String, deliveryOk: Boolean = true) = """
+        (function() {
+          window.__bridgeLog = [];
+          var bridge = { postMessage: function(raw) {
+            var message = JSON.parse(raw);
+            window.__bridgeLog.push(message);
+            var reply = { id: message.id, ok: $deliveryOk, permission: '$permission' };
+            setTimeout(function() { bridge.onmessage({ data: JSON.stringify(reply) }); }, 0);
+          } };
+          window.TestNotificationBridge = bridge;
+        })();
+    """.trimIndent()
+
+    private fun notificationFacadeScripts(permission: String, deliveryOk: Boolean = true) = listOf(
+        notificationBridgeStub(permission, deliveryOk),
+        HermesWebUiScripts.buildNotificationBridgeScript("TestNotificationBridge", permission)
+    )
+
+    /** The `show` messages the facade posted, as a JSON array string (evaluate() JSON-encodes the string). */
+    private fun shownMessages(): String = org.json.JSONTokener(
+        evaluate("JSON.stringify(window.__bridgeLog.filter(function(m) { return m.type === 'show'; }))")
+    ).nextValue() as String
+
+    @Test
+    fun notificationFacade_grantedConstructorPostsOnlyWhitelistedFieldsAndFiresOnshow() {
+        loadFixture("<div>Hermes</div>", documentStartScripts = notificationFacadeScripts("granted"))
+        assertThat(evaluate("Notification.permission")).isEqualTo("\"granted\"")
+
+        evaluate(
+            """
+            window.__shown = false;
+            var n = new Notification('Build done', {
+              body: 'ok', tag: 't1', data: { url: '/session/abc', token: 'secret' }, vibrate: [1], image: 'x'
+            });
+            n.onshow = function() { window.__shown = true; };
+            0
+            """.trimIndent()
+        )
+        assertThat(awaitBoolean("window.__shown === true", expected = true)).isTrue()
+        val shown = org.json.JSONArray(shownMessages())
+        assertThat(shown.length()).isEqualTo(1)
+        val payload = shown.getJSONObject(0).getJSONObject("payload")
+        assertThat(payload.getString("title")).isEqualTo("Build done")
+        val options = payload.getJSONObject("options")
+        assertThat(options.getString("body")).isEqualTo("ok")
+        assertThat(options.getString("tag")).isEqualTo("t1")
+        // Only data.url crosses to Android; arbitrary page data and unknown options never do.
+        assertThat(options.getJSONObject("data").getString("url")).isEqualTo("/session/abc")
+        assertThat(options.getJSONObject("data").has("token")).isFalse()
+        assertThat(options.has("vibrate")).isFalse()
+        assertThat(options.has("image")).isFalse()
+    }
+
+    @Test
+    fun notificationFacade_deniedPermissionThrowsAndNeverReachesAndroid() {
+        loadFixture("<div>Hermes</div>", documentStartScripts = notificationFacadeScripts("denied"))
+        assertThat(evaluate("Notification.permission")).isEqualTo("\"denied\"")
+        assertThat(evaluate("(function() { try { new Notification('x'); return 'no throw'; } catch (e) { return e.name; } })()"))
+            .isEqualTo("\"NotAllowedError\"")
+        assertThat(shownMessages()).isEqualTo("[]")
+    }
+
+    @Test
+    fun notificationFacade_failedDeliveryRaisesOnerrorInsteadOfShow() {
+        loadFixture("<div>Hermes</div>", documentStartScripts = notificationFacadeScripts("granted", deliveryOk = false))
+        evaluate(
+            """
+            window.__outcome = '';
+            var n = new Notification('x');
+            n.onshow = function() { window.__outcome = 'show'; };
+            n.onerror = function(e) { window.__outcome = 'error:' + e.name; };
+            0
+            """.trimIndent()
+        )
+        assertThat(awaitBoolean("window.__outcome === 'error:AbortError'", expected = true)).isTrue()
+    }
+
+    @Test
+    fun notificationFacade_reinjectionUpdatesPermissionWithoutReinstalling() {
+        loadFixture("<div>Hermes</div>", documentStartScripts = notificationFacadeScripts("granted"))
+        val constructorBefore = evaluate("window.__constructorProbe = Notification; 0")
+        assertThat(constructorBefore).isEqualTo("0")
+        // MainActivity re-runs the script when Android's permission changes; it must only update state.
+        evaluate(HermesWebUiScripts.buildNotificationBridgeScript("TestNotificationBridge", "denied"))
+        assertThat(evaluate("Notification.permission")).isEqualTo("\"denied\"")
+        assertThat(evaluate("Notification === window.__constructorProbe")).isEqualTo("true")
+    }
+
+    @Test
+    fun notificationFacade_serviceWorkerShowNotificationRoutesThroughTheBridge() {
+        loadFixture("<div>Hermes</div>", documentStartScripts = notificationFacadeScripts("granted"))
+        assumeTrue(
+            "ServiceWorkerRegistration needs a secure context",
+            evaluate("!!(window.ServiceWorkerRegistration && ServiceWorkerRegistration.prototype)") == "true"
+        )
+        assertThat(awaitBoolean("ServiceWorkerRegistration.prototype.__hermesAndroidNotificationsPatched === true", expected = true)).isTrue()
+        evaluate(
+            "window.__swDone = false; ServiceWorkerRegistration.prototype.showNotification.call({}, 'sw', { body: 'b' })" +
+                ".then(function() { window.__swDone = true; }); 0"
+        )
+        assertThat(awaitBoolean("window.__swDone === true", expected = true)).isTrue()
+        assertThat(org.json.JSONArray(shownMessages()).getJSONObject(0).getJSONObject("payload").getString("title"))
+            .isEqualTo("sw")
+    }
+
+    // WebUI builds its conversation long-press menu from a ~400ms touch timer and renders it as a
+    // position:fixed element capped with a viewport-unit max-height (Issues #6, #35). The real menu
+    // (.session-action-menu) holds many action buttons, so its content clears the collapse-repair threshold.
+    private val longPressMenuFixture = """
+        <div id="row" style="height:64px; background:#ddd">Conversation</div>
+        <script>
+          var timer = null;
+          // WebUI creates the menu element when the timer fires; it is not a pre-existing node.
+          function openMenu() {
+            var menu = document.createElement('div');
+            menu.id = 'menu';
+            menu.style.cssText = 'position:fixed; left:8px; top:80px; width:220px; max-height:calc(100vh - 16px);' +
+              'overflow:auto; background:#fff';
+            // Mirrors .session-action-menu: copy link, duplicate, export, rename, pin, move, archive, delete.
+            var items = '';
+            for (var i = 0; i < 8; i++) items += '<button style="display:block;width:100%;height:44px">Action ' + i + '</button>';
+            menu.innerHTML = items;
+            document.body.appendChild(menu);
+            window.__menuOpened = true;
+          }
+          row.addEventListener('touchstart', function() { timer = setTimeout(openMenu, 400); }, { passive: true });
+          ['touchend', 'touchcancel', 'touchmove'].forEach(function(type) {
+            row.addEventListener(type, function() { clearTimeout(timer); }, { passive: true });
+          });
+        </script>
+    """.trimIndent()
+
+    private fun longPressElement(selector: String, holdMillis: Long) {
+        val point = JSONArray(
+            evaluate(
+                """
+                (function() {
+                  var rect = document.querySelector(${org.json.JSONObject.quote(selector)}).getBoundingClientRect();
+                  return [rect.left + rect.width / 2, rect.top + rect.height / 2, window.innerWidth];
+                })()
+                """.trimIndent()
+            )
+        )
+        var downTime = 0L
+        var x = 0f
+        var y = 0f
+        composeTestRule.runOnIdle {
+            val scale = webView.width / point.getDouble(2).toFloat()
+            x = point.getDouble(0).toFloat() * scale
+            y = point.getDouble(1).toFloat() * scale
+            downTime = SystemClock.uptimeMillis()
+            val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
+            try { webView.dispatchTouchEvent(down) } finally { down.recycle() }
+        }
+        Thread.sleep(holdMillis)
+        composeTestRule.runOnIdle {
+            val up = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0)
+            try { webView.dispatchTouchEvent(up) } finally { up.recycle() }
+        }
+    }
+
+    @Test
+    fun longPressMenu_opensWithRealHeightOnceTheViewportRepairRuns() {
+        loadFixture(longPressMenuFixture)
+        evaluate(HermesWebUiScripts.viewportFixScript)
+
+        longPressElement("#row", holdMillis = 700)
+
+        assertThat(awaitBoolean("window.__menuOpened === true", expected = true)).isTrue()
+        // A collapsed `calc(100vh - 16px)` cap renders the menu invisible (#6); repair must give it room.
+        val grew = awaitBoolean("menu.getBoundingClientRect().height >= 100", expected = true)
+        assertWithMessage(
+            "menu diagnostics: " + evaluate(
+                "JSON.stringify({ h: menu.getBoundingClientRect().height, maxH: getComputedStyle(menu).maxHeight, " +
+                    "inner: innerHeight, vh: document.documentElement.style.getPropertyValue('--vh'), " +
+                    "style: menu.getAttribute('style') })"
+            )
+        ).that(grew).isTrue()
+        assertThat(evaluate("menu.getBoundingClientRect().bottom <= innerHeight")).isEqualTo("true")
+    }
+
+    @Test
+    fun longPressMenu_collapsesWithoutTheViewportRepair() {
+        // Control: proves the fixture really reproduces the Android WebView viewport-unit collapse.
+        loadFixture(longPressMenuFixture)
+
+        longPressElement("#row", holdMillis = 700)
+
+        assertThat(awaitBoolean("window.__menuOpened === true", expected = true)).isTrue()
+        assertThat(evaluate("menu.getBoundingClientRect().height")).isEqualTo("0")
+    }
+
+    @Test
+    fun longPressMenu_doesNotOpenOnAShortTap() {
+        loadFixture(longPressMenuFixture)
+        evaluate(HermesWebUiScripts.viewportFixScript)
+
+        longPressElement("#row", holdMillis = 120)
+        Thread.sleep(600)
+
+        assertThat(evaluate("window.__menuOpened === true")).isEqualTo("false")
+    }
+
     private val settingsPageFixture = """
         <div class="main showing-settings">
           <div class="main-view" id="settingsView" style="max-height:300px; overflow:hidden;">

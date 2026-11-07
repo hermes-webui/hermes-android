@@ -19,6 +19,14 @@
   The new clipboard test initially failed on CI API 36 because clipboard access
   was asserted before native window focus; it now waits for focus before clicks
   and reads, retaining the exact payload assertions.
+- [x] First-run welcome guide ([Issue #176](https://github.com/hermes-webui/hermes-android/issues/176)):
+  a swipeable five-page guide for new users explaining that the app is a remote
+  control for their own Hermes Agent, the Hermes WebUI vs official Webapp choice,
+  copy-to-agent setup prompts, and Tailscale-style private access with links to
+  alternatives. Shown once to a brand-new user who opens the app normally (never
+  over a deep link, never to an existing configured user) and reopenable from
+  Settings. Unit tests cover the launch gate and links; Compose and activity tests
+  cover paging, swipe, Back, Skip, Get started, the Settings entry and each launch case.
 - [ ] Onboarding follow-up recommendation: consider scanning a reusable server
   URL QR code to reduce typing, with URL validation and explicit user confirmation;
   never encode credentials or temporary sign-in tokens.

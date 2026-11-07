@@ -102,6 +102,8 @@ import androidx.webkit.WebViewFeature
 import com.hermeswebui.android.background.DebugLogBootstrap
 import com.hermeswebui.android.background.HermesForegroundServiceCoordinator
 import com.hermeswebui.android.core.network.HardwareKeyboardState
+import com.hermeswebui.android.ui.onboarding.WelcomeGate
+import com.hermeswebui.android.ui.onboarding.WelcomeScreen
 import com.hermeswebui.android.core.network.LocalNetworkPolicy
 import com.hermeswebui.android.core.security.NavigationDecision
 import com.hermeswebui.android.core.security.ProxyAuthNavigation
@@ -448,8 +450,20 @@ class MainActivity : ComponentActivity() {
         }
 
         val settings = viewModel.uiState.value.settings
+        // A launcher open is a plain MAIN intent; deep links and shares ask for something specific
+        // and must not be interrupted by the first-run welcome guide.
+        val isPlainLaunch = intent?.data == null &&
+            (intent?.action == null || intent?.action == Intent.ACTION_MAIN)
+        val hasSeenWelcome = settingsRepository.hasSeenWelcomeGuide()
+        if (WelcomeGate.shouldMarkSeenSilently(settings.isConfigured, hasSeenWelcome)) {
+            settingsRepository.markWelcomeGuideSeen()
+        }
         if (!settings.isConfigured) {
-            viewModel.openSettings()
+            if (WelcomeGate.shouldShowOnLaunch(settings.isConfigured, hasSeenWelcome, isPlainLaunch)) {
+                viewModel.showWelcome()
+            } else {
+                viewModel.openSettings()
+            }
         } else {
             preflightConfiguredStartupServer(settings.serverUrl)
             appUpdateCoordinator.scheduleAutomaticAppUpdateCheck()
@@ -724,6 +738,7 @@ class MainActivity : ComponentActivity() {
                     serverProfiles = serverProfiles,
                     onSave = onSaveSettings,
                     onDismiss = { viewModel.closeSettings() },
+                    onShowWelcome = { viewModel.showWelcome() },
                     onSetBackgroundReconnect = { enabled ->
                         if (enabled) {
                             requestNotificationPermissionIfNeeded()
@@ -831,6 +846,15 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             } // end if (isSettingsVisible)
+
+            // First-run welcome guide (also reopened from Settings). Above Settings so it covers the
+            // sheet it was opened from, below the debug overlay, with the same safe-area padding as the shell.
+            if (uiState.isWelcomeVisible) {
+                WelcomeScreen(
+                    onFinish = { finishWelcomeGuide() },
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+                )
+            }
 
             // Debug-only: draggable floating overlay that shares the latest
             // captured debug log with one tap. Auto-enabled debug logging in
@@ -2340,6 +2364,15 @@ class MainActivity : ComponentActivity() {
             serverUrl = url,
             details = "Trying to connect Tailscale automatically. Hermes retries every second while waiting for VPN."
         )
+    }
+
+    /** Ends the welcome guide (Get started, Skip or Back): remembered once, then on to server setup if needed. */
+    private fun finishWelcomeGuide() {
+        settingsRepository.markWelcomeGuideSeen()
+        viewModel.dismissWelcome()
+        if (!viewModel.uiState.value.settings.isConfigured) {
+            viewModel.openSettings()
+        }
     }
 
     private fun refreshConfiguredHermes(closeSettings: Boolean = false) {

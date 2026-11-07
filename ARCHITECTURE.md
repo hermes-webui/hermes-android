@@ -22,6 +22,18 @@
 
 ## Coordinator map
 
+`ui/onboarding/WelcomeScreen` is the first-run welcome guide: a five-page Compose
+pager (what the app is, the WebUI vs official Webapp choice, copy-the-setup-prompt,
+reaching Hermes away from home with Tailscale and alternatives, and a short
+checklist). `WelcomeGate` decides, without Android types, who sees it: only a brand-new
+user (no server configured, not seen before) who opened the app normally. A deep link
+or share launch, such as the `hermes://app/settings` recovery link, is never
+interrupted, and an existing configured user is recorded as having seen it. The seen
+flag lives in `SettingsRepository` (`hasSeenWelcomeGuide`/`markWelcomeGuideSeen`), and
+Settings reopens the guide through `WelcomeGuideEntry`. External pages come from the
+fixed `WelcomeLinks` list and open in the browser only; the guide makes no network
+request and adds no JavaScript bridge or permission.
+
 `ServerSetupHelp` presents guided Hermes-chat setup prompts on first run and in
 an expandable Servers help panel. The two static `res/raw/setup_*_prompt.txt`
 payloads are copied to Android's clipboard with explicit success/failure feedback;

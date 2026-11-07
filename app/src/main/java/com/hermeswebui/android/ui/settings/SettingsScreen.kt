@@ -122,6 +122,7 @@ fun SettingsScreen(
     serverProfiles: List<ServerProfile>,
     onSave: (String) -> Unit,
     onDismiss: () -> Unit,
+    onShowWelcome: () -> Unit = {},
     onSetBackgroundReconnect: (Boolean) -> Unit,
     onSetBackgroundActivityFullTextEnabled: (Boolean) -> Unit,
     onSetReconnectPollIntervalSeconds: (Int) -> Unit,
@@ -376,6 +377,7 @@ fun SettingsScreen(
                     }
                 }
                 ServerSetupHelp(initiallyExpanded = true)
+                WelcomeGuideEntry(onShowWelcome)
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -506,6 +508,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 ServerSetupHelp(initiallyExpanded = false)
+                WelcomeGuideEntry(onShowWelcome)
 
                 // ── Application ───────────────────────────────────────────
                 SectionHeader("Application")

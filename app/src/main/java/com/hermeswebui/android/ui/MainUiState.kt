@@ -18,6 +18,8 @@ data class MainUiState(
     val isReconnecting: Boolean = false,
     val errorMessage: String? = null,
     val isSettingsVisible: Boolean = false,
+    /** First-run welcome guide overlay (also reopened from Settings). */
+    val isWelcomeVisible: Boolean = false,
     val pendingShareBanner: String? = null,
     val currentUrl: String = settings.serverUrl,
     /** Host shown by the in-flow OAuth chip when an in-app auth flow is on a non-allowlisted origin. */

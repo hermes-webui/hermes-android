@@ -232,6 +232,14 @@ remains separate; arbitrary additional proxy-login origins are not authorized.
 - The publish workflows also support manual dispatch with the build run ID and artifact metadata so a failed GitHub or Play publish can be retried without rebuilding both release artifacts.
 - CI runs release-tool tests, JVM unit tests, Android Lint, and a debug build for every pull request and direct `main` push. Android source/build changes run the complete instrumentation suite on API 35 and 36 in those gates; release builds run the unfiltered API 36 suite again and verify APK/AAB signatures before artifacts are uploaded.
 
+## QA and regression layers
+
+- **Contract guards (JVM/Python):** `WebViewSecurityContractTest` pins source-level rules (no SSL bypass, no dashboard-config writes, no long-click interception, manifest permissions). `tools/tests` pins workflow, release, and hostname-leak contracts. Both run in always-reporting required jobs.
+- **Emulator fixtures:** `HermesWebUiCompatibilityTest` and `ProxyAuthRedirectInstrumentationTest` helpers drive shim behavior, prompt-card hit-testing against a vendored upstream markup snapshot, and proxy/OIDC flows on loopback servers. They run unfiltered in `android-ui-smoke` on API 35 and 36.
+- **Live QA harness:** `tools/qa` drives a real, manually signed-in Hermes server over adb and WebView DevTools. The URL is local-only and reports redact it. It detects upstream markup drift that the vendored snapshot cannot.
+- **Always-reporting emulator job:** `android-ui-smoke` uses the same pattern as the Gradle gates. The job is never skipped; its steps short-circuit when `changes` reports no Android input changed, and an empty detector output runs the suite. `ci-gate` aggregates it. It is intentionally not a required check yet (ruleset work is Issue #105, an admin task).
+- **Release variant:** CI proves the unsigned F-Droid `release` build compiles and is Play-free (`debug-build`), and the release workflow verifies signatures. An instrumented release smoke is intentionally absent because it would need signing changes or secrets.
+
 ## Security model
 
 - Trust boundary is the configured Hermes WebUI and dashboard URL host set.

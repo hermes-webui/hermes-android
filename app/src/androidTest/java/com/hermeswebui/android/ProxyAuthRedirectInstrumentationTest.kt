@@ -17,6 +17,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
@@ -408,15 +409,246 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
+    // ---- Issue #150 phase 5: flows -------------------------------------------------------------
+
+    /** Issues #12/#54/#66: the PKCE cookie set at login start must survive the in-app provider hop. */
+    @Test
+    fun oidcCodeFlow_keepsPkceCookieProviderInAppAndNeverPersistsProviderUrls() {
+        withConfiguredServer(oidc = true) { server, repository ->
+            val externalized = CopyOnWriteArrayList<String>()
+            val monitor = recordExternalViews(externalized)
+            instrumentation.addMonitor(monitor)
+            try {
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitDomControl(scenario, server.baseUrl, "sso")
+                    evaluateWebView(scenario, "document.getElementById('sso').click();")
+
+                    awaitDomControl(scenario, server.loginOrigin, "approve")
+                    // #66: a 100vh provider root must not collapse to a blank 0px page.
+                    eventually({
+                        "Provider root height, observed ${evaluateWebView(scenario,
+                            "[document.getElementById('root').getBoundingClientRect().height, innerHeight].join()")}"
+                    }) {
+                        evaluateWebView(
+                            scenario,
+                            "document.getElementById('root').getBoundingClientRect().height > 0"
+                        ) == "true"
+                    }
+                    // Provider pages must never become the cold-start URL.
+                    assertThat(repository.getLastLoadedUrl()).doesNotContain("authorize")
+                    evaluateWebView(scenario, "document.getElementById('approve').click();")
+
+                    awaitWebView(scenario) {
+                        it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in"
+                    }
+                    eventually("Final Hermes route persisted") {
+                        repository.getLastLoadedUrl() == "${server.baseUrl}/session/issue132"
+                    }
+                }
+                // #12: the callback reached the server with the PKCE cookie and was not rejected.
+                val callback = server.requests.single { it.path == "/oidc/callback" }
+                assertThat(callback.cookie).contains("hermes_oidc_pkce=verifier123")
+                // Cookies are host-scoped: the PKCE cookie must not leak to the provider origin.
+                assertThat(server.requests.none {
+                    it.host.startsWith("localhost:") && it.cookie.contains("hermes_oidc_pkce")
+                }).isTrue()
+                // The flow stayed in the app: nothing was handed to an external browser.
+                assertThat(externalized).isEmpty()
+                assertThat(repository.getLastLoadedUrl()).doesNotContain("oidc/callback")
+            } finally {
+                instrumentation.removeMonitor(monitor)
+            }
+        }
+    }
+
+    /** An authorization URL whose redirect_uri does not return to the server is not an in-app OAuth flow. */
+    @Test
+    fun oidcAuthorizationWithForeignRedirectUri_isExternalizedNotLoadedInApp() {
+        withConfiguredServer(oidc = true) { server, _ ->
+            val externalized = CopyOnWriteArrayList<String>()
+            val monitor = recordExternalViews(externalized)
+            instrumentation.addMonitor(monitor)
+            try {
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitDomControl(scenario, server.baseUrl, "evil")
+                    evaluateWebView(scenario, "document.getElementById('evil').click();")
+                    eventually("Foreign-redirect authorization URL externalized") { externalized.isNotEmpty() }
+                    instrumentation.waitForIdleSync()
+                    assertThat(server.requests.none { it.path == "/authorize" }).isTrue()
+                    awaitWebView(scenario) { it.url == "${server.baseUrl}/" }
+                }
+            } finally {
+                instrumentation.removeMonitor(monitor)
+            }
+        }
+    }
+
+    /** Issue #8: a saved but wrong/dead server URL must land in Settings, not a permanent error screen. */
+    @Test
+    fun deadSavedServerUrl_opensSettingsWithEditableUrlInsteadOfTrappingTheUser() {
+        val deadPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
+        val original = preferences.all.toMap()
+        try {
+            val repository = SettingsRepository(context)
+            repository.getProfiles().forEach { repository.deleteProfile(it.id) }
+            repository.saveAppUrls("http://127.0.0.1:$deadPort", "")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                eventually({ "Settings opened: ${DiagnosticsLogger.recentText(context).takeLast(3_000)}" }) {
+                    compose.onAllNodesWithText("Current server").fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithText("Current server").assertIsDisplayed()
+                scenario.onActivity { assertThat(it.isFinishing).isFalse() }
+            }
+        } finally {
+            restorePreferences(preferences, original)
+        }
+    }
+
+    /** Issue #9: after the server comes back the app reloads on its own, without a manual Retry or restart. */
+    @Test
+    fun serverRestart_autoReloadsTheErrorScreenWithoutManualRetry() {
+        withConfiguredServer { first, repository ->
+            val sessionUrl = "${first.baseUrl}/session/issue132"
+            repository.saveLastLoadedUrl(sessionUrl)
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(first.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            val port = first.baseUrl.substringAfterLast(':').toInt()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.url == sessionUrl && it.title == "Hermes signed in" }
+                first.close()
+                scenario.onActivity { activity ->
+                    findWebView(activity.findViewById(android.R.id.content))!!.loadUrl(sessionUrl)
+                }
+                compose.waitUntil(30_000) {
+                    compose.onAllNodesWithText("Retry").fetchSemanticsNodes().isNotEmpty()
+                }
+                ProxyServer(port = port).use { restarted ->
+                    // Only the native reconnect loop can reload now: no Retry tap, no relaunch.
+                    eventually({
+                        "Auto-retry reload; ui=${webViewSummary(scenario)} requests=${restarted.requests.map { it.path }} " +
+                            DiagnosticsLogger.recentText(context).takeLast(2_000)
+                    }, 60_000) {
+                        compose.onAllNodesWithText("Retry").fetchSemanticsNodes().isEmpty() &&
+                            webViewSummary(scenario).startsWith("$sessionUrl (Hermes signed in)")
+                    }
+                    // The reconnect probe, not a user action, found the server again.
+                    assertThat(restarted.requests.any { it.path == "/api/status" }).isTrue()
+                }
+            }
+        }
+    }
+
+    /** Issue #121: hermes://session/{id} opens the WebUI /session/{id} route on the configured server. */
+    @Test
+    fun sessionDeepLink_loadsSessionRouteOnConfiguredServerAndIsDeclaredInManifest() {
+        for (uri in listOf("hermes://session/issue121", "hermes://app/settings")) {
+            val resolved = context.packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(uri)).setPackage(context.packageName), 0
+            )
+            assertThat(resolved.map { it.activityInfo.name }).contains(MainActivity::class.java.name)
+        }
+        withConfiguredServer { server, repository ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            repository.saveLastLoadedUrl("${server.baseUrl}/session/issue132")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.url == "${server.baseUrl}/session/issue132" }
+                sendDeepLink(scenario, "hermes://session/issue121")
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/session/issue121" && it.title == "Hermes session issue121"
+                }
+                // Reserved characters are encoded into a single path segment, never a new route.
+                sendDeepLink(scenario, "hermes://session/a%20b")
+                awaitWebView(scenario) { it.url == "${server.baseUrl}/session/a%20b" }
+                // A deep link can only reach the configured origin: no request ever left it.
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
+            }
+        }
+    }
+
+    /** Issue #81: Settings must open and render, including the plural-backed polling description. */
+    @Test
+    fun settingsLaunchedFromDeepLink_rendersWithoutCrashingIncludingPollingPlural() {
+        withConfiguredServer { server, repository ->
+            repository.setReconnectPollIntervalSeconds(2)
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                sendDeepLink(scenario, "hermes://app/settings")
+                compose.waitUntil(20_000) {
+                    compose.onAllNodesWithText("Advanced connection options").fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithText("Advanced connection options").performScrollTo().performClick()
+                compose.onNode(hasText("2 seconds between reconnect checks"))
+                    .performScrollTo().assertIsDisplayed()
+                scenario.onActivity { assertThat(it.isFinishing).isFalse() }
+            }
+        }
+    }
+
+    private fun webViewSummary(scenario: ActivityScenario<MainActivity>): String {
+        var summary = ""
+        scenario.onActivity { a -> findWebView(a.findViewById(android.R.id.content))?.let { summary = "${it.url} (${it.title}) progress=${it.progress}" } }
+        return summary
+    }
+
+    private fun sendDeepLink(scenario: ActivityScenario<MainActivity>, uri: String) {
+        scenario.onActivity {
+            val originalIntent = it.intent
+            instrumentation.callActivityOnNewIntent(it, Intent(Intent.ACTION_VIEW, android.net.Uri.parse(uri)))
+            it.intent = originalIntent
+        }
+    }
+
+    private fun recordExternalViews(sink: MutableList<String>) = object : Instrumentation.ActivityMonitor() {
+        override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+            if (intent.action != Intent.ACTION_VIEW || intent.data?.host != "localhost") return null
+            sink.add(intent.dataString.orEmpty())
+            return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+        }
+    }
+
+    /** Waits for a real DOM control on the expected origin; WebView.url alone is not document readiness. */
+    private fun awaitDomControl(scenario: ActivityScenario<MainActivity>, origin: String, id: String) {
+        eventually("DOM control #$id ready on $origin") {
+            evaluateWebView(
+                scenario,
+                "document.readyState === 'complete' && location.origin === ${JSONObject.quote(origin)} && " +
+                    "document.getElementById(${JSONObject.quote(id)}) !== null"
+            ) == "true"
+        }
+    }
+
+    private fun restorePreferences(preferences: android.content.SharedPreferences, original: Map<String, Any?>) {
+        val editor = preferences.edit().clear()
+        original.forEach { (key, value) ->
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Set<*> -> editor.putStringSet(key, value.filterIsInstance<String>().toSet())
+                else -> error("Unexpected preference type")
+            }
+        }
+        check(editor.commit())
+    }
+
     private fun withConfiguredServer(
         officialWebapp: Boolean = false,
+        oidc: Boolean = false,
         block: (ProxyServer, SettingsRepository) -> Unit
     ) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
         val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
         val loggingWasEnabled = SettingsRepository(context).isDebugLoggingEnabled()
-        ProxyServer(officialWebapp = officialWebapp).use { server ->
+        ProxyServer(officialWebapp = officialWebapp, oidc = oidc).use { server ->
             try {
                 val repository = SettingsRepository(context)
                 repository.getProfiles().forEach { repository.deleteProfile(it.id) }
@@ -534,8 +766,17 @@ class ProxyAuthRedirectInstrumentationTest {
 
     private fun eventually(description: String, condition: () -> Boolean) = eventually({ description }, condition)
 
-    private fun eventually(description: () -> String, condition: () -> Boolean) {
-        val deadline = SystemClock.elapsedRealtime() + 20_000
+    private fun eventually(description: String, timeoutMs: Long, condition: () -> Boolean) =
+        eventuallyWithin(timeoutMs, { description }, condition)
+
+    private fun eventually(description: () -> String, timeoutMs: Long, condition: () -> Boolean) =
+        eventuallyWithin(timeoutMs, description, condition)
+
+    private fun eventually(description: () -> String, condition: () -> Boolean) =
+        eventuallyWithin(20_000, description, condition)
+
+    private fun eventuallyWithin(timeoutMs: Long, description: () -> String, condition: () -> Boolean) {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
         while (SystemClock.elapsedRealtime() < deadline) {
             if (condition()) return
             SystemClock.sleep(100)
@@ -546,10 +787,12 @@ class ProxyAuthRedirectInstrumentationTest {
     private class ProxyServer(
         private val redirectCode: Int = 302,
         private val locationOverride: String? = null,
-        private val officialWebapp: Boolean = false
+        private val officialWebapp: Boolean = false,
+        private val oidc: Boolean = false,
+        port: Int = 0
     ) : AutoCloseable {
         data class Request(val path: String, val host: String, val cookie: String)
-        private val socket = ServerSocket(0, 20, InetAddress.getByName("127.0.0.1"))
+        private val socket = ServerSocket(port, 20, InetAddress.getByName("127.0.0.1"))
         private val running = AtomicBoolean(true)
         val baseUrl = "http://127.0.0.1:${socket.localPort}"
         val loginOrigin = "http://localhost:${socket.localPort}"
@@ -564,10 +807,11 @@ class ProxyAuthRedirectInstrumentationTest {
                 client.use {
                     it.soTimeout = 5_000
                     val reader = it.getInputStream().bufferedReader()
-                    val first = reader.readLine() ?: return@use
+                    // Chromium opens idle speculative sockets; a read timeout there must not kill the accept loop.
+                    val first = try { reader.readLine() } catch (_: java.io.IOException) { null } ?: return@use
                     val headers = mutableListOf<String>()
                     while (true) {
-                        val line = reader.readLine() ?: break
+                        val line = try { reader.readLine() } catch (_: java.io.IOException) { null } ?: break
                         if (line.isEmpty()) break
                         headers.add(line)
                     }
@@ -577,7 +821,46 @@ class ProxyAuthRedirectInstrumentationTest {
                     val cookie = header("Cookie")
                     requests.add(Request(path, header("Host"), cookie))
                     val authenticated = cookie.contains("proxy_auth=ok") && !rejectSession.get()
+                    val query = first.split(" ")[1].substringAfter('?', "")
                     val (status, extra, body) = when {
+                        // Issue #12/#54/#66 OIDC fixture: the WebUI start page, a PKCE-cookie-setting
+                        // start route, a provider on the "localhost" origin and a cookie-checking callback.
+                        oidc && path == "/api/status" -> Triple("200 OK", "", """{"version":"test","initialized":true}""")
+                        oidc && path == "/" && !authenticated -> Triple("200 OK", "", """
+                            <title>Hermes sign in</title>
+                            <script>window.__HERMES_WEBUI_BUNDLE_VERSION__="fixture";</script>
+                            <div class="layout"><main class="main">
+                              <button id="sso" onclick="location.href='/oidc/start'">SSO</button>
+                              <button id="evil" onclick="location.href='$loginOrigin/authorize?response_type=code&client_id=hermes&redirect_uri=https%3A%2F%2Fattacker.invalid%2Fcb&state=st1'">Evil</button>
+                            </main></div>
+                        """.trimIndent())
+                        oidc && path == "/oidc/start" -> Triple("302 Found",
+                            "Set-Cookie: $PKCE_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\n" +
+                                "Location: $loginOrigin/authorize?response_type=code&client_id=hermes" +
+                                "&redirect_uri=${java.net.URLEncoder.encode("$baseUrl/oidc/callback", "UTF-8")}" +
+                                "&state=st1&code_challenge=abc&code_challenge_method=S256\r\n", "")
+                        oidc && path == "/authorize" -> Triple("200 OK", "", """
+                            <title>Provider sign-in</title>
+                            <div id="root" style="height:100vh;background:#eee">
+                              <h1>Sign in to continue</h1><p>${"Provider sign-in form content. ".repeat(40)}</p>
+                              <button id="approve" onclick="location.href='$baseUrl/oidc/callback?code=abc&state=st1'">Approve</button>
+                            </div>
+                        """.trimIndent())
+                        oidc && path == "/oidc/callback" ->
+                            if (cookie.contains(PKCE_COOKIE) && query.contains("code=abc")) {
+                                Triple("302 Found",
+                                    "Set-Cookie: proxy_auth=ok; Path=/; HttpOnly; SameSite=Lax\r\n" +
+                                        "Set-Cookie: hermes_oidc_pkce=; Max-Age=0; Path=/\r\n" +
+                                        "Location: /session/issue132\r\n", "")
+                            } else {
+                                Triple("400 Bad Request", "", """{"detail":"Missing PKCE state cookie"}""")
+                            }
+                        path.startsWith("/session/") && path != "/session/issue132" && authenticated ->
+                            Triple("200 OK", "", """
+                                <title>Hermes session ${path.removePrefix("/session/")}</title>
+                                <script>window.__HERMES_WEBUI_BUNDLE_VERSION__="fixture";</script>
+                                <div class="layout"><main class="main">Authenticated</main></div>
+                            """.trimIndent())
                         path == "/api/status" && authenticated -> Triple("200 OK", "", """{"version":"test","initialized":true}""")
                         path == "/api/status" || (path == "/" && !authenticated) ->
                             Triple("$redirectCode Redirect", "Location: ${(locationOverride ?: "$loginOrigin/login?rd=synthetic-secret").replace("{port}", socket.localPort.toString())}\r\n", "")
@@ -612,11 +895,15 @@ class ProxyAuthRedirectInstrumentationTest {
                     }
                     val bytes = body.toByteArray(Charsets.UTF_8)
                     val type = if (path == "/api/status") "application/json" else "text/html"
-                    it.getOutputStream().apply {
-                        write(("HTTP/1.1 $status\r\n${extra}Content-Type: $type; charset=utf-8\r\n" +
-                            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray())
-                        write(bytes)
-                        flush()
+                    try {
+                        it.getOutputStream().apply {
+                            write(("HTTP/1.1 $status\r\n${extra}Content-Type: $type; charset=utf-8\r\n" +
+                                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray())
+                            write(bytes)
+                            flush()
+                        }
+                    } catch (_: java.io.IOException) {
+                        // The WebView may abort a navigation mid-response; keep serving.
                     }
                 }
             }
@@ -631,6 +918,7 @@ class ProxyAuthRedirectInstrumentationTest {
 
         private companion object {
             // Full-viewport so a real centre tap provides the user activation file choosers need.
+            const val PKCE_COOKIE = "hermes_oidc_pkce=verifier123"
             const val FILE_INPUT = """<input type="file" id="picker" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;opacity:0.01;z-index:10" onclick="window.pickerClicks=(window.pickerClicks||0)+1" onchange="window.pickedCount=this.files.length">"""
         }
     }

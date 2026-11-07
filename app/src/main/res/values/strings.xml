@@ -47,4 +47,45 @@
     <string name="debug_logging_notification_title">Debug logging is running</string>
     <string name="debug_logging_notification_body">Capturing troubleshooting logs in the background. Tap Stop to end capture.</string>
     <string name="debug_logging_notification_stop_action">Stop</string>
+
+    <string name="welcome_skip">Skip</string>
+    <string name="welcome_back">Back</string>
+    <string name="welcome_next">Next</string>
+    <string name="welcome_get_started">Get started</string>
+    <string name="welcome_page_indicator">Page %1$d of %2$d</string>
+    <string name="welcome_open_link_failed">No app is available to open this link.</string>
+    <string name="welcome_link_open">Open %1$s</string>
+
+    <string name="welcome_intro_title">Your Hermes agent, in your pocket</string>
+    <string name="welcome_intro_body">Hermes-Android is a remote control for the Hermes Agent running on your own computer or server. Your agent keeps running where it is, and this app is the window into it.</string>
+
+    <string name="welcome_interfaces_title">Choose your interface</string>
+    <string name="welcome_interfaces_body">Hermes-Android works with either of these. Pick one now and change it later in Settings.</string>
+    <string name="welcome_webui_title">Hermes WebUI</string>
+    <string name="welcome_webui_body">The community web interface for Hermes Agent, with chat, sessions and workspace tools.</string>
+    <string name="welcome_webui_link">View on GitHub</string>
+    <string name="welcome_webapp_title">Hermes Agent Webapp</string>
+    <string name="welcome_webapp_body">The official Hermes Agent workspace. It is off by default, so enable it on your computer first (Hermes Agent v0.22.6 or newer).</string>
+    <string name="welcome_webapp_link">Read the setup docs</string>
+
+    <string name="welcome_setup_title">Let your agent set it up</string>
+    <string name="welcome_setup_body">Copy a ready-made command, then paste it into your existing Hermes chat on the computer or server that runs Hermes. Your agent will walk you through the setup.</string>
+    <string name="welcome_setup_note">These are instructions for your agent, not terminal commands. Copying does not install anything or check your phone\'s connection.</string>
+
+    <string name="welcome_remote_title">Reaching Hermes away from home</string>
+    <string name="welcome_remote_body">At home your phone can reach your computer over Wi-Fi. Away from home it needs a private route back, such as a VPN or secure tunnel. Tailscale is a popular choice, and there are alternatives:</string>
+    <string name="welcome_remote_note">Keep Hermes sign-in turned on and avoid opening router ports to the internet.</string>
+
+    <string name="welcome_ready_title">You\'re ready to connect</string>
+    <string name="welcome_ready_body">Next, enter the address of your Hermes server. You can reopen this guide any time from Settings.</string>
+
+    <string name="welcome_diagram_agent">Hermes Agent</string>
+    <string name="welcome_diagram_app">This app</string>
+    <string name="welcome_needs_title">What you will need</string>
+    <string name="welcome_needs_address">The address of your Hermes server</string>
+    <string name="welcome_needs_signin">Your Hermes sign-in, if you turned it on</string>
+    <string name="welcome_needs_private">A private connection for when you are away from home</string>
+
+    <string name="welcome_settings_entry">Show welcome guide</string>
+    <string name="welcome_settings_entry_hint">A quick tour of what Hermes-Android does and how to get set up.</string>
 </resources>

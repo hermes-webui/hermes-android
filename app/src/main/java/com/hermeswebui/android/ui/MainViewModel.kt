@@ -388,6 +388,14 @@ class MainViewModel(
         _uiState.update { it.copy(isSettingsVisible = false) }
     }
 
+    fun showWelcome() {
+        _uiState.update { it.copy(isWelcomeVisible = true) }
+    }
+
+    fun dismissWelcome() {
+        _uiState.update { it.copy(isWelcomeVisible = false) }
+    }
+
     fun setServerValidationState(isChecking: Boolean, message: String?, isError: Boolean, details: String? = null) {
         _uiState.update {
             it.copy(

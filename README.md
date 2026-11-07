@@ -111,6 +111,18 @@ and submitted with production releases; F-Droid's channel-specific text lives
 under `fastlane/metadata/android/en-US/`. Publisher API readback verifies the
 committed Play text, not the timing of public storefront review/propagation.
 
+### Welcome guide
+
+The first time you open the app with no server configured, a short swipeable
+welcome guide explains what Hermes-Android is (a remote control for your own
+Hermes Agent), the two interfaces it can host (the community Hermes WebUI, or
+the official Hermes Agent Webapp, which you must enable on your computer first),
+how to have your agent set up the host side, and why you need a private network
+such as Tailscale to reach it away from home. Swipe or use Back/Next, or Skip.
+Reopen it any time from **Show welcome guide** in Settings. It is informational
+only: external links open in your browser, and nothing is sent to a server.
+Existing users with a server already configured do not see it automatically.
+
 ### Copy a guided setup command
 
 Already running Hermes Agent? On first launch, use **Copy command to set up

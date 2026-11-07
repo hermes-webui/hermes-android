@@ -50,7 +50,23 @@ internal fun ServerSetupHelp(initiallyExpanded: Boolean) {
     }
 }
 
-private fun copySetupPrompt(context: Context, resource: Int, label: Int) {
+/** Reopens the first-run welcome guide. Lives beside the setup help because both explain getting started. */
+@Composable
+internal fun WelcomeGuideEntry(onShowWelcome: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        TextButton(onClick = onShowWelcome) { Text(stringResource(R.string.welcome_settings_entry)) }
+        Text(
+            stringResource(R.string.welcome_settings_entry_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+internal fun copySetupPrompt(context: Context, resource: Int, label: Int) {
     val clipboard = context.getSystemService(ClipboardManager::class.java)
     if (clipboard == null) {
         Toast.makeText(context, R.string.setup_copy_failed, Toast.LENGTH_LONG).show()

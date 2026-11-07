@@ -330,11 +330,25 @@ class SettingsScreenTest {
         assertThat(savedConfig).isEqualTo("content://certificates/hermes.p12" to " secret ")
     }
 
+    @Test
+    fun welcomeGuideEntry_isOfferedInSettingsAndReopensTheGuide() {
+        var opened = 0
+        renderConfiguredSettings(seconds = 1, onShowWelcome = { opened++ })
+
+        composeTestRule.onNodeWithText("Show welcome guide")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+
+        assertThat(opened).isEqualTo(1)
+    }
+
     private fun renderConfiguredSettings(
         seconds: Int,
         clientCertificateUri: String? = null,
         clientCertificatePassword: String? = null,
-        onSetClientCertificateConfig: (String?, String?) -> Unit = { _, _ -> }
+        onSetClientCertificateConfig: (String?, String?) -> Unit = { _, _ -> },
+        onShowWelcome: () -> Unit = {}
     ) {
         composeTestRule.setContent {
             SettingsScreen(
@@ -365,6 +379,7 @@ class SettingsScreenTest {
                 serverProfiles = emptyList(),
                 onSave = {},
                 onDismiss = {},
+                onShowWelcome = onShowWelcome,
                 onSetBackgroundReconnect = {},
                 onSetBackgroundActivityFullTextEnabled = {},
                 onSetReconnectPollIntervalSeconds = {},

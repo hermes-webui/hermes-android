@@ -30,6 +30,7 @@ Useful entry points:
 - `ui/MainViewModel.kt` - app state orchestration (paired with `ui/MainViewModelFactory.kt`)
 - `ui/web/WebShell.kt` - Compose WebView host and refresh/error UX
 - `ui/settings/SettingsScreen.kt` + `ui/settings/SettingsSections.kt` - native settings surface and task-based section components (opened via `hermes://app/settings` and the injected WebUI sidebar entry)
+- `ui/onboarding/WelcomeScreen.kt` + `ui/onboarding/WelcomeGate.kt` - first-run welcome guide (Issue #176): a swipeable pager, shown once only to a brand-new user (no server configured, not seen, plain launcher open) and reopenable from Settings (`WelcomeGuideEntry`). Never show it over a deep link, share intent or the `hermes://app/settings` recovery link, and never to an existing configured user. It is informational: external pages come only from the fixed `WelcomeLinks` list and open in the browser, with no network call, JavaScript bridge or new permission. It reuses the setup prompts via `copySetupPrompt`; do not claim clipboard copies verify host installation or phone connectivity.
 - `ui/settings/ServerSetupHelp.kt` - copy-only guided Hermes-chat setup prompts. Keep `res/raw/setup_*_prompt.txt` in sync with README fenced copy blocks; never execute them, add credentials, or imply clipboard tests verify host installation or phone connectivity.
 - `ui/DebugLogFloatingButton.kt` - draggable overlay shown while debug logging is active
 - `OAuthPopupFlow.kt` - parses authorization requests and verifies OAuth/OIDC callbacks before allowing in-app provider navigation

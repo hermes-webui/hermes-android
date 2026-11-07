@@ -239,6 +239,15 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_NOTIFICATION_PERMISSION_REQUESTED, true) }
     }
 
+    /** Whether the first-run welcome guide has been shown or dismissed (or was not needed). */
+    fun hasSeenWelcomeGuide(): Boolean {
+        return sharedPreferences.getBoolean(KEY_WELCOME_GUIDE_SEEN, false)
+    }
+
+    fun markWelcomeGuideSeen() {
+        sharedPreferences.edit { putBoolean(KEY_WELCOME_GUIDE_SEEN, true) }
+    }
+
     fun isBackgroundReconnectEnabled(): Boolean {
         return sharedPreferences.getBoolean(KEY_BACKGROUND_RECONNECT_ENABLED, false)
     }
@@ -555,6 +564,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_LAST_URL = "last_url"
         private const val KEY_IS_CONFIGURED = "is_configured"
         private const val KEY_NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
+        private const val KEY_WELCOME_GUIDE_SEEN = "welcome_guide_seen"
         private const val KEY_BACKGROUND_RECONNECT_ENABLED = "background_reconnect_enabled"
         private const val KEY_RECONNECT_POLL_INTERVAL_SECONDS = "reconnect_poll_interval_seconds"
         private const val KEY_REQUIRE_VPN_FOR_TAILSCALE_ENABLED = "require_vpn_for_tailscale_enabled"

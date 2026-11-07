@@ -48,7 +48,9 @@ class QaHarnessTests(unittest.TestCase):
                             "the placeholder example must stay trackable")
 
     def test_hostname_guard_flags_a_real_looking_name_but_not_the_fixture(self):
-        self.assertEqual({"forge.tail1a2b3c.ts.net"}, real_tailnet_hosts("x forge.tail1a2b3c.ts.net y"))
+        # Assembled at runtime so this file does not itself contain a tailnet-shaped literal.
+        sample = "forge." + "tail" + "1a2b3c" + ".ts" + ".net"
+        self.assertEqual({sample}, real_tailnet_hosts(f"x {sample} y"))
         self.assertEqual(set(), real_tailnet_hosts("node.tailabc.ts.net"))
 
     def test_example_env_holds_only_a_placeholder(self):

@@ -308,6 +308,16 @@ Optional device check:
 .\gradlew.bat connectedDebugAndroidTest --no-daemon
 ```
 
+## QA and regression testing
+
+Bugs in this app are usually a Hermes WebUI compatibility regression that only shows on a device, so add the cheapest test that would have caught it:
+
+- Source rules that live in this file (no SSL bypass, no dashboard-config writes, no long-click interception, required permissions) are enforced by `WebViewSecurityContractTest`. Change the rule and the test together.
+- Injected-script behavior belongs in an instrumentation fixture (`HermesWebUiCompatibilityTest` helpers), not only in `contains(...)` string assertions.
+- Changes to injected WebUI JavaScript or a WebUI shim should also be checked against a real server with `tools/qa` (see `tools/qa/README.md`). Paste the redacted `report.md` summary in the PR.
+- **Never commit a server URL, hostname or credential.** The live-QA server URL lives only in the untracked `tools/qa/.env.qa` or the `HERMES_QA_SERVER_URL` variable; reports redact it. `tools/tests/test_qa_harness.py` fails on a tracked tailnet hostname.
+- The server must be signed in manually; agents do not enter or store passwords.
+
 ## Git identity and workflow
 
 Use the Paladin173 GitHub noreply identity for commits in this repo:

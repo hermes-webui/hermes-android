@@ -328,7 +328,6 @@ object HermesWebUiScripts {
           function isCollapsedElement(el, viewport) {
             if (!el || !el.getBoundingClientRect) return false;
             if (shouldSkipElement(el)) return false;
-            if (shouldSkipRepairForElement(el)) return false;
 
             var rect = el.getBoundingClientRect();
             var scrollHeight = el.scrollHeight || 0;
@@ -356,6 +355,12 @@ object HermesWebUiScripts {
 
             // Skip elements with trivial content
             if (scrollHeight < 80) return false;
+
+            // Exclusion contract (approval/clarify cards, composer anchors, chat-surface
+            // descendants) is evaluated last: it can call getComputedStyle, so only
+            // elements that already look collapsed pay for it. The result is identical
+            // to evaluating it first because every check here only returns false.
+            if (shouldSkipRepairForElement(el)) return false;
 
             // Check for meaningful interactive content
             var hasInteractive = false;
@@ -435,19 +440,17 @@ object HermesWebUiScripts {
 
               if (shouldSkipElement(el)) continue;
 
-              if (shouldSkipRepairForElement(el)) {
+              if (el.getAttribute(REPAIRED_ATTR)) {
                 // If an older run marked a chat element before exclusion was added,
                 // clean that stale repair so normal WebUI layout can take over.
-                if (el.getAttribute(REPAIRED_ATTR)) {
+                if (shouldSkipRepairForElement(el)) {
                   clearRepair(el);
+                  continue;
                 }
-                continue;
-              }
 
-              // Retain a repair while the element remains visible. Its measured height
-              // includes this repair, so clearing it based on the current layout would
-              // re-enable the broken vh/dvh rule and make the panel oscillate.
-              if (el.getAttribute(REPAIRED_ATTR)) {
+                // Retain a repair while the element remains visible. Its measured height
+                // includes this repair, so clearing it based on the current layout would
+                // re-enable the broken vh/dvh rule and make the panel oscillate.
                 clearRepairIfHidden(el);
                 if (el.getAttribute(REPAIRED_ATTR)) {
                   updateRepair(el, viewport);
@@ -963,10 +966,34 @@ object HermesWebUiScripts {
             return clone;
           };
 
+          // Last verified placement. While WebUI streams messages every DOM insertion schedules
+          // ensureEntry, and the full anchor search walks the document. When the verified
+          // placement is provably unchanged (all nodes still attached, entry still directly
+          // after its anchor, same compact/desktop layout, anchor still visible) there is
+          // nothing to repair. Any difference falls through to the full search below.
+          var verified = null;
+
+          var placementStillVerified = function() {
+            if (!verified) return false;
+            if (!verified.entry.isConnected || !verified.container.isConnected || !verified.interactive.isConnected) return false;
+            if (verified.compact !== isCompactLayout()) return false;
+            if (verified.container.nextElementSibling !== verified.entry) return false;
+            return isNodeVisible(verified.interactive);
+          };
+
+          var rememberPlacement = function(entry, container, interactive) {
+            // Only the real Settings anchor is cached. The Help fallback stays on the full
+            // search so a Settings item appearing later still takes over the placement.
+            if (!matchesSettingsNode(interactive)) return;
+            verified = { entry: entry, container: container, interactive: interactive, compact: isCompactLayout() };
+          };
+
           var ensureEntry = function() {
             // Cloning a React-owned settings node would bypass its component state.
             if (window.__HERMES_UI_SURFACE__ === 'webapp') return;
             try {
+              if (placementStillVerified()) return;
+              verified = null;
               var anchorInteractive = findSettingsAnchor();
               if (!anchorInteractive) return;
 
@@ -980,11 +1007,13 @@ object HermesWebUiScripts {
                 if (existing !== anchorContainer.nextElementSibling) {
                   anchorContainer.parentNode.insertBefore(existing, anchorContainer.nextSibling);
                 }
+                rememberPlacement(existing, anchorContainer, anchorInteractive);
                 return;
               }
 
               var entry = createEntryNode(anchorContainer, anchorInteractive);
               anchorContainer.parentNode.insertBefore(entry, anchorContainer.nextSibling);
+              rememberPlacement(entry, anchorContainer, anchorInteractive);
             } catch (_) {}
           };
 

@@ -1,0 +1,2 @@
+New first-run welcome guide: it explains Hermes WebUI vs the official Hermes Agent WebApp, offers copyable setup commands for your agent, and shows how to reach Hermes away from home with Tailscale or similar. Reopen it any time from Settings.
+Fixed hermes:// session and settings links not opening when the app was closed.

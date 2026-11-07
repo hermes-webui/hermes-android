@@ -1,0 +1,120 @@
+<style>
+:root{--msg-max:780px;--app-titlebar-safe-top:0px;--bg:#fff;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column;font:14px sans-serif;}
+.app-titlebar{display:flex;align-items:center;justify-content:center;height:38px;flex-shrink:0;border-bottom:1px solid #888;padding:0 12px;padding-top:var(--app-titlebar-safe-top);box-sizing:content-box;position:relative;z-index:20;background:#fff;}
+.layout{display:flex;width:100%;flex:1 1 auto;min-height:0;}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;min-height:0;}
+.main-view{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;}
+.messages-shell{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;}
+.messages{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;min-height:0;position:relative;z-index:0;}
+.messages-inner{margin:0 auto;width:100%;padding:20px 24px 32px;display:flex;flex-direction:column;}
+.composer-wrap{padding:10px 20px 14px;background:#fff;flex-shrink:0;position:relative;z-index:10;}
+.composer-wrap::before{content:"";position:absolute;left:0;right:0;bottom:100%;height:32px;pointer-events:none;}
+.composer-box{max-width:clamp(780px,60vw,1100px);margin:0 auto;border:1px solid #888;border-radius:16px;display:flex;flex-direction:column;position:relative;z-index:2;background:#fff;}
+.composer-flyout{position:relative;height:0;z-index:1;}
+.approval-card[hidden],.clarify-card[hidden]{display:none!important;}
+.approval-card{position:absolute;left:0;right:0;bottom:-24px;max-width:var(--msg-max);margin:0 auto;padding:0 20px;box-sizing:border-box;width:100%;overflow:hidden;pointer-events:none;}
+.approval-card.visible{pointer-events:auto;z-index:3;}
+.approval-inner{background:#eee;border:1px solid #888;border-radius:14px;padding:16px 18px 40px;transform:translateY(100%);opacity:0;transition:transform .4s cubic-bezier(.32,.72,.16,1),opacity .25s ease;}
+.approval-card.visible .approval-inner{transform:translateY(0);opacity:1;}
+.approval-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.approval-collapse,.approval-dismiss{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;}
+.approval-dismiss{margin-left:0}
+.approval-card.collapsed{max-height:56px;bottom:8px;}
+.approval-card.collapsed .approval-inner{max-height:48px;overflow:hidden;padding:10px 14px;}
+.approval-card.collapsed .approval-header{margin-bottom:0;}
+.approval-card.collapsed .approval-desc,.approval-card.collapsed .approval-cmd,.approval-card.collapsed .approval-counter,.approval-card.collapsed .approval-btns{display:none;}
+.approval-desc{margin-bottom:8px;}
+.approval-cmd{border:1px solid #888;border-radius:8px;padding:8px 12px;white-space:pre-wrap;word-break:break-all;margin-bottom:14px;max-height:120px;overflow-y:auto;}
+.approval-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.approval-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;white-space:nowrap;}
+.clarify-card{position:absolute;left:0;right:0;bottom:-24px;max-width:var(--msg-max);margin:0 auto;padding:0 20px;box-sizing:border-box;width:100%;overflow:hidden;pointer-events:none;max-height:clamp(180px,min(68vh,calc(100vh - 220px)),420px);}
+.clarify-card.visible{pointer-events:auto;}
+.clarify-card .clarify-inner{max-height:clamp(180px,min(68vh,calc(100vh - 220px)),420px);overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;transform:translateY(100%);opacity:0;transition:transform .4s cubic-bezier(.32,.72,.16,1),opacity .25s ease,max-height .2s ease;}
+@supports (height:100dvh){.clarify-card,.clarify-card .clarify-inner{max-height:clamp(180px,min(68dvh,calc(100dvh - 220px)),420px);}}
+.clarify-card.visible .clarify-inner{transform:translateY(0);opacity:1;}
+.clarify-inner{background:#eee;border:1px solid #888;border-radius:12px;padding:12px 14px 36px;}
+.clarify-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.clarify-countdown{margin-left:auto;min-width:42px;text-align:right;}
+.clarify-collapse{margin-left:4px;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;}
+.clarify-question{white-space:pre-wrap;margin-bottom:12px;}
+.clarify-choices{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
+.clarify-choice{display:flex;align-items:flex-start;gap:10px;width:100%;padding:11px 14px;border-radius:12px;white-space:normal;text-align:left;}
+.clarify-choice-badge{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;flex-shrink:0;}
+.clarify-choice-text{flex:1;min-width:0;}
+.clarify-response{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.clarify-input{flex:1;min-width:220px;padding:10px 12px;}
+.clarify-submit{display:inline-flex;align-items:center;justify-content:center;min-width:92px;padding:10px 14px;}
+.clarify-hint{margin-top:8px;}
+.clarify-card.collapsed{max-height:56px;bottom:8px;}
+.clarify-card.collapsed .clarify-inner{max-height:48px;overflow:hidden;padding:10px 14px;}
+.clarify-card.collapsed .clarify-header{margin-bottom:0;}
+.clarify-card.collapsed .clarify-question,.clarify-card.collapsed .clarify-choices,.clarify-card.collapsed .clarify-response,.clarify-card.collapsed .clarify-hint{display:none;}
+@media (max-width:900px){.app-titlebar{justify-content:space-between;}}
+@media (max-width:640px){
+ .app-titlebar{height:52px;}
+ .composer-wrap{padding:8px 10px calc(12px + var(--keyboard-bottom-inset,0px))!important;}
+ .approval-card{padding-left:10px;padding-right:10px;bottom:8px;overflow:visible;}
+ .approval-inner{max-height:min(52vh,360px);overflow-y:auto;overscroll-behavior:contain;padding:12px 12px 14px;border-radius:12px;min-width:min(100%,280px);}
+ @supports (height:100dvh){.approval-inner{max-height:min(60dvh,420px);}}
+ .approval-header{margin-bottom:8px;}
+ .approval-collapse,.approval-dismiss{width:44px;height:44px;line-height:1;overflow:hidden;}
+ .approval-cmd{max-height:86px;margin-bottom:10px;}
+ .approval-btns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+ .approval-btn{justify-content:center;padding:8px 10px;min-height:44px;min-width:0;line-height:1.2;}
+ .approval-btn.yolo{grid-column:1 / -1;}
+ .clarify-card{padding-left:10px;padding-right:10px;overflow:visible;max-height:clamp(180px,min(62vh,calc(100vh - 180px)),360px);}
+ .clarify-card .clarify-inner{max-height:clamp(180px,min(62vh,calc(100vh - 180px)),360px);}
+ @supports (height:100dvh){.clarify-card,.clarify-card .clarify-inner{max-height:clamp(180px,min(62dvh,calc(100dvh - 180px)),360px);}}
+ .clarify-inner{padding:12px 12px 13px;min-width:min(100%,280px);}
+ .clarify-response{flex-direction:column;align-items:stretch;}
+ .clarify-input,.clarify-submit{width:100%;min-height:44px;}
+}
+</style>
+<header class="app-titlebar" role="banner"><span id="appTitlebarTitle">Hermes</span></header>
+<div class="layout"><main class="main"><div id="mainChat" class="main-view">
+ <div class="messages-shell"><div class="messages" id="messages"><div class="messages-inner" id="msgInner">
+  <p>Transcript line 1</p><p>Transcript line 2</p><p>Transcript line 3</p><p>Transcript line 4</p>
+ </div></div></div>
+ <div class="composer-wrap" id="composerWrap">
+  <div class="composer-flyout">
+   <div class="approval-card" id="approvalCard" role="alertdialog" hidden aria-hidden="true" inert>
+    <div class="approval-inner">
+     <div class="approval-header"><span id="approvalHeading">Approval required</span>
+      <button type="button" class="approval-collapse" id="approvalCollapse">v</button>
+      <button type="button" class="approval-dismiss">x</button></div>
+     <div class="approval-desc" id="approvalDesc">Run a shell command</div>
+     <div class="approval-cmd" id="approvalCmd">rm -rf /tmp/x</div>
+     <div class="approval-counter" id="approvalCounter" style="display:none;"></div>
+     <div class="approval-btns" id="approvalBtns">
+      <button type="button" class="approval-btn once" id="approvalBtnOnce">Allow once</button>
+      <button type="button" class="approval-btn session" id="approvalBtnSession">Allow session</button>
+      <button type="button" class="approval-btn always" id="approvalBtnAlways">Always allow</button>
+      <button type="button" class="approval-btn deny" id="approvalBtnDeny">Deny</button>
+      <button type="button" class="approval-btn yolo" id="approvalSkipAll">Skip all</button>
+     </div>
+    </div>
+   </div>
+   <div class="clarify-card" id="clarifyCard" role="dialog" hidden aria-hidden="true" inert>
+    <div class="clarify-inner">
+     <div class="clarify-header"><span id="clarifyHeading">Clarification needed</span><span class="clarify-countdown" id="clarifyCountdown"></span>
+      <button type="button" class="clarify-collapse" id="clarifyCollapse">v</button></div>
+     <div class="clarify-question" id="clarifyQuestion">Which one?</div>
+     <div class="clarify-choices" id="clarifyChoices">
+      <button type="button" class="clarify-choice" data-choice="A"><span class="clarify-choice-badge">1</span><span class="clarify-choice-text">Option A</span></button>
+      <button type="button" class="clarify-choice" data-choice="B"><span class="clarify-choice-badge">2</span><span class="clarify-choice-text">Option B</span></button>
+      <button type="button" class="clarify-choice other" data-choice="other"><span class="clarify-choice-badge other">&bull;</span><span class="clarify-choice-text">Other</span></button>
+     </div>
+     <div class="clarify-response">
+      <input class="clarify-input" id="clarifyInput" type="text" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" placeholder="Type your response">
+      <button type="button" class="clarify-submit" id="clarifySubmit">Send</button>
+     </div>
+     <div class="clarify-hint" id="clarifyHint">hint</div>
+    </div>
+   </div>
+  </div>
+  <div class="composer-box"><textarea id="msg" rows="1"></textarea><button type="button" class="send-btn" id="btnSend">Send</button></div>
+ </div>
+</div></main></div>

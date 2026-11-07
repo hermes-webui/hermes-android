@@ -12,12 +12,16 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.webkit.WebViewCompat
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
@@ -42,6 +46,9 @@ class HermesWebUiCompatibilityTest {
     val composeTestRule = createAndroidComposeRule<ComponentActivity>()
 
     private lateinit var webView: WebView
+
+    // Lets a test resize the real WebView host (a deterministic stand-in for an IME with adjustResize).
+    private val hostHeightDp = mutableStateOf<Int?>(null)
 
     @Test
     fun serverTypeProbeRequiresExplicitFrontendMarkerAndExactOrigin() {
@@ -809,6 +816,307 @@ class HermesWebUiCompatibilityTest {
         assertThat(entryCount()).isEqualTo("1")
     }
 
+    // ---- Phase 4: prompt-card reachability (issue #150) ----
+
+    private val promptShiftProp = "--hermes-android-prompt-shift"
+
+    private fun promptSnapshot(): String =
+        InstrumentationRegistry.getInstrumentation().context.assets
+            .open("webui-snapshot/prompts.html").bufferedReader().use { it.readText() }
+
+    private fun loadPromptFixture(widthDp: Int? = null, heightDp: Int? = null, safeTopPx: Int = 0) {
+        hostHeightDp.value = heightDp
+        loadFixture(promptSnapshot(), widthDp = widthDp)
+        if (safeTopPx > 0) {
+            evaluate("document.documentElement.style.setProperty('--app-titlebar-safe-top','${safeTopPx}px'); 0")
+        }
+    }
+
+    private fun installShim() {
+        evaluate(HermesWebUiScripts.viewportFixScript)
+        rescan()
+    }
+
+    /** Scans are throttled to 100ms and rAF-scheduled, so sleep past both. */
+    private fun rescan() {
+        Thread.sleep(150)
+        evaluate("window.__hermesAndroidApplyViewportFix(); 0")
+        Thread.sleep(250)
+    }
+
+    /** Mirrors WebUI's _setPromptFlyoutHidden(card,false) + .visible, then waits out the slide-in. */
+    private fun showPrompt(id: String) {
+        evaluate(
+            """
+            (function() {
+              var c = document.getElementById('$id');
+              c.hidden = false; c.setAttribute('aria-hidden', 'false'); c.removeAttribute('inert');
+              c.classList.add('visible');
+              return 0;
+            })()
+            """.trimIndent()
+        )
+        assertThat(
+            awaitBoolean(
+                """
+                (function() {
+                  var s = getComputedStyle(document.querySelector('#$id > div'));
+                  return s.opacity === '1' && (s.transform === 'none' ||
+                    s.transform.indexOf('matrix(1, 0, 0, 1, 0, 0)') === 0);
+                })()
+                """.trimIndent(),
+                expected = true
+            )
+        ).isTrue()
+    }
+
+    private fun addClarifyChoices(total: Int) {
+        evaluate(
+            """
+            (function() {
+              var box = document.getElementById('clarifyChoices');
+              var tpl = box.querySelector('.clarify-choice:not(.other)');
+              var other = box.querySelector('.other');
+              for (var i = 3; i <= $total; i++) {
+                var c = tpl.cloneNode(true);
+                c.setAttribute('data-choice', 'c' + i);
+                c.querySelector('.clarify-choice-badge').textContent = String(i);
+                c.querySelector('.clarify-choice-text').textContent =
+                  'Option ' + i + ' with enough words to wrap on a narrow phone screen';
+                box.insertBefore(c, other);
+              }
+              return box.children.length;
+            })()
+            """.trimIndent()
+        )
+    }
+
+    private fun promptReportScript(selector: String): String = """
+        (function() {
+          var ATTR = 'data-hermes-android-vh-repaired';
+          var card = document.querySelector(${org.json.JSONObject.quote(selector)});
+          var inner = card.querySelector('.approval-inner, .clarify-inner');
+          var tb = document.querySelector('.app-titlebar');
+          var wrap = document.querySelector('.composer-wrap');
+          var fly = document.querySelector('.composer-flyout');
+          var vv = window.visualViewport;
+          var vvH = vv && vv.height > 0 ? vv.height
+            : Math.max(window.innerHeight, document.documentElement.clientHeight);
+          var vvTop = vv ? Math.max(0, vv.offsetTop || 0) : 0;
+          var vvBottom = vvTop + vvH;
+          var tbBottom = tb.getBoundingClientRect().bottom;
+          var promptTop = Math.max(tbBottom, vvTop);
+          var cr = card.getBoundingClientRect();
+          var shift = parseFloat(card.style.getPropertyValue('$promptShiftProp')) || 0;
+          var cap = parseFloat(getComputedStyle(card).maxHeight);
+          var innerCap = parseFloat(getComputedStyle(inner).maxHeight);
+          var available = Math.min(cr.bottom + shift, vvBottom) - promptTop - 8;
+          var ratioCap = Math.round(0.68 * vvH);
+          var failures = [];
+          function fail(m) { failures.push(m); }
+          function desc(e) { return e ? (e.tagName + '#' + e.id + '.' + e.className) : 'null'; }
+
+          if (available < 100) fail('fixture viewport too small to be meaningful: available=' + available);
+          if (!(cr.height > 0)) fail('card has no height');
+          if (cr.top < promptTop + 8 - 1.5) fail('card top ' + cr.top + ' above promptTop+8 ' + (promptTop + 8));
+          if (cr.bottom > vvBottom + 1) fail('card bottom ' + cr.bottom + ' below visual viewport ' + vvBottom);
+          if (!(cap > 0) || !(innerCap > 0)) fail('cap not applied: ' + cap + '/' + innerCap);
+          if (cap > 420 || cap > ratioCap + 1) fail('cap above 420 / 68% of viewport: ' + cap);
+          if (cap > Math.floor(available) + 1) fail('cap ' + cap + ' above available ' + available);
+          var ir0 = inner.getBoundingClientRect();
+          if (ir0.height < Math.min(inner.scrollHeight + 2, Math.min(cap, innerCap)) - 3) {
+            fail('inner clipped to a sliver: ' + ir0.height);
+          }
+          [wrap, fly].forEach(function(e) {
+            var s = getComputedStyle(e);
+            if (s.overflowY !== 'visible' || s.overflowX !== 'visible') fail('scroll container on ' + e.className);
+            if (e.hasAttribute(ATTR)) fail('generic repair on ' + e.className);
+          });
+          if (card.hasAttribute(ATTR) || inner.hasAttribute(ATTR)) fail('generic repair on the card');
+
+          // The composer box paints over the bottom of the card (the card's own bottom padding exists
+          // for that), so a control is only reachable once it is scrolled clear of the box.
+          var box = document.querySelector('.composer-box');
+          var boxTop = box ? box.getBoundingClientRect().top : vvBottom;
+          var tested = 0;
+          var els = card.querySelectorAll('button, input');
+          for (var k = 0; k < els.length; k++) {
+            var el = els[k];
+            if (getComputedStyle(el).display === 'none') continue;
+            var ib = inner.getBoundingClientRect();
+            var r = el.getBoundingClientRect();
+            var visBottom = Math.min(ib.bottom, boxTop, vvBottom);
+            if (r.bottom > visBottom - 1) inner.scrollTop += r.bottom - (visBottom - 1);
+            else if (r.top < ib.top) inner.scrollTop -= ib.top - r.top;
+            ib = inner.getBoundingClientRect();
+            r = el.getBoundingClientRect();
+            visBottom = Math.min(ib.bottom, boxTop, vvBottom);
+            var label = (el.id || el.getAttribute('data-choice') || el.className);
+            if (!(r.width > 0 && r.height > 0)) { fail(label + ' has no size'); continue; }
+            tested++;
+            var ins = Math.min(6, r.width / 4, r.height / 4);
+            var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            var pts = [[cx, cy], [r.left + ins, r.top + ins], [r.right - ins, r.top + ins],
+                       [r.left + ins, r.bottom - ins], [r.right - ins, r.bottom - ins]];
+            for (var p = 0; p < pts.length; p++) {
+              var x = pts[p][0], y = pts[p][1];
+              if (x < ib.left || x > ib.right || y < ib.top || y > visBottom) {
+                fail(label + ' point ' + p + ' outside the unobscured part of the card'); continue;
+              }
+              if (y < tbBottom || y > vvBottom) { fail(label + ' point ' + p + ' behind titlebar/IME'); continue; }
+              var hit = document.elementFromPoint(x, y);
+              if (!hit || !(hit === el || el.contains(hit))) fail(label + ' point ' + p + ' hit ' + desc(hit));
+            }
+          }
+          return {
+            failures: failures, tested: tested,
+            m: { cap: cap, innerCap: innerCap, shift: shift, available: available, ratioCap: ratioCap,
+                 top: cr.top, bottom: cr.bottom, promptTop: promptTop, vvBottom: vvBottom,
+                 innerScrolls: inner.scrollHeight > inner.clientHeight + 1 &&
+                   getComputedStyle(inner).overflowY === 'auto' }
+          };
+        })()
+    """.trimIndent()
+
+    private fun promptReport(selector: String) = org.json.JSONObject(evaluate(promptReportScript(selector)))
+
+    private fun assertPromptReachable(selector: String, minTested: Int): org.json.JSONObject {
+        val report = promptReport(selector)
+        assertWithMessage(report.toString(2)).that(report.getJSONArray("failures").length()).isEqualTo(0)
+        assertWithMessage(report.toString(2)).that(report.getInt("tested")).isAtLeast(minTested)
+        return report
+    }
+
+    private fun awaitPromptReachable(selector: String) {
+        assertWithMessage(promptReport(selector).toString(2)).that(
+            awaitBoolean("(${promptReportScript(selector)}).failures.length === 0", expected = true)
+        ).isTrue()
+    }
+
+    private fun assertStable(selector: String, first: org.json.JSONObject) {
+        rescan()
+        val second = promptReport(selector).getJSONObject("m")
+        val a = first.getJSONObject("m")
+        assertWithMessage("oscillation: $a vs $second").that(
+            Math.abs(a.getDouble("cap") - second.getDouble("cap")) <= 1 &&
+                Math.abs(a.getDouble("shift") - second.getDouble("shift")) <= 1
+        ).isTrue()
+    }
+
+    @Test
+    fun promptCards_approvalCardButtonsAreHitTestable() {
+        loadPromptFixture()
+        installShim()
+        showPrompt("approvalCard")
+        rescan()
+        val sel = ".approval-card.visible"
+        val report = assertPromptReachable(sel, minTested = 7) // 2 header buttons + 5 actions
+        assertStable(sel, report)
+    }
+
+    @Test
+    fun promptCards_clarifyChoicesAndOtherAreReachableByInnerScroll() {
+        loadPromptFixture()
+        addClarifyChoices(total = 14)
+        installShim()
+        showPrompt("clarifyCard")
+        rescan()
+        val sel = ".clarify-card.visible"
+        val report = assertPromptReachable(sel, minTested = 14 + 4) // choices+Other, collapse, input, send
+        assertThat(report.getJSONObject("m").getBoolean("innerScrolls")).isTrue()
+        assertStable(sel, report)
+    }
+
+    @Test
+    fun promptCards_shortViewportWithLargeTopInsetKeepsEightPxGapBelowTitlebar() {
+        // 80px safe-top makes the titlebar term, not 68%, the binding cap constraint.
+        loadPromptFixture(widthDp = 360, heightDp = 300, safeTopPx = 80)
+        addClarifyChoices(total = 8)
+        installShim()
+        showPrompt("clarifyCard")
+        rescan()
+        val sel = ".clarify-card.visible"
+        val report = assertPromptReachable(sel, minTested = 8)
+        val m = report.getJSONObject("m")
+        assertWithMessage(m.toString()).that(m.getDouble("available")).isLessThan(m.getDouble("ratioCap"))
+        // Tall content fills the space exactly: top sits about 8px under the titlebar, not flush and not far below.
+        assertWithMessage(m.toString()).that(m.getDouble("top")).isAtMost(m.getDouble("promptTop") + 8 + 2)
+        assertStable(sel, report)
+    }
+
+    @Test
+    fun promptCards_realHostResizeLikeImeStillKeepsCardReachable() {
+        loadPromptFixture(widthDp = 360, heightDp = 640)
+        addClarifyChoices(total = 6)
+        installShim()
+        showPrompt("clarifyCard")
+        rescan()
+        val sel = ".clarify-card.visible"
+        assertPromptReachable(sel, minTested = 6)
+        composeTestRule.runOnIdle { hostHeightDp.value = 330 }
+        composeTestRule.waitForIdle()
+        assertThat(awaitBoolean("window.innerHeight < 400", expected = true)).isTrue()
+        awaitPromptReachable(sel) // no manual rescan: exercises the resize listener wiring
+        assertPromptReachable(sel, minTested = 6)
+    }
+
+    @Test
+    fun promptCards_shrunkenAndScrolledVisualViewportShiftsCardAboveImeGeometryOnly() {
+        loadPromptFixture(widthDp = 360, heightDp = 640)
+        addClarifyChoices(total = 6)
+        // Stub BEFORE installing the shim so its resize listener binds to the stub.
+        evaluate(
+            """
+            (function() {
+              var t = new EventTarget();
+              t.height = 330; t.width = window.innerWidth; t.offsetTop = 0; t.offsetLeft = 0; t.scale = 1;
+              Object.defineProperty(window, 'visualViewport', { configurable: true, get: function() { return t; } });
+              window.__fakeVv = t;
+              return 0;
+            })()
+            """.trimIndent()
+        )
+        assertThat(evaluate("window.visualViewport.height")).isEqualTo("330")
+        installShim()
+        showPrompt("clarifyCard")
+        rescan()
+        val sel = ".clarify-card.visible"
+        val first = assertPromptReachable(sel, minTested = 6)
+        assertThat(first.getJSONObject("m").getDouble("shift")).isGreaterThan(0.0)
+        assertStable(sel, first)
+        // offsetTop-only change has no scroll listener, so a manual rescan is required.
+        evaluate("window.__fakeVv.offsetTop = 120; 0")
+        rescan()
+        val moved = assertPromptReachable(sel, minTested = 6)
+        assertThat(moved.getJSONObject("m").getDouble("promptTop")).isAtLeast(120.0)
+        // The visual viewport can shrink on its own (an overlay keyboard fires no window resize), so the
+        // shim's visualViewport resize listener must re-fit the card without any manual rescan.
+        evaluate("window.__fakeVv.offsetTop = 0; window.__fakeVv.height = 280; window.__fakeVv.dispatchEvent(new Event('resize')); 0")
+        awaitPromptReachable(sel)
+    }
+
+    @Test
+    fun promptCards_composerWrapScrollContainerCannotClipFloatingCard_issue80() {
+        loadPromptFixture()
+        evaluate(
+            // Tall composer content inside a 24px wrap: enough overflow that the generic collapse repair
+            // would pick the wrap (as it did in #80) if the shim stopped excluding it.
+            "var w = document.querySelector('.composer-wrap'); w.style.height = '24px'; w.style.overflowY = 'auto'; " +
+                "document.getElementById('msg').style.height = '120px'; 0"
+        )
+        assertThat(evaluate("getComputedStyle(document.querySelector('.composer-wrap')).overflowY"))
+            .isEqualTo("\"auto\"")
+        showPrompt("approvalCard")
+        // Control: without the shim the card is clipped, so the test is sensitive.
+        assertWithMessage("control must fail before the shim runs").that(
+            promptReport(".approval-card.visible").getJSONArray("failures").length()
+        ).isGreaterThan(0)
+        installShim()
+        assertPromptReachable(".approval-card.visible", minTested = 7)
+        assertThat(evaluate("document.querySelector('.composer-wrap').style.height")).isEqualTo("\"24px\"")
+        assertThat(evaluate("document.querySelector('.composer-wrap').style.overflowY")).isEqualTo("\"auto\"")
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun loadFixture(
         body: String,
@@ -819,7 +1127,7 @@ class HermesWebUiCompatibilityTest {
     ) {
         val loaded = CountDownLatch(1)
         composeTestRule.setContent {
-            WebViewHost(widthDp) { view ->
+            WebViewHost(widthDp, hostHeightDp.value) { view ->
                 webView = view
                 view.settings.javaScriptEnabled = true
                 // Production enables DOM storage (MainActivity); the mic shim persists a flag in it.
@@ -934,11 +1242,12 @@ class HermesWebUiCompatibilityTest {
 }
 
 @Composable
-private fun WebViewHost(widthDp: Int? = null, onCreated: (WebView) -> Unit) {
-    AndroidView(
-        modifier = if (widthDp == null) Modifier.fillMaxSize() else Modifier.width(widthDp.dp).fillMaxHeight(),
-        factory = { context ->
-            WebView(context).also(onCreated)
-        }
-    )
+private fun WebViewHost(widthDp: Int? = null, heightDp: Int? = null, onCreated: (WebView) -> Unit) {
+    val sized = if (widthDp == null && heightDp == null) {
+        Modifier.fillMaxSize()
+    } else {
+        (if (widthDp != null) Modifier.width(widthDp.dp) else Modifier.fillMaxWidth())
+            .let { if (heightDp != null) it.height(heightDp.dp) else it.fillMaxHeight() }
+    }
+    AndroidView(modifier = sized, factory = { context -> WebView(context).also(onCreated) })
 }

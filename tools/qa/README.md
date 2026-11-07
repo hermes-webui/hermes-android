@@ -43,6 +43,7 @@ wrong (no device, wrong server, signed out). Reports are written to `tools/qa/ou
 | s01 | The shell renders: non-zero body and `.main` size, visible text, `--vh` set | #5, #59, #110 |
 | s02 | One "Application Settings" entry directly after Settings; it self-heals when removed or moved | #59, #148 |
 | s03 | Selectors the shims depend on still exist in the live WebUI (drift alarm) | #92 |
+| s04 | Approval and clarify cards stay hit-testable on the real DOM: every control reachable by scrolling clear of the composer, inside the viewport, below the titlebar, no clipping. DOM-state only: it never clicks or answers a prompt, skips itself if a real prompt is showing, and restores the cards afterwards | #44, #80, #92 |
 | s05 | A collapsed block is repaired; `.approval-card` is not; stale repair on it is cleared; the composer ancestors never clip | #44, #80 |
 
 Add a scenario by dropping `sNN_name.mjs` in `scenarios/` that exports

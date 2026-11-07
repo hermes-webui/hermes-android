@@ -10,9 +10,12 @@ import android.view.inputmethod.InputConnection
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.webkit.WebViewCompat
@@ -25,6 +28,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.junit.After
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -605,18 +609,221 @@ class HermesWebUiCompatibilityTest {
         ).isTrue()
     }
 
+    // --- Shim behavior (Issues #34, #83, #1/#21, #53, #59): driven through real key and DOM events,
+    // not by checking that the script text contains a string. ---
+
+    private val composerFixture = """
+        <textarea id="composer"></textarea>
+        <script>
+          window.__submits = 0;
+          // Stands in for WebUI's own handler, registered after the document-start shim.
+          composer.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { window.__submits++; e.preventDefault(); }
+          });
+        </script>
+    """.trimIndent()
+
+    private fun focusComposerAndType(text: String) {
+        evaluate("composer.focus()")
+        assertThat(awaitBoolean("document.activeElement === composer", expected = true)).isTrue()
+        typeTextInWebView(text)
+        assertThat(awaitBoolean("composer.value === ${org.json.JSONObject.quote(text)}", expected = true)).isTrue()
+    }
+
+    @Test
+    fun enterKey_withoutHardwareKeyboard_insertsNewlineAndDoesNotSubmit() {
+        loadFixture(composerFixture, documentStartScripts = listOf(HermesWebUiScripts.enterKeyNewlineScript))
+        focusComposerAndType("ab")
+
+        pressKeysInWebView(KeyEvent.KEYCODE_ENTER)
+
+        assertThat(awaitBoolean("composer.value === 'ab\\n'", expected = true)).isTrue()
+        assertThat(evaluate("window.__submits")).isEqualTo("0")
+    }
+
+    @Test
+    fun enterKey_followsTheHardwareKeyboardFlagAtEventTimeWithoutReload() {
+        loadFixture(composerFixture, documentStartScripts = listOf(HermesWebUiScripts.enterKeyNewlineScript))
+        focusComposerAndType("ab")
+
+        // Keyboard attached after the page loaded: the shim must step aside so WebUI submits.
+        evaluate("window.__hermesAndroidHardwareKeyboard = true")
+        pressKeysInWebView(KeyEvent.KEYCODE_ENTER)
+        assertThat(awaitBoolean("window.__submits === 1", expected = true)).isTrue()
+        assertThat(evaluate("composer.value")).isEqualTo("\"ab\"")
+
+        // Detached again: newline forcing resumes, still without a reload.
+        evaluate("window.__hermesAndroidHardwareKeyboard = false")
+        pressKeysInWebView(KeyEvent.KEYCODE_ENTER)
+        assertThat(awaitBoolean("composer.value === 'ab\\n'", expected = true)).isTrue()
+        assertThat(evaluate("window.__submits")).isEqualTo("1")
+    }
+
+    @Test
+    fun microphoneFallback_forcesMediaRecorderAndDisablesSpeechRecognition() {
+        loadFixture(
+            "<div>Hermes</div>",
+            documentStartScripts = listOf(HermesWebUiScripts.microphoneFallbackScript)
+        )
+        assertThat(evaluate("window.localStorage.getItem('mic_force_mediarecorder')")).isEqualTo("\"1\"")
+        assertThat(evaluate("typeof window.SpeechRecognition")).isEqualTo("\"undefined\"")
+        assertThat(evaluate("typeof window.webkitSpeechRecognition")).isEqualTo("\"undefined\"")
+        assertThat(evaluate("window.__hermesAndroidMicForceMediaRecorder")).isEqualTo("true")
+    }
+
+    @Test
+    fun microphoneFallback_dropsDeviceConstraintsButKeepsOtherAudioOptions() {
+        // The stub runs first so the shim wraps it, exactly as it wraps the real getUserMedia.
+        val stub = """
+            (function() {
+              if (!navigator.mediaDevices) return;
+              navigator.mediaDevices.getUserMedia = function(c) { window.__gumConstraints = c; return Promise.resolve(null); };
+            })();
+        """.trimIndent()
+        loadFixture(
+            "<div>Hermes</div>",
+            documentStartScripts = listOf(stub, HermesWebUiScripts.microphoneFallbackScript)
+        )
+        assertThat(evaluate("!!navigator.mediaDevices")).isEqualTo("true")
+
+        evaluate("navigator.mediaDevices.getUserMedia({ audio: { deviceId: 'x', groupId: 'y', echoCancellation: true } }); 0")
+        assertThat(evaluate("JSON.stringify(window.__gumConstraints)"))
+            .isEqualTo("\"{\\\"audio\\\":{\\\"echoCancellation\\\":true}}\"")
+
+        evaluate("navigator.mediaDevices.getUserMedia({ audio: { deviceId: 'only-a-device' } }); 0")
+        assertThat(evaluate("JSON.stringify(window.__gumConstraints)")).isEqualTo("\"{\\\"audio\\\":true}\"")
+
+        // Non-audio requests pass through untouched.
+        evaluate("navigator.mediaDevices.getUserMedia({ video: true }); 0")
+        assertThat(evaluate("JSON.stringify(window.__gumConstraints)")).isEqualTo("\"{\\\"video\\\":true}\"")
+    }
+
+    private val settingsPageFixture = """
+        <div class="main showing-settings">
+          <div class="main-view" id="settingsView" style="max-height:300px; overflow:hidden;">
+            <div style="height:1200px">Settings content</div>
+          </div>
+        </div>
+    """.trimIndent()
+
+    @Test
+    fun settingsPage_isNotClippedOnANarrowPhoneLayout() {
+        loadFixture(settingsPageFixture, widthDp = 360)
+        assertThat(evaluate("innerWidth <= 600")).isEqualTo("true")
+        evaluate(HermesWebUiScripts.viewportFixScript)
+
+        assertThat(awaitBoolean(
+            "getComputedStyle(settingsView).maxHeight === 'none'", expected = true
+        )).isTrue()
+        assertThat(evaluate("getComputedStyle(settingsView).overflowY")).isEqualTo("\"auto\"")
+    }
+
+    @Test
+    fun settingsPage_keepsItsOwnLayoutOnAWideScreen() {
+        loadFixture(settingsPageFixture, widthDp = 900)
+        assumeTrue("needs a viewport wider than 600 CSS px", evaluate("innerWidth > 600") == "true")
+        evaluate(HermesWebUiScripts.viewportFixScript)
+        assertThat(awaitBoolean(
+            "document.getElementById('hermes-android-viewport-fix') !== null", expected = true
+        )).isTrue()
+
+        assertThat(evaluate("getComputedStyle(settingsView).maxHeight")).isEqualTo("\"300px\"")
+    }
+
+    private val sidebarFixture = """
+        <nav class="rail" style="display:flex;flex-direction:column;width:200px">
+          <button class="rail-btn nav-tab" data-panel="chat" aria-label="Chat">Chat</button>
+          <button class="rail-btn nav-tab" id="settingsBtn" data-panel="settings" aria-label="Settings">Settings</button>
+          <button class="rail-btn nav-tab" id="helpBtn" aria-label="Help">Help</button>
+        </nav>
+    """.trimIndent()
+
+    private val entrySelector = "[data-hermes-android-app-settings-entry=\"1\"]"
+
+    private fun entryCount(): String = evaluate("document.querySelectorAll('$entrySelector').length")
+
+    private fun entryFollows(id: String): Boolean = evaluateBoolean(
+        "(function(){var e=document.querySelector('$entrySelector');return !!e && e.previousElementSibling === document.getElementById('$id');})()"
+    )
+
+    /** Any DOM mutation schedules the injector's next pass. */
+    private fun poke() {
+        evaluate("document.body.appendChild(document.createElement('i')); 0")
+    }
+
+    @Test
+    fun appSettingsEntry_isInjectedOnceDirectlyAfterSettings() {
+        loadFixture(sidebarFixture, documentStartScripts = listOf(HermesWebUiScripts.appSettingsEntryScript))
+
+        assertThat(awaitBoolean("document.querySelectorAll('$entrySelector').length === 1", expected = true)).isTrue()
+        assertThat(entryFollows("settingsBtn")).isTrue()
+        assertThat(evaluate("document.querySelector('$entrySelector').getAttribute('href')"))
+            .isEqualTo("\"hermes://app/settings\"")
+        // Unrelated DOM churn (streamed messages) must never duplicate it.
+        repeat(5) { poke() }
+        Thread.sleep(300)
+        assertThat(entryCount()).isEqualTo("1")
+    }
+
+    @Test
+    fun appSettingsEntry_isRestoredWhenWebUiRemovesOrMovesIt() {
+        loadFixture(sidebarFixture, documentStartScripts = listOf(HermesWebUiScripts.appSettingsEntryScript))
+        assertThat(awaitBoolean("document.querySelectorAll('$entrySelector').length === 1", expected = true)).isTrue()
+
+        evaluate("document.querySelector('$entrySelector').remove(); 0")
+        poke()
+        assertThat(awaitBoolean("document.querySelectorAll('$entrySelector').length === 1", expected = true)).isTrue()
+        assertThat(entryFollows("settingsBtn")).isTrue()
+
+        evaluate("(function(){var e=document.querySelector('$entrySelector'); e.parentNode.insertBefore(e, e.parentNode.firstChild);})()")
+        poke()
+        assertThat(awaitBoolean(
+            "(function(){var e=document.querySelector('$entrySelector');return !!e && e.previousElementSibling === document.getElementById('settingsBtn');})()",
+            expected = true
+        )).isTrue()
+        assertThat(entryCount()).isEqualTo("1")
+    }
+
+    @Test
+    fun appSettingsEntry_movesFromTheHelpFallbackOnceSettingsAppears() {
+        // Older or changed markup may only have Help; Settings is the real anchor when it shows up.
+        loadFixture(
+            """<nav class="rail" style="display:flex;flex-direction:column;width:200px">
+                 <button class="rail-btn nav-tab" id="helpBtn" aria-label="Help">Help</button>
+               </nav>""",
+            documentStartScripts = listOf(HermesWebUiScripts.appSettingsEntryScript)
+        )
+        assertThat(awaitBoolean("document.querySelectorAll('$entrySelector').length === 1", expected = true)).isTrue()
+        assertThat(entryFollows("helpBtn")).isTrue()
+
+        evaluate(
+            "(function(){var b=document.createElement('button'); b.className='rail-btn nav-tab'; b.id='settingsBtn';" +
+                "b.setAttribute('aria-label','Settings'); b.setAttribute('data-panel','settings'); b.textContent='Settings';" +
+                "document.querySelector('.rail').insertBefore(b, document.getElementById('helpBtn'));})()"
+        )
+        poke()
+        assertThat(awaitBoolean(
+            "(function(){var e=document.querySelector('$entrySelector');return !!e && e.previousElementSibling === document.getElementById('settingsBtn');})()",
+            expected = true
+        )).isTrue()
+        assertThat(entryCount()).isEqualTo("1")
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun loadFixture(
         body: String,
         baseUrl: String = "https://hermes.test/",
         historyUrl: String? = null,
-        documentStartScripts: List<String> = emptyList()
+        documentStartScripts: List<String> = emptyList(),
+        widthDp: Int? = null
     ) {
         val loaded = CountDownLatch(1)
         composeTestRule.setContent {
-            WebViewHost { view ->
+            WebViewHost(widthDp) { view ->
                 webView = view
                 view.settings.javaScriptEnabled = true
+                // Production enables DOM storage (MainActivity); the mic shim persists a flag in it.
+                view.settings.domStorageEnabled = true
                 documentStartScripts.forEach { script ->
                     WebViewCompat.addDocumentStartJavaScript(view, script, setOf("https://hermes.test"))
                 }
@@ -727,9 +934,9 @@ class HermesWebUiCompatibilityTest {
 }
 
 @Composable
-private fun WebViewHost(onCreated: (WebView) -> Unit) {
+private fun WebViewHost(widthDp: Int? = null, onCreated: (WebView) -> Unit) {
     AndroidView(
-        modifier = Modifier.fillMaxSize(),
+        modifier = if (widthDp == null) Modifier.fillMaxSize() else Modifier.width(widthDp.dp).fillMaxHeight(),
         factory = { context ->
             WebView(context).also(onCreated)
         }

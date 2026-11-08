@@ -1,0 +1,1 @@
+Fixed pasting images into the Hermes Agent WebApp: the Paste image button no longer fails with "Read permission denied", and Gboard can now insert images from its clipboard.

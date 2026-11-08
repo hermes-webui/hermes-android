@@ -50,6 +50,7 @@ public storefront propagation.
 Recent cleanup keeps `MainActivity` as the Android boundary while moving clustered responsibilities into small helpers:
 
 - `HermesNotificationBridgeCoordinator`: receives document-start WebUI notification bridge messages, tracks Android notification permission replies, and rejects untrusted origins.
+- `HermesClipboardBridgeCoordinator` + `HermesWebView` (Issue #180): image paste. A document-start shim wraps `navigator.clipboard.read()` and, only after the page's own call rejects with `NotAllowedError`/`SecurityError` and the page has transient user activation, asks the host over a scoped `WebMessageListener` (main frame of the configured Hermes route only, no `addJavascriptInterface`) for the clipboard's bounded raster images and text. `HermesWebView` advertises image MIME types to the IME on the configured route so Gboard can commit images; `MainActivity` reads the content URI (8 MB cap, off the main thread) and re-checks trust before dispatching a synthetic `paste` event carrying a `File` on the focused element. SVG and other types are never accepted.
 - `HermesNotificationPresenter`: renders Android-backed WebUI notifications and parses trusted notification-tap intents back into WebView navigation.
 - `HermesAppUpdateCoordinator`: owns automatic/manual app-update checks, channel-specific update notifications, Play update launch, and GitHub APK download intents.
 - `HermesServerProfileCoordinator`: owns startup preflight plus add/edit/delete/switch validation and confirmation flows for Hermes server profiles.

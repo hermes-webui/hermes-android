@@ -87,6 +87,27 @@ class WebViewSecurityContractTest {
     }
 
     @Test
+    fun `clipboard and image input stay on scoped message bridges with no javascript interface`() {
+        // Issue #180: the clipboard fallback must use the trust-checked WebMessageListener, never
+        // addJavascriptInterface, and image input must be advertised only for the configured route.
+        codeOnly.forEach { (path, text) ->
+            assertWithMessage("$path must not use addJavascriptInterface")
+                .that(text).doesNotContain("addJavascriptInterface")
+        }
+        val coordinator = codeOnly.entries
+            .single { it.key.endsWith("HermesClipboardBridgeCoordinator.kt") }.value
+        assertThat(coordinator).contains("isTrustedSource(sourceOrigin, isMainFrame)")
+        assertThat(coordinator.indexOf("isTrustedSource(sourceOrigin, isMainFrame)"))
+            .isLessThan(coordinator.indexOf("primaryClip"))
+
+        val mainActivity = codeOnly.entries.single { it.key.endsWith("MainActivity.kt") }.value
+        assertThat(mainActivity).contains("acceptsImageInput = { matchesConfiguredWebUiRoute(url) }")
+        val delivery = bodiesOf(mainActivity, "private fun deliverCommittedImage(").single()
+        assertThat(delivery).contains("matchesConfiguredWebUiRoute(webView.url)")
+        assertThat(delivery).contains("buildOriginGuardedRuntimeScript(")
+    }
+
+    @Test
     fun `switching servers wipes the old session before loading the new host`() {
         // A session from one server must never carry over to another: cookies, web storage, cache,
         // form data and history are all cleared, and the wipe runs before the profile changes.

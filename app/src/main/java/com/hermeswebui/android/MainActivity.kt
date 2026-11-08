@@ -20,6 +20,7 @@ import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.util.Base64
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -110,6 +111,9 @@ import com.hermeswebui.android.core.security.ProxyAuthNavigation
 import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.core.security.UrlPolicy
 import com.hermeswebui.android.core.security.WebTrustPolicy
+import com.hermeswebui.android.webview.ClipboardImagePolicy
+import com.hermeswebui.android.webview.HermesClipboardBridgeCoordinator
+import com.hermeswebui.android.webview.HermesWebView
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.ServerProfile
@@ -145,6 +149,7 @@ import org.json.JSONObject
 import java.io.File
 
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
+private const val HermesClipboardBridgeName = "HermesAndroidClipboard"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
 private const val HermesNotificationIdBase = 10_000
 private const val HermesVpnReconnectNotificationId = 9_900
@@ -197,7 +202,7 @@ private val HermesLightColorScheme = lightColorScheme(
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: MainViewModel
-    private lateinit var webView: WebView
+    private lateinit var webView: HermesWebView
     private lateinit var settingsRepository: SettingsRepository
 
     private var urlPolicy = UrlPolicy(emptySet())
@@ -220,6 +225,8 @@ class MainActivity : ComponentActivity() {
     private var activityVisible = false
     private lateinit var appUpdateCoordinator: HermesAppUpdateCoordinator
     private lateinit var notificationBridgeCoordinator: HermesNotificationBridgeCoordinator
+    private lateinit var clipboardBridgeCoordinator: HermesClipboardBridgeCoordinator
+    private var clipboardBridgeScriptHandler: ScriptHandler? = null
     private lateinit var notificationPresenter: HermesNotificationPresenter
     private lateinit var serverProfileCoordinator: HermesServerProfileCoordinator
     private lateinit var foregroundServiceCoordinator: HermesForegroundServiceCoordinator
@@ -369,6 +376,12 @@ class MainActivity : ComponentActivity() {
                     launchPostNotificationsPermission()
                 }
             },
+            runOnUiThread = { action -> runOnUiThread(action) }
+        )
+        clipboardBridgeCoordinator = HermesClipboardBridgeCoordinator(
+            context = this,
+            bridgeName = HermesClipboardBridgeName,
+            isTrustedSource = ::isTrustedNotificationBridgeSource,
             runOnUiThread = { action -> runOnUiThread(action) }
         )
         appUpdateCoordinator = HermesAppUpdateCoordinator(
@@ -875,8 +888,8 @@ class MainActivity : ComponentActivity() {
     // This listener only restores WebView focus and returns false so WebView retains
     // click handling and accessibility semantics.
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
-    private fun buildWebView(): WebView {
-        return WebView(this).apply {
+    private fun buildWebView(): HermesWebView {
+        return HermesWebView(this).apply {
             HermesWebViewConfigurator.configureMainWebView(
                 webView = this,
                 appVersionName = appVersionName(),
@@ -884,6 +897,9 @@ class MainActivity : ComponentActivity() {
                 disableWebViewDarkening = ::disableWebViewDarkening
             )
             installHermesNotificationWebMessageBridge(this)
+            clipboardBridgeCoordinator.installBridge(this)
+            acceptsImageInput = { matchesConfiguredWebUiRoute(url) }
+            onImageCommitted = ::deliverCommittedImage
             isFocusable = true
             isFocusableInTouchMode = true
             setOnTouchListener { v, event ->
@@ -1458,6 +1474,43 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Gboard (and other IMEs) commit images into the focused editor. Re-check trust at delivery time,
+     * read at most [ClipboardImagePolicy.MAX_IMAGE_BYTES] off the main thread, then hand the image to
+     * the page as a paste event (Issue #180). Always releases the IME's URI permission.
+     */
+    private fun deliverCommittedImage(uri: Uri, mimeType: String, release: () -> Unit): Boolean {
+        if (!matchesConfiguredWebUiRoute(webView.url)) {
+            release()
+            return false
+        }
+        val expectedUrl = webView.url
+        Thread {
+            val bytes = runCatching {
+                contentResolver.openInputStream(uri)?.use { ClipboardImagePolicy.readBounded(it) }
+            }.getOrNull()
+            release()
+            runOnUiThread {
+                val trustedOrigin = UrlOrigins.pageOrigin(viewModel.uiState.value.settings.serverUrl)
+                if (bytes == null) {
+                    Toast.makeText(this, "That image is too large or could not be read", Toast.LENGTH_SHORT).show()
+                } else if (trustedOrigin != null && webView.url == expectedUrl) {
+                    webView.evaluateJavascript(
+                        HermesWebUiScripts.buildOriginGuardedRuntimeScript(
+                            trustedOrigin,
+                            HermesWebUiScripts.buildDeliverImageScript(
+                                mimeType,
+                                Base64.encodeToString(bytes, Base64.NO_WRAP)
+                            )
+                        ),
+                        null
+                    )
+                }
+            }
+        }.start()
+        return true
+    }
+
     private fun requestNotificationPermissionIfNeeded() {
         notificationBridgeCoordinator.requestNotificationPermissionIfNeeded()
     }
@@ -1762,6 +1815,7 @@ class MainActivity : ComponentActivity() {
             add(HermesWebUiScripts.microphoneFallbackScript)
             add(HermesWebUiScripts.suppressClarifyAutofocusScript)
             add(buildHermesWebUiNotificationBridgeScript())
+            add(HermesWebUiScripts.buildClipboardImageScript(HermesClipboardBridgeName))
             add(buildHermesWebUiRouteRecoveryScript())
             if (EnableAppSettingsSidebarShim) add(HermesWebUiScripts.appSettingsEntryScript)
             add("window.__hermesAndroidHardwareKeyboard = ${isHardwareKeyboardAttached()};")
@@ -1833,6 +1887,11 @@ class MainActivity : ComponentActivity() {
             originRule,
             buildHermesWebUiNotificationBridgeScript()
         )
+        clipboardBridgeScriptHandler = addDocumentStartScript(
+            view,
+            originRule,
+            HermesWebUiScripts.buildClipboardImageScript(HermesClipboardBridgeName)
+        )
         routeRecoveryScriptHandler = addDocumentStartScript(
             view,
             originRule,
@@ -1863,6 +1922,7 @@ class MainActivity : ComponentActivity() {
         pinchZoomScriptHandler?.remove()
         microphoneFallbackScriptHandler?.remove()
         notificationBridgeScriptHandler?.remove()
+        clipboardBridgeScriptHandler?.remove()
         routeRecoveryScriptHandler?.remove()
         appSettingsEntryScriptHandler?.remove()
         enterKeyNewlineScriptHandler?.remove()
@@ -1871,6 +1931,7 @@ class MainActivity : ComponentActivity() {
         pinchZoomScriptHandler = null
         microphoneFallbackScriptHandler = null
         notificationBridgeScriptHandler = null
+        clipboardBridgeScriptHandler = null
         routeRecoveryScriptHandler = null
         appSettingsEntryScriptHandler = null
         enterKeyNewlineScriptHandler = null

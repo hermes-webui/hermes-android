@@ -296,4 +296,34 @@ class HermesWebUiScriptsTest {
         assertThat(script).doesNotContain("profile")
         assertThat(script).doesNotContain("session")
     }
+
+    @Test
+    fun `clipboard image script falls back to the host only after a native permission rejection`() {
+        val script = HermesWebUiScripts.buildClipboardImageScript("HermesAndroidClipboard")
+
+        assertThat(script).contains("window[\"HermesAndroidClipboard\"]")
+        assertThat(script).contains("originalRead.apply(self, args)")
+        assertThat(script).contains("name !== 'NotAllowedError' && name !== 'SecurityError'")
+        assertThat(script).contains("navigator.userActivation")
+        assertThat(script).contains("type: 'readClipboard'")
+    }
+
+    @Test
+    fun `clipboard image script delivers keyboard images as a paste event with a file`() {
+        val script = HermesWebUiScripts.buildClipboardImageScript("HermesAndroidClipboard")
+        val deliver = HermesWebUiScripts.buildDeliverImageScript("image/png", "AAAA")
+
+        assertThat(script).contains("window.__hermesAndroidDeliverImage = function(type, base64)")
+        assertThat(script).contains("new ClipboardEvent('paste'")
+        assertThat(script).contains("transfer.items.add(file)")
+        assertThat(deliver).contains("window.__hermesAndroidDeliverImage(\"image/png\", \"AAAA\")")
+    }
+
+    @Test
+    fun `deliver script quotes its payload so it cannot break out of the call`() {
+        val deliver = HermesWebUiScripts.buildDeliverImageScript("image/png\");alert(1);//", "A\"B")
+
+        assertThat(deliver).contains("\"image/png\\\");alert(1);//\"")
+        assertThat(deliver).contains("\"A\\\"B\"")
+    }
 }

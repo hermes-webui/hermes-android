@@ -9,6 +9,11 @@
 const browserGlobals = [
   "AbortController",
   "Blob",
+  "ClipboardEvent",
+  "ClipboardItem",
+  "DataTransfer",
+  "File",
+  "atob",
   "CSS",
   "CustomEvent",
   "DOMException",

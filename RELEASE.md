@@ -5,7 +5,15 @@ Use this checklist when publishing a new Hermes-Android build.
 ## Before Release
 
 1. Merge the intended fix or release PR to `main`.
-2. Update `appVersionName` in `app/build.gradle.kts` and the matching README version metadata in the release PR. The orchestration workflow builds that reviewed version and never edits or pushes source.
+2. Prepare the release PR with the bump script, then review `git diff` and open the PR from a `release-<version>` branch:
+
+```powershell
+python tools/bump_version.py 1.2.1 --kind patch `
+  --change "User-facing F-Droid changelog line." `
+  --summary "short phrase for the ROADMAP row (Issue #123)"
+```
+
+   It updates `appVersionName` in `app/build.gradle.kts`, the README `Version name`/`Version code` lines, a new `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`, and the next `REL-nnn` row in `ROADMAP.md`, and rejects a version that is not higher than the current one. Use `--dry-run` to preview and repeat `--change` for several changelog lines. The orchestration workflow builds that reviewed version and never edits or pushes source.
 3. Choose the trigger after the release PR reaches `main`:
   - Manual run: run `1 - Orchestration Release` from `main`; it rejects an already-published version.
   - Tag run: push a tag that exactly matches Gradle, such as `v1.1.0`.

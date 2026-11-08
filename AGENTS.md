@@ -296,7 +296,11 @@ tag-triggered releases should match the Gradle `versionName`, and the public
 GitHub release body should contain human-readable What's New notes rather than
 build metadata.
 Release orchestration builds the reviewed `appVersionName` and README metadata
-already checked into Git; it must never edit, commit, or push source. Gradle
+already checked into Git; it must never edit, commit, or push source. Prepare
+that metadata with `python tools/bump_version.py <version> --change ... --summary ...`
+(Gradle, README, F-Droid changelog and the ROADMAP `REL-nnn` row in one step)
+and ship it through a `release-<version>` pull request; do not hand-edit the four
+files. Gradle
 derives `versionCode` from semantic version (`major*10000 + minor*100 + patch`).
 GitHub releases should use generated notes configured by `.github/release.yml`.
 Generate release metadata once in the build job and bundle it with both signed

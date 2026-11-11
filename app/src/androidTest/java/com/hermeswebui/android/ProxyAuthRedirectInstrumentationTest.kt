@@ -88,7 +88,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 enterHttpAuthCredentials("test-user", "test-pass")
                 clickDialogButton("Sign in")
                 awaitWebView(scenario) {
-                    it.url == server.baseUrl && it.title == "Hermes HTTP authenticated"
+                    it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
                 }
                 assertThat(server.requests.any {
                     it.path == "/" && it.authorization == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="

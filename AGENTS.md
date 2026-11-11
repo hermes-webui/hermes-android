@@ -234,6 +234,18 @@ This repository is the standalone Android app.
   `tools/tests/test_fdroid_metadata.py` enforce this. Do not reintroduce the
   Foojay toolchain resolver plugin or other non-FOSS Gradle plugins; F-Droid's
   scanner rejects them.
+- WebView passkeys use AndroidX Credential Manager alongside the existing
+  `WEB_AUTHENTICATION_SUPPORT_FOR_APP` setting. Keep the base
+  `androidx.credentials:credentials` artifact shared across all variants and
+  do not add `credentials-play-services-auth` to any variant; the optional
+  adapter would introduce a separate Play-only passkey dependency path and
+  may improve compatibility on older devices. Passkeys remain subject to
+  Android/WebView support and an installed credential provider. They also
+  require the identity-provider sign-in domain to publish Digital Asset Links
+  for the exact installed application ID and signing certificate. Because
+  server domains and signing identities vary by operator and build channel, do
+  not claim end-to-end passkey support without validating that association and
+  the actual provider/device flow.
 - F-Droid builds from each `v<version>` tag using
   `fdroid/com.hermeswebui.android.fdroid.yml` (submitted to fdroiddata) and the
   store text in `fastlane/metadata/android/en-US/`. Its auto-update reads

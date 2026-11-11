@@ -221,13 +221,35 @@ val fossRuntimeClasspaths = listOf("releaseRuntimeClasspath", "githubRuntimeClas
 
 tasks.register("verifyFossDependencies") {
     group = "verification"
-    description = "Fails if the F-Droid or GitHub builds resolve Google Play, GMS, or Firebase libraries."
+    description = "Fails if variants resolve forbidden Play dependencies or omit shared WebView Credential Manager support."
     val resolvedRoots = fossRuntimeClasspaths.map { name ->
         name to configurations.named(name).flatMap { it.incoming.resolutionResult.rootComponent }
     }
     val blockedGroups = nonFreeDependencyGroups
 
     doLast {
+        val runtimeClasspaths = fossRuntimeClasspaths + "playRuntimeClasspath"
+        val credentialArtifactsByClasspath = runtimeClasspaths
+            .associateWith { classpath ->
+                configurations.getByName(classpath).incoming.resolutionResult.allComponents
+                    .mapNotNull { it.id as? ModuleComponentIdentifier }
+                    .map { "${it.group}:${it.module}" }
+                    .toSet()
+            }
+        val credentialsArtifact = "androidx.credentials:credentials"
+        val playCredentialsAdapter = "androidx.credentials:credentials-play-services-auth"
+        check(runtimeClasspaths.all {
+            credentialsArtifact in credentialArtifactsByClasspath.getValue(it)
+        }) {
+            "$credentialsArtifact must be present in every runtime classpath."
+        }
+        val includedAdapters = runtimeClasspaths.filter {
+            playCredentialsAdapter in credentialArtifactsByClasspath.getValue(it)
+        }
+        check(includedAdapters.isEmpty()) {
+            "$playCredentialsAdapter must not be present in any runtime classpath: ${includedAdapters.joinToString()}"
+        }
+
         val violations = resolvedRoots.flatMap { (classpath, root) ->
             val seen = mutableSetOf<ResolvedComponentResult>()
             val pending = ArrayDeque(listOf(root.get()))
@@ -269,6 +291,7 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.webkit)
+    implementation(libs.androidx.credentials)
     implementation(libs.androidx.security.crypto)
     "playImplementation"(libs.play.app.update)
     "playImplementation"(libs.play.app.update.ktx)

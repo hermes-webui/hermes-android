@@ -245,6 +245,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Microphone compatibility handling so trusted Hermes pages can use Android-supported capture paths
 - Spoken replies can play without a fresh tap on the trusted WebUI route. Android denies new microphone requests while not resumed and dispatches a proposed `hermes-app-foreground` host signal; current WebUI does not consume it. Stopping existing capture/playback and requiring explicit re-arm depend on WebUI support (tracked in [#120](https://github.com/hermes-webui/hermes-android/pull/120)).
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
+- WebView passkey integration uses the same AndroidX Credential Manager dependency across app variants, without a Google Play Services adapter in any build. End-to-end availability remains unverified and depends on the installed Android/WebView and credential provider; omitting the optional adapter may limit compatibility on older devices. The identity-provider's sign-in domain must also publish Digital Asset Links for the exact app package and signing certificate.
 - Reverse-proxy sign-in redirects (such as Authelia) can continue in-app after you confirm the server and login origins; `/api/status` does not need to be exposed outside proxy authentication
 - Proxy-level HTTP Basic challenges on the configured server show a native username/password prompt. Credentials are not saved, and Basic-auth challenges from other hosts are rejected.
 
@@ -294,8 +295,10 @@ pending:
   tag and signs it with its own key. After inclusion, no extra release step is
   needed.
 
-Only the Play build contains Google Play libraries (Play Core in-app updates).
-The GitHub and F-Droid builds contain no Google Play or Firebase code.
+Only the Play build contains Google Play/Play Services libraries (Play Core
+in-app updates). Every build uses the same AndroidX Credential Manager
+dependency, without the optional Play Services adapter; GitHub and F-Droid
+builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 

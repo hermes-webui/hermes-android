@@ -9,6 +9,16 @@
 
 ## Status snapshot
 
+- [~] Issue #184 passkey investigation: AndroidX Credential Manager is
+  included with the same dependency path in every WebView build, without the
+  optional Play Services adapter. This keeps F-Droid, GitHub, and Play uniform
+  but may limit compatibility on older devices. End-to-end passkey behavior
+  remains unverified and depends on Android/WebView support, a credential
+  provider, and Digital Asset Links on the identity-provider sign-in domain
+  for the exact app package/signing certificate. The separate blank
+  Dashboard-after-Basic-login symptom is linked to Hermes Agent issue
+  [#142352](https://github.com/NousResearch/hermes-agent/issues/142352); a
+  shared root cause is not established.
 - [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews now prompt for credentials on challenges from the configured server host only. Hermes-Android does not save credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,

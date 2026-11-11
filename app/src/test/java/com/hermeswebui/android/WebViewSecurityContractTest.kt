@@ -96,8 +96,14 @@ class WebViewSecurityContractTest {
         val prompt = bodiesOf(mainActivity, "private fun showHttpAuthPrompt(").single()
         assertThat(prompt).contains("isTrustedHttpAuthHost(host)")
         assertThat(prompt).contains("handler.cancel()")
-        assertThat(prompt).contains("handler.proceed(username.text.toString(), password.text.toString())")
         assertThat(prompt).doesNotContain("save")
+        val proceed = bodiesOf(mainActivity, "private fun proceedHttpAuthPrompt(").single()
+        assertThat(proceed).contains("prompt.handler.proceed(username, password)")
+        val cancel = bodiesOf(mainActivity, "private fun cancelHttpAuthPrompt(").single()
+        assertThat(cancel).contains("prompt.handler.cancel()")
+        val destroy = bodiesOf(mainActivity, "override fun onDestroy()").single()
+        assertThat(destroy).contains("cancelHttpAuthPrompt(prompt)")
+        assertThat(destroy).contains("prompt.dialog?.dismiss()")
     }
 
     @Test

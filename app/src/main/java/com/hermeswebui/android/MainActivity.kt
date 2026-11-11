@@ -252,6 +252,7 @@ class MainActivity : ComponentActivity() {
     private var lastMainFrameHopUrl: String? = null
     private var serverTypeDocumentGeneration = 0L
     private var proxySignInDialog: android.app.AlertDialog? = null
+    private var pendingHttpAuthPrompt: PendingHttpAuthPrompt? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
     private val oauthReturnNavigation = OAuthReturnNavigation()
@@ -264,6 +265,12 @@ class MainActivity : ComponentActivity() {
     private val ORPHAN_POPUP_SWEEP_MS = 15 * 1000L
 
     private val serverUrlValidator = ServerUrlValidator()
+
+    private data class PendingHttpAuthPrompt(
+        val handler: HttpAuthHandler,
+        var dialog: AlertDialog? = null,
+        var resolved: Boolean = false
+    )
 
     private var lastBackPressTime: Long = 0
     private var backPressExitStage: Int = 0
@@ -556,6 +563,10 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         if (::serverProfileCoordinator.isInitialized) serverProfileCoordinator.dispose()
         proxySignInDialog?.dismiss()
+        pendingHttpAuthPrompt?.let { prompt ->
+            cancelHttpAuthPrompt(prompt)
+            prompt.dialog?.dismiss()
+        }
         proxyAuthNavigation.clear()
         stopVpnReconnectWaitLoop()
         runCatching { unregisterReceiver(appUpdateDownloadReceiver) }
@@ -1390,7 +1401,13 @@ class MainActivity : ComponentActivity() {
                 handler.cancel()
                 return@runOnUiThread
             }
+            if (pendingHttpAuthPrompt != null) {
+                handler.cancel()
+                return@runOnUiThread
+            }
 
+            val prompt = PendingHttpAuthPrompt(handler)
+            pendingHttpAuthPrompt = prompt
             val username = EditText(this).apply {
                 hint = "Username"
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
@@ -1410,29 +1427,19 @@ class MainActivity : ComponentActivity() {
                 addView(password, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
 
-            var completed = false
-            fun cancelRequest() {
-                if (!completed) {
-                    completed = true
-                    handler.cancel()
-                }
-            }
-
             val challenge = realm?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
             val dialog = AlertDialog.Builder(this)
                 .setTitle("Sign in to $host")
                 .setMessage("This server requires a username and password$challenge.")
                 .setView(content)
                 .setPositiveButton("Sign in", null)
-                .setNegativeButton("Cancel") { _, _ -> cancelRequest() }
-                .setOnCancelListener { cancelRequest() }
+                .setNegativeButton("Cancel") { _, _ -> cancelHttpAuthPrompt(prompt) }
+                .setOnCancelListener { cancelHttpAuthPrompt(prompt) }
                 .create()
+            prompt.dialog = dialog
             dialog.setOnShowListener {
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                    if (!completed) {
-                        completed = true
-                        handler.proceed(username.text.toString(), password.text.toString())
-                    }
+                    proceedHttpAuthPrompt(prompt, username.text.toString(), password.text.toString())
                     dialog.dismiss()
                 }
                 username.requestFocus()
@@ -1440,6 +1447,20 @@ class MainActivity : ComponentActivity() {
             }
             dialog.show()
         }
+    }
+
+    private fun cancelHttpAuthPrompt(prompt: PendingHttpAuthPrompt) {
+        if (prompt.resolved) return
+        prompt.resolved = true
+        if (pendingHttpAuthPrompt === prompt) pendingHttpAuthPrompt = null
+        prompt.handler.cancel()
+    }
+
+    private fun proceedHttpAuthPrompt(prompt: PendingHttpAuthPrompt, username: String, password: String) {
+        if (prompt.resolved) return
+        prompt.resolved = true
+        if (pendingHttpAuthPrompt === prompt) pendingHttpAuthPrompt = null
+        prompt.handler.proceed(username, password)
     }
 
     private fun confirmProxySignInRedirect(serverUrl: String, origin: String, target: String) {

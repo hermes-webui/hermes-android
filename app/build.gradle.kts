@@ -221,13 +221,37 @@ val fossRuntimeClasspaths = listOf("releaseRuntimeClasspath", "githubRuntimeClas
 
 tasks.register("verifyFossDependencies") {
     group = "verification"
-    description = "Fails if the F-Droid or GitHub builds resolve Google Play, GMS, or Firebase libraries."
+    description = "Fails if FOSS builds resolve Play dependencies or omit/mis-scope WebView Credential Manager support."
     val resolvedRoots = fossRuntimeClasspaths.map { name ->
         name to configurations.named(name).flatMap { it.incoming.resolutionResult.rootComponent }
     }
     val blockedGroups = nonFreeDependencyGroups
 
     doLast {
+        val credentialArtifactsByClasspath = (fossRuntimeClasspaths + "playRuntimeClasspath")
+            .associateWith { classpath ->
+                configurations.getByName(classpath).incoming.resolutionResult.allComponents
+                    .mapNotNull { it.id as? ModuleComponentIdentifier }
+                    .map { "${it.group}:${it.module}" }
+                    .toSet()
+            }
+        val credentialsArtifact = "androidx.credentials:credentials"
+        val playCredentialsAdapter = "androidx.credentials:credentials-play-services-auth"
+        check(fossRuntimeClasspaths.all {
+            credentialsArtifact in credentialArtifactsByClasspath.getValue(it)
+        }) {
+            "$credentialsArtifact must be present in F-Droid and GitHub runtime classpaths."
+        }
+        check(playCredentialsAdapter in credentialArtifactsByClasspath.getValue("playRuntimeClasspath")) {
+            "$playCredentialsAdapter must be present in the Play runtime classpath."
+        }
+        val leakedAdapters = fossRuntimeClasspaths.filter {
+            playCredentialsAdapter in credentialArtifactsByClasspath.getValue(it)
+        }
+        check(leakedAdapters.isEmpty()) {
+            "$playCredentialsAdapter must not be present in FOSS runtime classpaths: ${leakedAdapters.joinToString()}"
+        }
+
         val violations = resolvedRoots.flatMap { (classpath, root) ->
             val seen = mutableSetOf<ResolvedComponentResult>()
             val pending = ArrayDeque(listOf(root.get()))
@@ -269,7 +293,9 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.webkit)
+    implementation(libs.androidx.credentials)
     implementation(libs.androidx.security.crypto)
+    "playImplementation"(libs.androidx.credentials.play.services.auth)
     "playImplementation"(libs.play.app.update)
     "playImplementation"(libs.play.app.update.ktx)
 

@@ -7,6 +7,7 @@ composeBom = "2026.06.00"
 lifecycle = "2.11.0"
 browser = "1.10.0"
 webkit = "1.16.0"
+credentials = "1.6.0"
 securityCrypto = "1.1.0"
 materialComponents = "1.14.0"
 playAppUpdate = "2.1.0"
@@ -33,6 +34,8 @@ androidx-compose-material3 = { group = "androidx.compose.material3", name = "mat
 androidx-compose-material = { group = "androidx.compose.material", name = "material" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 google-material = { group = "com.google.android.material", name = "material", version.ref = "materialComponents" }
 play-app-update = { group = "com.google.android.play", name = "app-update", version.ref = "playAppUpdate" }

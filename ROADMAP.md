@@ -3,12 +3,20 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-10-26
+> Last updated: 2026-11-11
 
 ---
 
 ## Status snapshot
 
+- [~] Issue #184 passkey investigation: AndroidX Credential Manager is being
+  added to the WebView host, with the Play Services adapter limited to the
+  Play build. The identity-provider sign-in domain must still publish Digital
+  Asset Links for the exact app package/signing certificate, and reporter-device
+  behavior remains unverified. The separate blank Dashboard-after-Basic-login
+  symptom is linked to Hermes Agent issue
+  [#142352](https://github.com/NousResearch/hermes-agent/issues/142352); a
+  shared root cause is not established.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,
   authentication, HTTPS and reusable URLs. Include the requested AGP 9.5.1

@@ -245,6 +245,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Microphone compatibility handling so trusted Hermes pages can use Android-supported capture paths
 - Spoken replies can play without a fresh tap on the trusted WebUI route. Android denies new microphone requests while not resumed and dispatches a proposed `hermes-app-foreground` host signal; current WebUI does not consume it. Stopping existing capture/playback and requiring explicit re-arm depend on WebUI support (tracked in [#120](https://github.com/hermes-webui/hermes-android/pull/120)).
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
+- WebView passkey support through AndroidX Credential Manager. The Play Services adapter is included only in the Play build; F-Droid stays Play-free. Passkeys also require the identity-provider's sign-in domain to publish Digital Asset Links for the exact app package and signing certificate, so support depends on the server/domain owner and device credential providers.
 - Reverse-proxy sign-in redirects (such as Authelia) can continue in-app after you confirm the server and login origins; `/api/status` does not need to be exposed outside proxy authentication
 
 ### Real Android integration
@@ -293,8 +294,9 @@ pending:
   tag and signs it with its own key. After inclusion, no extra release step is
   needed.
 
-Only the Play build contains Google Play libraries (Play Core in-app updates).
-The GitHub and F-Droid builds contain no Google Play or Firebase code.
+Only the Play build contains Google Play/Play Services libraries (Play Core
+in-app updates and the Credential Manager adapter). The GitHub and F-Droid
+builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 

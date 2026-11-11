@@ -245,7 +245,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Microphone compatibility handling so trusted Hermes pages can use Android-supported capture paths
 - Spoken replies can play without a fresh tap on the trusted WebUI route. Android denies new microphone requests while not resumed and dispatches a proposed `hermes-app-foreground` host signal; current WebUI does not consume it. Stopping existing capture/playback and requiring explicit re-arm depend on WebUI support (tracked in [#120](https://github.com/hermes-webui/hermes-android/pull/120)).
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
-- WebView passkey support through AndroidX Credential Manager. The Play Services adapter is included only in the Play build; F-Droid stays Play-free. Passkeys also require the identity-provider's sign-in domain to publish Digital Asset Links for the exact app package and signing certificate, so support depends on the server/domain owner and device credential providers.
+- WebView passkey integration through AndroidX Credential Manager is included across app variants. Only the optional Google Play Services adapter is Play-build-only; F-Droid and GitHub retain the shared Credential Manager path without Play dependencies. End-to-end availability remains unverified and depends on the installed Android/WebView and credential provider, and the identity-provider's sign-in domain must publish Digital Asset Links for the exact app package and signing certificate.
 - Reverse-proxy sign-in redirects (such as Authelia) can continue in-app after you confirm the server and login origins; `/api/status` does not need to be exposed outside proxy authentication
 - Proxy-level HTTP Basic challenges on the configured server show a native username/password prompt. Credentials are not saved, and Basic-auth challenges from other hosts are rejected.
 
@@ -296,8 +296,9 @@ pending:
   needed.
 
 Only the Play build contains Google Play/Play Services libraries (Play Core
-in-app updates and the Credential Manager adapter). The GitHub and F-Droid
-builds contain no Google Play or Firebase code.
+in-app updates and the optional Credential Manager compatibility adapter).
+The shared AndroidX Credential Manager dependency is included in every build;
+GitHub and F-Droid builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 

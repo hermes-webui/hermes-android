@@ -221,14 +221,15 @@ val fossRuntimeClasspaths = listOf("releaseRuntimeClasspath", "githubRuntimeClas
 
 tasks.register("verifyFossDependencies") {
     group = "verification"
-    description = "Fails if FOSS builds resolve Play dependencies or omit/mis-scope WebView Credential Manager support."
+    description = "Fails if variants resolve forbidden Play dependencies or omit shared WebView Credential Manager support."
     val resolvedRoots = fossRuntimeClasspaths.map { name ->
         name to configurations.named(name).flatMap { it.incoming.resolutionResult.rootComponent }
     }
     val blockedGroups = nonFreeDependencyGroups
 
     doLast {
-        val credentialArtifactsByClasspath = (fossRuntimeClasspaths + "playRuntimeClasspath")
+        val runtimeClasspaths = fossRuntimeClasspaths + "playRuntimeClasspath"
+        val credentialArtifactsByClasspath = runtimeClasspaths
             .associateWith { classpath ->
                 configurations.getByName(classpath).incoming.resolutionResult.allComponents
                     .mapNotNull { it.id as? ModuleComponentIdentifier }
@@ -237,19 +238,16 @@ tasks.register("verifyFossDependencies") {
             }
         val credentialsArtifact = "androidx.credentials:credentials"
         val playCredentialsAdapter = "androidx.credentials:credentials-play-services-auth"
-        check(fossRuntimeClasspaths.all {
+        check(runtimeClasspaths.all {
             credentialsArtifact in credentialArtifactsByClasspath.getValue(it)
         }) {
-            "$credentialsArtifact must be present in F-Droid and GitHub runtime classpaths."
+            "$credentialsArtifact must be present in every runtime classpath."
         }
-        check(playCredentialsAdapter in credentialArtifactsByClasspath.getValue("playRuntimeClasspath")) {
-            "$playCredentialsAdapter must be present in the Play runtime classpath."
-        }
-        val leakedAdapters = fossRuntimeClasspaths.filter {
+        val includedAdapters = runtimeClasspaths.filter {
             playCredentialsAdapter in credentialArtifactsByClasspath.getValue(it)
         }
-        check(leakedAdapters.isEmpty()) {
-            "$playCredentialsAdapter must not be present in FOSS runtime classpaths: ${leakedAdapters.joinToString()}"
+        check(includedAdapters.isEmpty()) {
+            "$playCredentialsAdapter must not be present in any runtime classpath: ${includedAdapters.joinToString()}"
         }
 
         val violations = resolvedRoots.flatMap { (classpath, root) ->
@@ -295,7 +293,6 @@ dependencies {
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.security.crypto)
-    "playImplementation"(libs.androidx.credentials.play.services.auth)
     "playImplementation"(libs.play.app.update)
     "playImplementation"(libs.play.app.update.ktx)
 

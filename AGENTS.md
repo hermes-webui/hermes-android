@@ -236,11 +236,11 @@ This repository is the standalone Android app.
   scanner rejects them.
 - WebView passkeys use AndroidX Credential Manager alongside the existing
   `WEB_AUTHENTICATION_SUPPORT_FOR_APP` setting. Keep the base
-  `androidx.credentials:credentials` artifact in every variant;
-  `credentials-play-services-auth` is an optional compatibility adapter for
-  older devices and must remain `playImplementation`. F-Droid and GitHub can
-  use the shared Credential Manager path without Play Services, subject to
-  Android/WebView support and an installed credential provider. Passkeys also
+  `androidx.credentials:credentials` artifact shared across all variants and
+  do not add `credentials-play-services-auth` to any variant; the optional
+  adapter would introduce a separate Play-only passkey dependency path and
+  may improve compatibility on older devices. Passkeys remain subject to
+  Android/WebView support and an installed credential provider. They also
   require the identity-provider sign-in domain to publish Digital Asset Links
   for the exact installed application ID and signing certificate. Because
   server domains and signing identities vary by operator and build channel, do

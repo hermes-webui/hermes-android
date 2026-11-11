@@ -56,6 +56,7 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - `HermesServerProfileCoordinator`: owns startup preflight plus add/edit/delete/switch validation and confirmation flows for Hermes server profiles.
 - `HermesForegroundServiceCoordinator`: owns reconnect/debug foreground-service lifecycle sync so `onResume`, `onStop`, and settings toggles do not each duplicate service promotion/teardown rules.
 - `HermesWebViewConfigurator`: centralizes shared main/popup WebView hardening and settings setup.
+- `MainActivity` handles HTTP Basic challenges from the configured server with a native username/password prompt. The challenge host must exactly match the configured server host, and credentials are never written to settings; unrelated hosts are canceled.
 - `HermesWebViewDownloadListener`: hands allowlisted WebView downloads to Android DownloadManager with session cookies and the WebView user agent. AndroidX WebKit's RFC-compatible filename parser honors `filename*` over `filename` and preserves server-provided extensions even with generic MIME types. Explicit image downloads also retain filenames from inline preview headers; filenames cannot introduce nested destination paths. On Android 10+ downloads land in the shared `Download` folder so they appear in Files > Downloads; Android 8/9 keep the app-specific `Download` folder because shared storage would need `WRITE_EXTERNAL_STORAGE`. Emulator regression tests exercise the production listener and downloaded bytes for both chat and Files endpoints.
 
 Selected-server persistence reconciles a missing or dangling active profile ID
@@ -184,6 +185,13 @@ pending; loopback WebView fixtures cover the Android boundary only.
 22. An "Application Settings" entry point is injected into the Hermes WebUI sidebar immediately after the WebUI Settings item via a document-start WebView shim, with Help used only as a fallback anchor if Settings cannot be found. This shim clones the target menu item structure, strips routing attributes, injects a custom phone-outline SVG icon, and binds the click handler to the `hermes://app/settings` deep link, which triggers `MainViewModel.openSettings()` to display the native full-page settings screen overlay (`SettingsScreen`). Android exports the same `hermes://app/settings` deep link as a recovery route so native settings can be opened from ADB or an external link if WebUI is stuck on a bad route.
 
 ## Reverse-proxy authentication
+
+WebView HTTP Basic challenges are distinct from redirect-based proxy sign-in.
+The main and popup WebViews show a native prompt only when the challenge host
+exactly matches the configured server host. Credentials are passed to that
+WebView challenge but are not persisted by Hermes-Android; challenges from
+other hosts are canceled. This does not broaden the proxy redirect grant or
+the app's notification, microphone, download, or navigation trust.
 
 `HermesApiClient` does not follow native preflight redirects. A 301, 302, 303,
 307, or 308 with a valid HTTP(S) `Location` is classified by origin. A

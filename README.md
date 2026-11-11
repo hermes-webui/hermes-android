@@ -247,6 +247,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
 - WebView passkey support through AndroidX Credential Manager. The Play Services adapter is included only in the Play build; F-Droid stays Play-free. Passkeys also require the identity-provider's sign-in domain to publish Digital Asset Links for the exact app package and signing certificate, so support depends on the server/domain owner and device credential providers.
 - Reverse-proxy sign-in redirects (such as Authelia) can continue in-app after you confirm the server and login origins; `/api/status` does not need to be exposed outside proxy authentication
+- Proxy-level HTTP Basic challenges on the configured server show a native username/password prompt. Credentials are not saved, and Basic-auth challenges from other hosts are rejected.
 
 ### Real Android integration
 

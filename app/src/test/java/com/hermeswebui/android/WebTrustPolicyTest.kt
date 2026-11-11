@@ -25,6 +25,15 @@ class WebTrustPolicyTest {
     }
 
     @Test
+    fun `HTTP authentication challenges are limited to the configured server host`() {
+        assertThat(policy.isTrustedHttpAuthHost("hermes.example.com")).isTrue()
+        assertThat(policy.isTrustedHttpAuthHost("HERMES.EXAMPLE.COM.")).isTrue()
+        assertThat(policy.isTrustedHttpAuthHost("api.hermes.example.com")).isFalse()
+        assertThat(policy.isTrustedHttpAuthHost("dashboard.example.com")).isFalse()
+        assertThat(policy.isTrustedHttpAuthHost(null)).isFalse()
+    }
+
+    @Test
     fun `notification target must remain on the configured WebUI route`() {
         assertThat(policy.isTrustedNotificationTarget("https://hermes.example.com/session/123")).isTrue()
         assertThat(policy.isTrustedNotificationTarget("https://dashboard.example.com/app")).isFalse()

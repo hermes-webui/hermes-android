@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import androidx.core.content.FileProvider
 import androidx.compose.ui.test.assertIsDisplayed
@@ -75,6 +76,23 @@ class ProxyAuthRedirectInstrumentationTest {
                     repository.getLastLoadedUrl() == "${server.baseUrl}/"
                 }
                 assertOfficialBackPreservesWorkspace(scenario)
+            }
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_showsNativePromptAndLoadsServerAfterCredentialsAreEntered() {
+        withConfiguredServer(basicAuth = true) { server, _ ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Sign in to 127.0.0.1")
+                enterHttpAuthCredentials("test-user", "test-pass")
+                clickDialogButton("Sign in")
+                awaitWebView(scenario) {
+                    it.url == server.baseUrl && it.title == "Hermes HTTP authenticated"
+                }
+                assertThat(server.requests.any {
+                    it.path == "/" && it.authorization == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="
+                }).isTrue()
             }
         }
     }
@@ -370,6 +388,18 @@ class ProxyAuthRedirectInstrumentationTest {
             }
         }
         instrumentation.waitForIdleSync()
+    }
+
+    private fun enterHttpAuthCredentials(username: String, password: String) {
+        instrumentation.runOnMainSync {
+            val fields = WindowInspector.getGlobalWindowViews().asSequence()
+                .flatMap { descendants(it) }
+                .filterIsInstance<EditText>()
+                .filter { it.isShown }
+                .toList()
+            fields.single { it.hint == "Username" }.setText(username)
+            fields.single { it.hint == "Password" }.setText(password)
+        }
     }
 
     @Test
@@ -677,13 +707,14 @@ class ProxyAuthRedirectInstrumentationTest {
     private fun withConfiguredServer(
         officialWebapp: Boolean = false,
         oidc: Boolean = false,
+        basicAuth: Boolean = false,
         block: (ProxyServer, SettingsRepository) -> Unit
     ) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
         val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
         val loggingWasEnabled = SettingsRepository(context).isDebugLoggingEnabled()
-        ProxyServer(officialWebapp = officialWebapp, oidc = oidc).use { server ->
+        ProxyServer(officialWebapp = officialWebapp, oidc = oidc, basicAuth = basicAuth).use { server ->
             try {
                 val repository = SettingsRepository(context)
                 repository.getProfiles().forEach { repository.deleteProfile(it.id) }
@@ -824,9 +855,10 @@ class ProxyAuthRedirectInstrumentationTest {
         private val locationOverride: String? = null,
         private val officialWebapp: Boolean = false,
         private val oidc: Boolean = false,
+        private val basicAuth: Boolean = false,
         port: Int = 0
     ) : AutoCloseable {
-        data class Request(val path: String, val host: String, val cookie: String)
+        data class Request(val path: String, val host: String, val cookie: String, val authorization: String)
         private val socket = ServerSocket(port, 20, InetAddress.getByName("127.0.0.1"))
         private val running = AtomicBoolean(true)
         val baseUrl = "http://127.0.0.1:${socket.localPort}"
@@ -854,10 +886,22 @@ class ProxyAuthRedirectInstrumentationTest {
                     fun header(name: String) = headers.firstOrNull { h -> h.startsWith("$name:", true) }
                         ?.substringAfter(':')?.trim().orEmpty()
                     val cookie = header("Cookie")
-                    requests.add(Request(path, header("Host"), cookie))
-                    val authenticated = cookie.contains("proxy_auth=ok") && !rejectSession.get()
+                    val authorization = header("Authorization")
+                    requests.add(Request(path, header("Host"), cookie, authorization))
+                    val basicAuthenticated = authorization == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="
+                    val authenticated = (cookie.contains("proxy_auth=ok") || basicAuthenticated) &&
+                        !rejectSession.get()
                     val query = first.split(" ")[1].substringAfter('?', "")
                     val (status, extra, body) = when {
+                        basicAuth && !basicAuthenticated ->
+                            Triple("401 Unauthorized", "WWW-Authenticate: Basic realm=\"Hermes WebUI\"\r\n", "401 Unauthorized")
+                        basicAuth && path == "/api/status" ->
+                            Triple("200 OK", "", """{"version":"test","initialized":true}""")
+                        basicAuth && path == "/" -> Triple("200 OK", "", """
+                            <title>Hermes HTTP authenticated</title>
+                            <script>window.__HERMES_WEBUI_BUNDLE_VERSION__="fixture";</script>
+                            <div class="layout"><main class="main">Authenticated</main></div>
+                        """.trimIndent())
                         // Issue #12/#54/#66 OIDC fixture: the WebUI start page, a PKCE-cookie-setting
                         // start route, a provider on the "localhost" origin and a cookie-checking callback.
                         oidc && path == "/api/status" -> Triple("200 OK", "", """{"version":"test","initialized":true}""")

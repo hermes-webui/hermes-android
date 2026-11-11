@@ -246,6 +246,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Spoken replies can play without a fresh tap on the trusted WebUI route. Android denies new microphone requests while not resumed and dispatches a proposed `hermes-app-foreground` host signal; current WebUI does not consume it. Stopping existing capture/playback and requiring explicit re-arm depend on WebUI support (tracked in [#120](https://github.com/hermes-webui/hermes-android/pull/120)).
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns
 - Reverse-proxy sign-in redirects (such as Authelia) can continue in-app after you confirm the server and login origins; `/api/status` does not need to be exposed outside proxy authentication
+- Proxy-level HTTP Basic challenges on the configured server show a native username/password prompt. Credentials are not saved, and Basic-auth challenges from other hosts are rejected.
 
 ### Real Android integration
 

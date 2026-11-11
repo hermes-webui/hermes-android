@@ -87,6 +87,20 @@ class WebViewSecurityContractTest {
     }
 
     @Test
+    fun `main and popup WebViews handle HTTP authentication through the trusted-host prompt`() {
+        val mainActivity = codeOnly.entries.single { it.key.endsWith("/MainActivity.kt") }.value
+        assertThat(Regex("""override fun onReceivedHttpAuthRequest\(""").findAll(mainActivity).count())
+            .isEqualTo(2)
+        assertThat(Regex("""showHttpAuthPrompt\(handler, host, realm\)""").findAll(mainActivity).count())
+            .isEqualTo(2)
+        val prompt = bodiesOf(mainActivity, "private fun showHttpAuthPrompt(").single()
+        assertThat(prompt).contains("isTrustedHttpAuthHost(host)")
+        assertThat(prompt).contains("handler.cancel()")
+        assertThat(prompt).contains("handler.proceed(username.text.toString(), password.text.toString())")
+        assertThat(prompt).doesNotContain("save")
+    }
+
+    @Test
     fun `clipboard and image input stay on scoped message bridges with no javascript interface`() {
         // Issue #180: the clipboard fallback must use the trust-checked WebMessageListener, never
         // addJavascriptInterface, and image input must be advertised only for the configured route.

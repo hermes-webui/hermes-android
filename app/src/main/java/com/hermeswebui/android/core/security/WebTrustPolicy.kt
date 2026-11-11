@@ -24,6 +24,16 @@ class WebTrustPolicy(
             targetPath.startsWith("$dashboardPath/")
     }
 
+    fun isTrustedHttpAuthHost(host: String?): Boolean {
+        val challengedHost = host
+            ?.trim()
+            ?.trimEnd('.')
+            ?.lowercase(Locale.US)
+            ?.takeIf { it.isNotBlank() }
+            ?: return false
+        return challengedHost == UrlOrigins.hostFrom(configuredWebUiUrl)
+    }
+
     /**
      * WebUI voice replies start playback long after the arming tap, which Android WebView's
      * per-element gesture rule rejects. Lift it only for the configured WebUI route; OAuth

@@ -20,6 +20,7 @@ import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.text.InputType
 import android.util.Base64
 import android.os.Build
 import android.os.Bundle
@@ -31,6 +32,7 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.webkit.ClientCertRequest
 import android.webkit.CookieManager
+import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
 import android.webkit.ServiceWorkerController
 import android.webkit.SslErrorHandler
@@ -43,6 +45,9 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -247,6 +252,7 @@ class MainActivity : ComponentActivity() {
     private var lastMainFrameHopUrl: String? = null
     private var serverTypeDocumentGeneration = 0L
     private var proxySignInDialog: android.app.AlertDialog? = null
+    private var pendingHttpAuthPrompt: PendingHttpAuthPrompt? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
     private val oauthReturnNavigation = OAuthReturnNavigation()
@@ -259,6 +265,12 @@ class MainActivity : ComponentActivity() {
     private val ORPHAN_POPUP_SWEEP_MS = 15 * 1000L
 
     private val serverUrlValidator = ServerUrlValidator()
+
+    private data class PendingHttpAuthPrompt(
+        val handler: HttpAuthHandler,
+        var dialog: AlertDialog? = null,
+        var resolved: Boolean = false
+    )
 
     private var lastBackPressTime: Long = 0
     private var backPressExitStage: Int = 0
@@ -551,6 +563,10 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         if (::serverProfileCoordinator.isInitialized) serverProfileCoordinator.dispose()
         proxySignInDialog?.dismiss()
+        pendingHttpAuthPrompt?.let { prompt ->
+            cancelHttpAuthPrompt(prompt)
+            prompt.dialog?.dismiss()
+        }
         proxyAuthNavigation.clear()
         stopVpnReconnectWaitLoop()
         runCatching { unregisterReceiver(appUpdateDownloadReceiver) }
@@ -1149,6 +1165,16 @@ class MainActivity : ComponentActivity() {
                     }
                     request.proceed(cert.privateKey, cert.certChain)
                 }
+
+                override fun onReceivedHttpAuthRequest(
+                    view: WebView?,
+                    handler: HttpAuthHandler?,
+                    host: String?,
+                    realm: String?
+                ) {
+                    if (handler == null) return
+                    showHttpAuthPrompt(handler, host, realm)
+                }
             }
 
             setDownloadListener(
@@ -1206,6 +1232,16 @@ class MainActivity : ComponentActivity() {
                 if (!url.isNullOrBlank()) {
                     handlePopupPageStarted(popup, url)
                 }
+            }
+
+            override fun onReceivedHttpAuthRequest(
+                view: WebView?,
+                handler: HttpAuthHandler?,
+                host: String?,
+                realm: String?
+            ) {
+                if (handler == null) return
+                showHttpAuthPrompt(handler, host, realm)
             }
         }
     }
@@ -1353,6 +1389,78 @@ class MainActivity : ComponentActivity() {
 
     private fun restrictMediaPlaybackBeforeNavigation(target: String) {
         HermesMediaPlaybackPolicy.beforeAllowedMainFrameNavigation(webView, target, currentWebTrustPolicy())
+    }
+
+    private fun showHttpAuthPrompt(handler: HttpAuthHandler, host: String?, realm: String?) {
+        if (!currentWebTrustPolicy().isTrustedHttpAuthHost(host)) {
+            handler.cancel()
+            return
+        }
+        runOnUiThread {
+            if (isFinishing || isDestroyed) {
+                handler.cancel()
+                return@runOnUiThread
+            }
+            if (pendingHttpAuthPrompt != null) {
+                handler.cancel()
+                return@runOnUiThread
+            }
+
+            val prompt = PendingHttpAuthPrompt(handler)
+            pendingHttpAuthPrompt = prompt
+            val username = EditText(this).apply {
+                hint = "Username"
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                setSingleLine()
+            }
+            val password = EditText(this).apply {
+                hint = "Password"
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                setSingleLine()
+            }
+            val content = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                val horizontalPadding = (24 * resources.displayMetrics.density).toInt()
+                val verticalPadding = (8 * resources.displayMetrics.density).toInt()
+                setPadding(horizontalPadding, verticalPadding, horizontalPadding, 0)
+                addView(username, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                addView(password, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+
+            val challenge = realm?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+            val dialog = AlertDialog.Builder(this)
+                .setTitle("Sign in to $host")
+                .setMessage("This server requires a username and password$challenge.")
+                .setView(content)
+                .setPositiveButton("Sign in", null)
+                .setNegativeButton("Cancel") { _, _ -> cancelHttpAuthPrompt(prompt) }
+                .setOnCancelListener { cancelHttpAuthPrompt(prompt) }
+                .create()
+            prompt.dialog = dialog
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    proceedHttpAuthPrompt(prompt, username.text.toString(), password.text.toString())
+                    dialog.dismiss()
+                }
+                username.requestFocus()
+                dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+            }
+            dialog.show()
+        }
+    }
+
+    private fun cancelHttpAuthPrompt(prompt: PendingHttpAuthPrompt) {
+        if (prompt.resolved) return
+        prompt.resolved = true
+        if (pendingHttpAuthPrompt === prompt) pendingHttpAuthPrompt = null
+        prompt.handler.cancel()
+    }
+
+    private fun proceedHttpAuthPrompt(prompt: PendingHttpAuthPrompt, username: String, password: String) {
+        if (prompt.resolved) return
+        prompt.resolved = true
+        if (pendingHttpAuthPrompt === prompt) pendingHttpAuthPrompt = null
+        prompt.handler.proceed(username, password)
     }
 
     private fun confirmProxySignInRedirect(serverUrl: String, origin: String, target: String) {

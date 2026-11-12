@@ -65,6 +65,32 @@ class BumpVersionTests(unittest.TestCase):
         self.assertIn("A patch bump", roadmap[2])
         self.assertEqual(roadmap[3:], ["", "after"])
 
+    def test_inserts_release_row_after_highest_existing_release_id(self) -> None:
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        path = Path(root.name)
+        _fixture(path)
+        roadmap_path = path / "ROADMAP.md"
+        roadmap_path.write_text(
+            "| REL-035 | d | Release preparation | old |"
+            "\n| REL-036 | d | Release preparation | newest |"
+            "\n| REL-034 | d | Release preparation | older, recorded later |"
+            "\n\nafter\n"
+        )
+        patches = {
+            "ROOT": path,
+            "GRADLE": path / "app" / "build.gradle.kts",
+            "README": path / "README.md",
+            "ROADMAP": roadmap_path,
+            "CHANGELOGS": path / "fastlane" / "metadata" / "android" / "en-US" / "changelogs",
+        }
+        with patch.multiple(bump_version, **patches):
+            bump_version.main(list(self.ARGS))
+
+        roadmap = roadmap_path.read_text().splitlines()
+        self.assertTrue(roadmap[2].startswith("| REL-037 |"))
+        self.assertEqual(roadmap[3], "| REL-034 | d | Release preparation | older, recorded later |")
+
     def test_preserves_crlf_line_endings(self) -> None:
         root = self._run("\r\n", *self.ARGS)
         for name in ("README.md", "ROADMAP.md"):

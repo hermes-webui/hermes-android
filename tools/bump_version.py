@@ -101,8 +101,9 @@ def plan(version: str, changes: list[str], summary: str, kind: str, today: str) 
     rows = list(REL_ROW.finditer(roadmap))
     if not rows:
         raise SystemExit("ROADMAP.md has no REL-nnn rows to extend")
-    next_rel = max(int(m.group(1)) for m in rows) + 1
-    last_row_end = roadmap.index("\n", rows[-1].start())
+    latest_row = max(rows, key=lambda match: int(match.group(1)))
+    next_rel = int(latest_row.group(1)) + 1
+    last_row_end = roadmap.index("\n", latest_row.start())
     last_row_end = last_row_end - 1 if roadmap[last_row_end - 1] == "\r" else last_row_end
 
     new_row = build_roadmap_row(next_rel, today, version, code, summary, kind)

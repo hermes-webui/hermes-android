@@ -127,9 +127,7 @@ fun SettingsScreen(
     onSetBackgroundActivityFullTextEnabled: (Boolean) -> Unit,
     onSetReconnectPollIntervalSeconds: (Int) -> Unit,
     onSetRequireVpnForTailscaleEnabled: (Boolean) -> Unit,
-    rememberHttpAuthEnabled: Boolean = false,
-    savedHttpAuthCredentialCount: Int = 0,
-    onSetRememberHttpAuthEnabled: (Boolean) -> Unit = {},
+    hasLegacyHttpAuthCredentials: Boolean = false,
     onForgetSavedHttpAuth: () -> Unit = {},
     browserSignInEnabled: Boolean = false,
     onSetBrowserSignInEnabled: (Boolean) -> Unit = {},
@@ -719,40 +717,7 @@ fun SettingsScreen(
 
                         HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
 
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    "Remember server sign-in",
-                                    color = onSurface,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            },
-                            supportingContent = {
-                                Text(
-                                    "Offers to save the username and password for your server's own sign-in box (HTTP Basic, for example from a reverse proxy) in encrypted app storage. Saved sign-ins are used only for the exact configured server host. Turning this off deletes them.",
-                                    color = onSurfaceVar,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = rememberHttpAuthEnabled,
-                                    onCheckedChange = onSetRememberHttpAuthEnabled,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                        checkedTrackColor = primaryColor,
-                                        uncheckedThumbColor = onSurfaceVar,
-                                        uncheckedTrackColor = surfaceVariant
-                                    )
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = surfaceColor),
-                            modifier = Modifier.clickable {
-                                onSetRememberHttpAuthEnabled(!rememberHttpAuthEnabled)
-                            }
-                        )
-
-                        if (rememberHttpAuthEnabled && savedHttpAuthCredentialCount > 0) {
+                        if (hasLegacyHttpAuthCredentials) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -760,11 +725,7 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (savedHttpAuthCredentialCount == 1) {
-                                        "1 sign-in saved"
-                                    } else {
-                                        "$savedHttpAuthCredentialCount sign-ins saved"
-                                    },
+                                    text = "Previously saved server sign-ins are not used.",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.weight(1f)
@@ -773,9 +734,8 @@ fun SettingsScreen(
                                     Text("Forget saved sign-ins")
                                 }
                             }
+                            HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
                         }
-
-                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
 
                         ListItem(
                             headlineContent = {

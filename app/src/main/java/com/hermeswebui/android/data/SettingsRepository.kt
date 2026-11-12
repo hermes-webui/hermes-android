@@ -61,7 +61,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 15 // Increment this when adding new migrations
+        val currentMigrationVersion = 16 // Increment this when adding new migrations
 
         if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
@@ -166,8 +166,11 @@ class SettingsRepository(context: Context) : SettingsStore {
         // legacy JSON (including an unreadable document) merely to add a cosmetic label.
         // Migration 15 is additive: absent detectedServerType remains unknown until a
         // configured frontend supplies its runtime marker. Preserve manual overrides.
-        // Neither needs data changes, so only the version marker is written once at the end,
-        // and not at all when the stored version is already current.
+        if (lastMigrationVersion < 16) {
+            // Disable the old opt-in without deleting the user's encrypted data.
+            sharedPreferences.edit { remove(KEY_REMEMBER_HTTP_AUTH_ENABLED) }
+        }
+
         if (lastMigrationVersion < currentMigrationVersion) {
             sharedPreferences.edit {
                 putInt(KEY_LAST_MIGRATION_VERSION, currentMigrationVersion)
@@ -275,18 +278,6 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_REQUIRE_VPN_FOR_TAILSCALE_ENABLED, enabled) }
     }
 
-    fun isRememberHttpAuthEnabled(): Boolean {
-        return sharedPreferences.getBoolean(KEY_REMEMBER_HTTP_AUTH_ENABLED, false)
-    }
-
-    /** Turning the option off also deletes every saved HTTP Basic sign-in. */
-    fun setRememberHttpAuthEnabled(enabled: Boolean) {
-        sharedPreferences.edit {
-            putBoolean(KEY_REMEMBER_HTTP_AUTH_ENABLED, enabled)
-            if (!enabled) remove(KEY_HTTP_AUTH_CREDENTIALS)
-        }
-    }
-
     fun isBrowserSignInEnabled(): Boolean {
         return sharedPreferences.getBoolean(KEY_BROWSER_SIGN_IN_ENABLED, false)
     }
@@ -295,37 +286,10 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_BROWSER_SIGN_IN_ENABLED, enabled) }
     }
 
-    fun getHttpAuthCredential(host: String?, realm: String?): HttpAuthCredential? {
-        if (!isRememberHttpAuthEnabled()) return null
-        val key = HttpAuthCredential.scopeKey(host, realm) ?: return null
-        val entry = readHttpAuthCredentials().optJSONObject(key) ?: return null
-        val username = entry.optString("username")
-        if (username.isEmpty()) return null
-        return HttpAuthCredential(username, entry.optString("password"))
-    }
+    fun hasLegacyHttpAuthCredentials(): Boolean = sharedPreferences.contains(KEY_HTTP_AUTH_CREDENTIALS)
 
-    fun saveHttpAuthCredential(host: String?, realm: String?, credential: HttpAuthCredential) {
-        if (!isRememberHttpAuthEnabled() || credential.username.isEmpty()) return
-        val key = HttpAuthCredential.scopeKey(host, realm) ?: return
-        val all = readHttpAuthCredentials().put(
-            key,
-            JSONObject().put("username", credential.username).put("password", credential.password)
-        )
-        sharedPreferences.edit { putString(KEY_HTTP_AUTH_CREDENTIALS, all.toString()) }
-    }
-
-    fun savedHttpAuthCredentialCount(): Int = readHttpAuthCredentials().length()
-
-    fun clearHttpAuthCredentials() {
+    fun clearLegacyHttpAuthCredentials() {
         sharedPreferences.edit { remove(KEY_HTTP_AUTH_CREDENTIALS) }
-    }
-
-    private fun readHttpAuthCredentials(): JSONObject {
-        return try {
-            JSONObject(sharedPreferences.getString(KEY_HTTP_AUTH_CREDENTIALS, null) ?: "{}")
-        } catch (_: JSONException) {
-            JSONObject()
-        }
     }
 
     fun getVpnLaunchPackageName(): String {

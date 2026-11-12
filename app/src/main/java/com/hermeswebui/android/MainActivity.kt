@@ -46,7 +46,6 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.view.ViewGroup
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -124,7 +123,6 @@ import com.hermeswebui.android.webview.HermesClipboardBridgeCoordinator
 import com.hermeswebui.android.webview.HermesWebView
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
-import com.hermeswebui.android.data.HttpAuthCredential
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.notification.HermesNotificationBridgeCoordinator
@@ -284,8 +282,6 @@ class MainActivity : ComponentActivity() {
 
     private data class PendingHttpAuthPrompt(
         val handler: HttpAuthHandler,
-        val host: String?,
-        val realm: String?,
         var dialog: AlertDialog? = null,
         var resolved: Boolean = false
     )
@@ -805,11 +801,7 @@ class MainActivity : ComponentActivity() {
                     onSetRequireVpnForTailscaleEnabled = { enabled ->
                         viewModel.setRequireVpnForTailscaleEnabled(enabled)
                     },
-                    rememberHttpAuthEnabled = uiState.rememberHttpAuthEnabled,
-                    savedHttpAuthCredentialCount = uiState.savedHttpAuthCredentialCount,
-                    onSetRememberHttpAuthEnabled = { enabled ->
-                        viewModel.setRememberHttpAuthEnabled(enabled)
-                    },
+                    hasLegacyHttpAuthCredentials = uiState.hasLegacyHttpAuthCredentials,
                     onForgetSavedHttpAuth = {
                         viewModel.forgetSavedHttpAuthCredentials()
                     },
@@ -1451,37 +1443,18 @@ class MainActivity : ComponentActivity() {
                 return@runOnUiThread
             }
 
-            // A saved sign-in is offered once per request; WebView reports a rejected attempt
-            // through useHttpAuthUsernamePassword(), which then falls back to the prompt.
-            val saved = settingsRepository.getHttpAuthCredential(host, realm)
-            val savedUsable = saved != null && handler.useHttpAuthUsernamePassword()
-            if (savedUsable) {
-                DiagnosticsLogger.record(this, "http_auth_saved_sign_in", mapOf("used" to "true"))
-                handler.proceed(saved!!.username, saved.password)
-                return@runOnUiThread
-            }
-
-            val prompt = PendingHttpAuthPrompt(handler, host, realm)
+            val prompt = PendingHttpAuthPrompt(handler)
             pendingHttpAuthPrompt = prompt
             val username = EditText(this).apply {
                 hint = "Username"
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                 setSingleLine()
-                saved?.let { setText(it.username) }
             }
             val password = EditText(this).apply {
                 hint = "Password"
                 // setSingleLine replaces the password transformation.
                 setSingleLine()
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            }
-            val remember = if (settingsRepository.isRememberHttpAuthEnabled()) {
-                CheckBox(this).apply {
-                    text = "Remember on this device"
-                    isChecked = true
-                }
-            } else {
-                null
             }
             val content = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1490,20 +1463,12 @@ class MainActivity : ComponentActivity() {
                 setPadding(horizontalPadding, verticalPadding, horizontalPadding, 0)
                 addView(username, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 addView(password, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                remember?.let {
-                    addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                }
             }
 
             val challenge = realm?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
-            val message = if (saved != null) {
-                "The saved sign-in was not accepted. Enter the username and password$challenge."
-            } else {
-                "This server requires a username and password$challenge."
-            }
             val dialog = AlertDialog.Builder(this)
                 .setTitle("Sign in to $host")
-                .setMessage(message)
+                .setMessage("This server requires a username and password$challenge.")
                 .setView(content)
                 .setPositiveButton("Sign in", null)
                 .setNegativeButton("Cancel") { _, _ -> cancelHttpAuthPrompt(prompt) }
@@ -1514,18 +1479,10 @@ class MainActivity : ComponentActivity() {
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                     val enteredUsername = username.text.toString()
                     val enteredPassword = password.text.toString()
-                    if (remember?.isChecked == true && !prompt.resolved) {
-                        settingsRepository.saveHttpAuthCredential(
-                            prompt.host,
-                            prompt.realm,
-                            HttpAuthCredential(enteredUsername, enteredPassword)
-                        )
-                        viewModel.refreshSavedHttpAuthState()
-                    }
                     proceedHttpAuthPrompt(prompt, enteredUsername, enteredPassword)
                     dialog.dismiss()
                 }
-                if (saved != null) password.requestFocus() else username.requestFocus()
+                username.requestFocus()
                 dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
             }
             dialog.show()

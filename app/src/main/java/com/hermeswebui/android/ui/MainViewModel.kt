@@ -51,8 +51,7 @@ class MainViewModel(
         backgroundActivityFullTextEnabled = settingsRepositoryImpl?.isBackgroundActivityFullTextEnabled() ?: false,
         reconnectPollIntervalSeconds = settingsRepositoryImpl?.getReconnectPollIntervalSeconds() ?: 1,
         requireVpnForTailscaleEnabled = settingsRepositoryImpl?.isRequireVpnForTailscaleEnabled() ?: false,
-        rememberHttpAuthEnabled = settingsRepositoryImpl?.isRememberHttpAuthEnabled() ?: false,
-        savedHttpAuthCredentialCount = settingsRepositoryImpl?.savedHttpAuthCredentialCount() ?: 0,
+        hasLegacyHttpAuthCredentials = settingsRepositoryImpl?.hasLegacyHttpAuthCredentials() ?: false,
         browserSignInEnabled = settingsRepositoryImpl?.isBrowserSignInEnabled() ?: false,
         vpnLaunchPackageName = settingsRepositoryImpl?.getVpnLaunchPackageName().orEmpty(),
         sseTransportEnabled = settingsRepositoryImpl?.isSseTransportEnabled() ?: false,
@@ -442,24 +441,10 @@ class MainViewModel(
         _uiState.update { it.copy(vpnLaunchPackageName = packageName.trim()) }
     }
 
-    fun setRememberHttpAuthEnabled(enabled: Boolean) {
-        settingsRepositoryImpl?.setRememberHttpAuthEnabled(enabled)
-        refreshSavedHttpAuthState()
-    }
-
     fun forgetSavedHttpAuthCredentials() {
-        settingsRepositoryImpl?.clearHttpAuthCredentials()
-        refreshSavedHttpAuthState()
-    }
-
-    fun refreshSavedHttpAuthState() {
         val repo = settingsRepositoryImpl ?: return
-        _uiState.update {
-            it.copy(
-                rememberHttpAuthEnabled = repo.isRememberHttpAuthEnabled(),
-                savedHttpAuthCredentialCount = repo.savedHttpAuthCredentialCount()
-            )
-        }
+        repo.clearLegacyHttpAuthCredentials()
+        _uiState.update { it.copy(hasLegacyHttpAuthCredentials = repo.hasLegacyHttpAuthCredentials()) }
     }
 
     fun setBrowserSignInEnabled(enabled: Boolean) {
@@ -571,8 +556,7 @@ class MainViewModel(
                 backgroundActivityFullTextEnabled = repo.isBackgroundActivityFullTextEnabled(),
                 reconnectPollIntervalSeconds = repo.getReconnectPollIntervalSeconds(),
                 requireVpnForTailscaleEnabled = repo.isRequireVpnForTailscaleEnabled(),
-                rememberHttpAuthEnabled = repo.isRememberHttpAuthEnabled(),
-                savedHttpAuthCredentialCount = repo.savedHttpAuthCredentialCount(),
+                hasLegacyHttpAuthCredentials = repo.hasLegacyHttpAuthCredentials(),
                 browserSignInEnabled = repo.isBrowserSignInEnabled(),
                 vpnLaunchPackageName = repo.getVpnLaunchPackageName(),
                 sseTransportEnabled = repo.isSseTransportEnabled(),

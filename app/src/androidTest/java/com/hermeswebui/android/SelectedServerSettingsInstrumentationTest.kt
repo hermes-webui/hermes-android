@@ -99,7 +99,7 @@ class SelectedServerSettingsInstrumentationTest {
         assertThat(reopened.getProfiles().all { it.serverType == ServerType.UNSPECIFIED }).isTrue()
         assertThat(reopened.getActiveProfile()?.id).isEqualTo("profile-b")
         assertThat(preferences.getString("server_profiles", null)).isEqualTo(before)
-        assertThat(preferences.getInt("last_migration_version", 0)).isEqualTo(15)
+        assertThat(preferences.getInt("last_migration_version", 0)).isEqualTo(16)
     }
 
     @Test

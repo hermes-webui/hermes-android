@@ -14,6 +14,8 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.core.content.FileProvider
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
@@ -122,80 +124,74 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
-    fun httpBasicChallenge_remembersSignInOnlyWhenOptedIn() {
-        withConfiguredServer(basicAuth = true) { _, repository ->
-            repository.setRememberHttpAuthEnabled(true)
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                awaitText("Sign in to 127.0.0.1")
-                assertThat(isTextShown("Remember on this device")).isTrue()
-                enterHttpAuthCredentials("test-user", "test-pass")
-                clickDialogButton("Sign in")
-                awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
-            }
-            assertThat(repository.getHttpAuthCredential("127.0.0.1", "Hermes WebUI"))
-                .isEqualTo(com.hermeswebui.android.data.HttpAuthCredential("test-user", "test-pass"))
-            assertThat(repository.getHttpAuthCredential("127.0.0.2", "Hermes WebUI")).isNull()
-            repository.setRememberHttpAuthEnabled(false)
-            assertThat(repository.savedHttpAuthCredentialCount()).isEqualTo(0)
-        }
-    }
+    fun httpBasicChallenge_legacyCredentialsAreNotSentBeforeManualSignIn() {
+        withConfiguredServer(basicAuth = true) { server, _ ->
+            val saved = legacyHttpAuthJson()
+            val preferences = seedLegacyHttpAuth(enabled = true, saved = saved)
+            SettingsRepository(context)
 
-    @Test
-    fun httpBasicChallenge_withoutOptIn_neverOffersOrSavesSignIn() {
-        withConfiguredServer(basicAuth = true) { _, repository ->
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                awaitText("Sign in to 127.0.0.1")
+                eventually("Manual sign-in prompt or automatic credential submission") {
+                    isTextShown("Sign in to 127.0.0.1") ||
+                        server.requests.any { it.path == "/" && it.authorization.isNotEmpty() }
+                }
+                assertThat(server.requests.filter { it.path == "/" && it.authorization.isNotEmpty() }).isEmpty()
+                assertThat(isTextShown("Sign in to 127.0.0.1")).isTrue()
                 assertThat(isTextShown("Remember on this device")).isFalse()
+                assertThat(preferences.getString("http_auth_credentials", null)).isEqualTo(saved)
+                assertThat(preferences.contains("remember_http_auth_enabled")).isFalse()
+
                 enterHttpAuthCredentials("test-user", "test-pass")
                 clickDialogButton("Sign in")
                 awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
-            }
-            assertThat(repository.savedHttpAuthCredentialCount()).isEqualTo(0)
-        }
-    }
-
-    @Test
-    fun httpBasicChallenge_usesSavedSignInWithoutPrompting() {
-        withConfiguredServer(basicAuth = true) { server, repository ->
-            repository.setRememberHttpAuthEnabled(true)
-            repository.saveHttpAuthCredential(
-                "127.0.0.1",
-                "Hermes WebUI",
-                com.hermeswebui.android.data.HttpAuthCredential("test-user", "test-pass")
-            )
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                awaitWebView(scenario) {
-                    it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
-                }
-                assertThat(isTextShown("Sign in to 127.0.0.1")).isFalse()
+                assertThat(preferences.getString("http_auth_credentials", null)).isEqualTo(saved)
             }
         }
     }
 
     @Test
-    fun httpBasicChallenge_rejectedSavedSignInFallsBackToPromptAndIsReplaced() {
-        withConfiguredServer(basicAuth = true) { _, repository ->
-            repository.setRememberHttpAuthEnabled(true)
-            repository.saveHttpAuthCredential(
-                "127.0.0.1",
-                "Hermes WebUI",
-                com.hermeswebui.android.data.HttpAuthCredential("test-user", "stale-pass")
-            )
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                awaitText("The saved sign-in was not accepted")
+    fun httpBasicLegacySettings_preserveAndExplicitlyForgetInactiveData() {
+        for (saved in listOf(legacyHttpAuthJson(), "malformed legacy data")) {
+            withConfiguredServer(officialWebapp = true) { server, _ ->
+                val preferences = seedLegacyHttpAuth(enabled = false, saved = saved)
+                SettingsRepository(context)
+                assertThat(preferences.getString("http_auth_credentials", null)).isEqualTo(saved)
                 instrumentation.runOnMainSync {
-                    val username = WindowInspector.getGlobalWindowViews().asSequence()
-                        .flatMap { root -> descendants(root) }
-                        .filterIsInstance<EditText>()
-                        .single { field -> field.isShown && field.hint == "Username" }
-                    assertThat(username.text.toString()).isEqualTo("test-user")
+                    CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
                 }
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitWebView(scenario) { it.title == "Hermes signed in" }
+                    sendDeepLink(scenario, "hermes://app/settings")
+                    compose.waitUntil(20_000) {
+                        compose.onAllNodesWithText("Sign in with Chrome").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    compose.onNodeWithText("Forget saved sign-ins").performScrollTo().performClick()
+                    compose.waitForIdle()
+                    assertThat(preferences.contains("http_auth_credentials")).isFalse()
+                    assertThat(compose.onAllNodesWithText("Forget saved sign-ins").fetchSemanticsNodes()).isEmpty()
+                    assertThat(compose.onAllNodesWithText("Remember server sign-in").fetchSemanticsNodes()).isEmpty()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_manualSignInIsNotStoredEvenWithLegacyOptInFlag() {
+        withConfiguredServer(basicAuth = true) { _, _ ->
+            val preferences = seedLegacyHttpAuth(enabled = true, saved = legacyHttpAuthJson())
+            check(preferences.edit()
+                .putInt("last_migration_version", 16)
+                .remove("http_auth_credentials")
+                .commit())
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Sign in to 127.0.0.1")
+                val rememberOffered = isTextShown("Remember on this device")
                 enterHttpAuthCredentials("test-user", "test-pass")
                 clickDialogButton("Sign in")
                 awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+                assertThat(preferences.contains("http_auth_credentials")).isFalse()
+                assertThat(rememberOffered).isFalse()
             }
-            assertThat(repository.getHttpAuthCredential("127.0.0.1", "Hermes WebUI")?.password)
-                .isEqualTo("test-pass")
         }
     }
 
@@ -590,6 +586,27 @@ class ProxyAuthRedirectInstrumentationTest {
             fields.single { it.hint == "Username" }.setText(username)
             fields.single { it.hint == "Password" }.setText(password)
         }
+    }
+
+    private fun legacyHttpAuthJson(): String = JSONObject()
+        .put("127.0.0.1\nHermes WebUI", JSONObject().put("username", "test-user").put("password", "test-pass"))
+        .toString()
+
+    @Suppress("DEPRECATION")
+    private fun seedLegacyHttpAuth(enabled: Boolean, saved: String): android.content.SharedPreferences {
+        val preferences = EncryptedSharedPreferences.create(
+            context,
+            "hermes_secure_prefs",
+            MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        check(preferences.edit()
+            .putInt("last_migration_version", 15)
+            .putBoolean("remember_http_auth_enabled", enabled)
+            .putString("http_auth_credentials", saved)
+            .commit())
+        return preferences
     }
 
     @Test

@@ -1041,6 +1041,9 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     val handled = if (request.isForMainFrame && proxyAuthNavigation.allows(serverUrl, target)) {
+                        // Consent-allowed callbacks bypass handleMainWebViewNavigation, but must still
+                        // end the in-app OAuth flow so later external links are externalized.
+                        completeMainFrameOAuthIfCallback(target)
                         false
                     } else {
                         handleMainWebViewNavigation(target)
@@ -1357,12 +1360,8 @@ class MainActivity : ComponentActivity() {
     private fun handleMainWebViewNavigation(target: String): Boolean {
         if (handleAppSettingsNavigation(target)) return true
 
+        if (completeMainFrameOAuthIfCallback(target)) return false
         val activeTopLevelFlow = activeMainFrameOAuthFlow
-        if (activeTopLevelFlow?.isVerifiedCallbackUrl(target) == true) {
-            oauthReturnNavigation.begin(activeTopLevelFlow)
-            clearActiveMainFrameOAuth()
-            return false
-        }
 
         val startedTopLevelFlow = parseTrustedOAuthStart(target)
         if (startedTopLevelFlow != null) {
@@ -1412,16 +1411,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun completeMainFrameOAuthIfCallback(url: String): Boolean {
+        val flow = activeMainFrameOAuthFlow ?: return false
+        if (!flow.isVerifiedCallbackUrl(url)) return false
+        oauthReturnNavigation.begin(flow)
+        clearActiveMainFrameOAuth()
+        return true
+    }
+
     private fun handleMainWebViewPageStarted(url: String?) {
         recordMainFrameHop(url?.takeIf { it.isNotBlank() })
-        if (!url.isNullOrBlank()) {
-            val activeTopLevelFlow = activeMainFrameOAuthFlow
-            if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
-                oauthReturnNavigation.begin(activeTopLevelFlow)
-                clearActiveMainFrameOAuth()
-            } else {
-                parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
-            }
+        if (!url.isNullOrBlank() && !completeMainFrameOAuthIfCallback(url)) {
+            parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
         }
         updateOAuthInFlowHost(url)
         webView.settings.mediaPlaybackRequiresUserGesture =
@@ -2344,7 +2345,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onBrowserSignInResult(result: AuthTabIntent.AuthResult) {
-        val pending = pendingBrowserSignIn ?: return
+        val pending = pendingBrowserSignIn
+        if (pending == null) {
+            // The activity was recreated while Chrome was open; the in-memory flow and consent are gone.
+            if (result.resultCode == AuthTabIntent.RESULT_OK) {
+                Toast.makeText(this, "Sign-in was interrupted. Please try again.", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
         pendingBrowserSignIn = null
         val trusted = isBrowserSignInStillTrusted(pending)
         DiagnosticsLogger.record(this, "browser_sign_in", mapOf(

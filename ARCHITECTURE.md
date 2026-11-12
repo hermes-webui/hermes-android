@@ -243,11 +243,14 @@ remains separate; arbitrary additional proxy-login origins are not authorized.
 A sign-in gateway approved through that consent (for example TinyAuth) can start
 its own OAuth/OIDC code flow whose `redirect_uri` returns to the gateway rather
 than to Hermes. `parseTrustedOAuthStart` accepts such a flow only while the
-consent window is active, the main-frame hop that started it is exactly the
-approved login origin, and the `redirect_uri` is that same exact origin with no
+consent window is active, the main frame's current hop (`lastMainFrameHopUrl`, also
+used for popups and subframes it spawns) is exactly the approved login origin, and the `redirect_uri` is that same exact origin with no
 userinfo (`ProxyAuthNavigation.allowsGatewayOAuthCallback`). The provider then
 stays in the main WebView, so the gateway's state cookie is present at its
-callback; externalizing it broke the gateway sign-in.
+callback; externalizing it broke the gateway sign-in. Consent-allowed navigations
+skip `handleMainWebViewNavigation`, so `shouldOverrideUrlLoading` still runs the
+verified-callback check on them and ends the in-app OAuth flow; otherwise later
+non-allowlisted links would load in-app until the flow timeout.
 
 ### Sign in with Chrome (Auth Tab)
 

@@ -748,10 +748,19 @@ class ProxyAuthRedirectInstrumentationTest {
                 eventually("Final Hermes route persisted") {
                     repository.getLastLoadedUrl() == "${server.baseUrl}/session/issue132"
                 }
+                assertThat(externalized).isEmpty()
+
+                // The finished sign-in must end the in-app OAuth flow: a later non-allowlisted link
+                // from Hermes is externalized instead of loading in the URL-bar-less WebView.
+                evaluateWebView(scenario, "location.href = ${JSONObject.quote("${server.providerOrigin}/after-sign-in")};")
+                eventually("Post-sign-in external link externalized") {
+                    externalized.any { it.contains("/after-sign-in") }
+                }
+                assertThat(server.requests.none { it.path == "/after-sign-in" }).isTrue()
             }
             val callback = server.requests.single { it.path == "/gw/callback" }
             assertThat(callback.cookie).contains("gateway_oauth_state=gw1")
-            assertThat(externalized).isEmpty()
+            assertThat(externalized.none { it.contains("authorize") || it.contains("gw/callback") }).isTrue()
             assertThat(repository.getLastLoadedUrl()).doesNotContain("gw/callback")
         } finally {
             instrumentation.removeMonitor(monitor)

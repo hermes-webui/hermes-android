@@ -1,0 +1,3 @@
+Improve proxy sign-in and mask Basic passwords.
+Add opt-in remembered Basic sign-in and Chrome OAuth sign-in.
+Repair the Dashboard layout when configured as the server.

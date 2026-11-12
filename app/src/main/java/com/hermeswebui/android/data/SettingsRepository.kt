@@ -275,6 +275,59 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_REQUIRE_VPN_FOR_TAILSCALE_ENABLED, enabled) }
     }
 
+    fun isRememberHttpAuthEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_REMEMBER_HTTP_AUTH_ENABLED, false)
+    }
+
+    /** Turning the option off also deletes every saved HTTP Basic sign-in. */
+    fun setRememberHttpAuthEnabled(enabled: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(KEY_REMEMBER_HTTP_AUTH_ENABLED, enabled)
+            if (!enabled) remove(KEY_HTTP_AUTH_CREDENTIALS)
+        }
+    }
+
+    fun isBrowserSignInEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_BROWSER_SIGN_IN_ENABLED, false)
+    }
+
+    fun setBrowserSignInEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(KEY_BROWSER_SIGN_IN_ENABLED, enabled) }
+    }
+
+    fun getHttpAuthCredential(host: String?, realm: String?): HttpAuthCredential? {
+        if (!isRememberHttpAuthEnabled()) return null
+        val key = HttpAuthCredential.scopeKey(host, realm) ?: return null
+        val entry = readHttpAuthCredentials().optJSONObject(key) ?: return null
+        val username = entry.optString("username")
+        if (username.isEmpty()) return null
+        return HttpAuthCredential(username, entry.optString("password"))
+    }
+
+    fun saveHttpAuthCredential(host: String?, realm: String?, credential: HttpAuthCredential) {
+        if (!isRememberHttpAuthEnabled() || credential.username.isEmpty()) return
+        val key = HttpAuthCredential.scopeKey(host, realm) ?: return
+        val all = readHttpAuthCredentials().put(
+            key,
+            JSONObject().put("username", credential.username).put("password", credential.password)
+        )
+        sharedPreferences.edit { putString(KEY_HTTP_AUTH_CREDENTIALS, all.toString()) }
+    }
+
+    fun savedHttpAuthCredentialCount(): Int = readHttpAuthCredentials().length()
+
+    fun clearHttpAuthCredentials() {
+        sharedPreferences.edit { remove(KEY_HTTP_AUTH_CREDENTIALS) }
+    }
+
+    private fun readHttpAuthCredentials(): JSONObject {
+        return try {
+            JSONObject(sharedPreferences.getString(KEY_HTTP_AUTH_CREDENTIALS, null) ?: "{}")
+        } catch (_: JSONException) {
+            JSONObject()
+        }
+    }
+
     fun getVpnLaunchPackageName(): String {
         return sharedPreferences.getString(KEY_VPN_LAUNCH_PACKAGE, DEFAULT_VPN_LAUNCH_PACKAGE).orEmpty().trim()
     }
@@ -569,6 +622,9 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_RECONNECT_POLL_INTERVAL_SECONDS = "reconnect_poll_interval_seconds"
         private const val KEY_REQUIRE_VPN_FOR_TAILSCALE_ENABLED = "require_vpn_for_tailscale_enabled"
         private const val KEY_VPN_LAUNCH_PACKAGE = "vpn_launch_package"
+        private const val KEY_REMEMBER_HTTP_AUTH_ENABLED = "remember_http_auth_enabled"
+        private const val KEY_HTTP_AUTH_CREDENTIALS = "http_auth_credentials"
+        private const val KEY_BROWSER_SIGN_IN_ENABLED = "browser_sign_in_enabled"
         private const val KEY_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
         private const val KEY_SSE_TRANSPORT_ENABLED = "sse_transport_enabled"
         private const val KEY_BLOCK_SCREENSHOTS_ENABLED = "block_screenshots_enabled"

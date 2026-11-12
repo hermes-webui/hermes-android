@@ -56,7 +56,7 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - `HermesServerProfileCoordinator`: owns startup preflight plus add/edit/delete/switch validation and confirmation flows for Hermes server profiles.
 - `HermesForegroundServiceCoordinator`: owns reconnect/debug foreground-service lifecycle sync so `onResume`, `onStop`, and settings toggles do not each duplicate service promotion/teardown rules.
 - `HermesWebViewConfigurator`: centralizes shared main/popup WebView hardening and settings setup.
-- `MainActivity` handles HTTP Basic challenges from the configured server with a native username/password prompt. The challenge host must exactly match the configured server host, and credentials are never written to settings; unrelated hosts are canceled.
+- `MainActivity` handles HTTP Basic challenges from the configured server with a native username/password prompt. The challenge host must exactly match the configured server host; unrelated hosts are canceled. Credentials are written to the encrypted settings store only when the opt-in **Remember server sign-in** setting is on (see Reverse-proxy authentication).
 - `HermesWebViewDownloadListener`: hands allowlisted WebView downloads to Android DownloadManager with session cookies and the WebView user agent. AndroidX WebKit's RFC-compatible filename parser honors `filename*` over `filename` and preserves server-provided extensions even with generic MIME types. Explicit image downloads also retain filenames from inline preview headers; filenames cannot introduce nested destination paths. On Android 10+ downloads land in the shared `Download` folder so they appear in Files > Downloads; Android 8/9 keep the app-specific `Download` folder because shared storage would need `WRITE_EXTERNAL_STORAGE`. Emulator regression tests exercise the production listener and downloaded bytes for both chat and Files endpoints.
 
 Selected-server persistence reconciles a missing or dangling active profile ID
@@ -187,10 +187,16 @@ pending; loopback WebView fixtures cover the Android boundary only.
 ## Reverse-proxy authentication
 
 WebView HTTP Basic challenges are distinct from redirect-based proxy sign-in.
-The main and popup WebViews show a native prompt only when the challenge host
-exactly matches the configured server host. Credentials are passed to that
-WebView challenge but are not persisted by Hermes-Android; challenges from
-other hosts are canceled. This does not broaden the proxy redirect grant or
+The main and popup WebViews show a native prompt with a masked password only
+when the challenge host exactly matches the configured server host. Credentials are passed to that
+WebView challenge and are not persisted unless the user turns on **Settings →
+Connection → Remember server sign-in** (off by default) and leaves the prompt's
+**Remember on this device** box checked. Saved sign-ins live in the encrypted
+settings store, are keyed by exact host and realm, are reused only after the
+trusted-host check and only on WebView's first attempt for a request
+(`useHttpAuthUsernamePassword()`), so a rejected saved sign-in falls back to
+the prompt. Turning the setting off or **Forget saved sign-ins** deletes them.
+Challenges from other hosts are canceled. This does not broaden the proxy redirect grant or
 the app's notification, microphone, download, or navigation trust.
 
 `HermesApiClient` does not follow native preflight redirects. A 301, 302, 303,
@@ -221,7 +227,11 @@ origin (scheme, host and port). `MainActivity` records that hop from its own
 main-frame loads, allowed main-frame navigations, committed page starts, and
 back navigation; other ports, subdomains, and the dashboard host are admitted by
 the host-only allowlist but cannot speak for the server, so their redirects are
-externalized instead. Form POSTs are not visible to `shouldOverrideUrlLoading`,
+externalized instead. The consent captures a main-frame navigation generation
+and rechecks the configured server and redirecting hop before approval; a later
+navigation, even to the same URL, invalidates the decision. An intercepted
+initial redirect can leave `WebView.url` null without a new navigation, so the
+approval does not depend on that value. Form POSTs are not visible to `shouldOverrideUrlLoading`,
 so a POST to another allowlisted port is attributed to the last recorded hop;
 ordinary external links and subframes cannot create this permission.
 Configured-origin interstitials remain in the main WebView, bypassing dashboard
@@ -229,6 +239,40 @@ handoff, until a finished configured WebUI page has explicit Hermes markers.
 Provider/interstitial URLs are not persisted during this pending return, even
 after navigation permission expires. Existing validated OAuth/OIDC handling
 remains separate; arbitrary additional proxy-login origins are not authorized.
+
+A sign-in gateway approved through that consent (for example TinyAuth) can start
+its own OAuth/OIDC code flow whose `redirect_uri` returns to the gateway rather
+than to Hermes. `parseTrustedOAuthStart` accepts such a flow only while the
+consent window is active, the main frame's current hop (`lastMainFrameHopUrl`, also
+used for popups and subframes it spawns) is exactly the approved login origin, and the `redirect_uri` is that same exact origin with no
+userinfo (`ProxyAuthNavigation.allowsGatewayOAuthCallback`). The provider then
+stays in the main WebView, so the gateway's state cookie is present at its
+callback; externalizing it broke the gateway sign-in. Consent-allowed navigations
+skip `handleMainWebViewNavigation`, so `shouldOverrideUrlLoading` still runs the
+verified-callback check on them and ends the in-app OAuth flow; otherwise later
+non-allowlisted links would load in-app until the flow timeout.
+
+### Sign in with Chrome (Auth Tab)
+
+**Settings → Connection → Sign in with Chrome** (off by default) sends a trusted
+OAuth start (Hermes or approved-gateway callback, as above) to a Chrome Auth Tab
+instead of the WebView, so browser passkeys can be used. `launchBrowserSignIn`
+proceeds only when the setting is on, no in-app OAuth flow is already active, the
+callback is `https` on the default port without userinfo, a default Custom Tabs
+browser exists, and that browser reports `isAuthTabSupported`; the intent is
+pinned to that package because an unsupported browser would otherwise open a
+plain Custom Tab that can never return the result. The manifest `<queries>`
+declares the browsable https and Custom Tabs service intents so Android 11+
+package visibility can find the browser. Chrome returns the callback only after
+verifying Digital Asset Links on the callback host; on `RESULT_OK` the app
+reloads the result in the WebView only if the configured server and consent
+window are unchanged and `OAuthPopupFlow.isVerifiedCallbackUrl` accepts it.
+Verification failure or timeout offers **Continue in app**, which runs the same
+authorization in the WebView; cancel does nothing. Browser cookies are not
+WebView cookies, so the callback must establish the WebView session itself. The
+Settings action copies an `assetlinks.json` built from the installed package name
+and runtime signing-certificate SHA-256 fingerprints, so each channel (Play
+App Signing, GitHub, F-Droid, debug) gets its own entry.
 
 ## Build and release flow
 
@@ -273,7 +317,7 @@ remains separate; arbitrary additional proxy-login origins are not authorized.
 - Hermes WebUI drives its own conversation long-press menus from a touch timer (e.g. `static/sessions.js`, ~400ms). Android keeps native long-click enabled without a consuming listener so text-selection handles remain available, and it does not synthesize `contextmenu` or interfere with touch events. Because Android WebView can evaluate CSS viewport units (`vh`, `dvh`, etc.) as `0px`, menus capped with `max-height: calc(100vh - 16px)` collapse to ~2px and approval panels using `min(60dvh, 420px)` lose their actionable body. The hybrid viewport polyfill fixes this by injecting CSS custom properties (`--vh`, `--dvh`) with measured pixel values, applying baseline CSS for root/layout containers, and using generic collapse detection to find and repair ANY element that appears collapsed due to the viewport-unit bug—without needing explicit selectors. This eliminates the previous whack-a-mole approach of adding new CSS selectors each time a viewport-unit-based component was discovered broken. The shim keeps only horizontal overflow locked; vertical page scrolling remains available for expandable WebUI panels.
 - Browser notification access requires Android app notification permission and a trusted WebView context. The bridge uses AndroidX WebMessageListener rather than a secret-bearing JavaScript interface, rejects subframes and non-WebUI origins, limits payload handling to notification title/body/tag/target URL, and validates notification tap URLs against the same allowlist before loading them.
 - Client certificates support PKCS#12 (`.pfx`/`.p12`) files selected through Android's document picker. Requests are limited to allowlisted hosts; malformed, password-mismatched, keyless, or otherwise unreadable stores fail closed and cancel the WebView request.
-- WebAuthn support is enabled for main and popup app-hosted WebViews (`WEB_AUTHENTICATION_SUPPORT_FOR_APP`) when the underlying WebView feature is available. Every variant uses the same AndroidX Credential Manager dependency and omits the optional Google Play Services adapter, keeping the passkey integration uniform and Play-free. Omitting that adapter may limit compatibility on older devices. Passkey availability depends on Android/WebView support and an installed credential provider, and also requires the identity provider's sign-in domain to serve a valid `/.well-known/assetlinks.json` association for the exact installed package and signing certificate. Hermes-Android supports arbitrary configured domains and cannot publish that association for server owners; enabling WebAuthn alone does not prove a specific provider/device flow works.
+- WebAuthn support is enabled for main and popup app-hosted WebViews (`WEB_AUTHENTICATION_SUPPORT_FOR_APP`) when the underlying WebView feature is available. Every variant uses the same AndroidX Credential Manager dependency and omits the optional Google Play Services adapter, keeping the passkey integration uniform and Play-free. Omitting that adapter may limit compatibility on older devices. Passkey availability depends on Android/WebView support and an installed credential provider, and also requires the identity provider's sign-in domain to serve a valid `/.well-known/assetlinks.json` association for the exact installed package and signing certificate. Hermes-Android supports arbitrary configured domains and cannot publish that association for server owners; enabling WebAuthn alone does not prove a specific provider/device flow works. Some providers, including Pocket ID, may reject an Android-app WebAuthn origin even with that association; browser-based OAuth is not implemented.
 - Android cleartext traffic is permitted so configured HTTP deployments can load. App-level URL policy still limits trusted in-app navigation and downloads to the configured host allowlist.
 - The app's Network Security Configuration trusts both Android system CAs and user-installed CAs. This lets WebView connect to servers signed by a CA the device owner installed, while normal certificate-chain, validity, and hostname checks remain enabled. This is app-wide rather than limited to one server profile: the Android Network Security Configuration is static, and stock WebView does not expose a safe runtime per-profile trust-anchor switch. It does not change trust settings for Android or other apps.
 - WebView uses browser-managed HTTP and service-worker cache semantics. Android does not maintain a separate stale copy of Hermes WebUI HTML or authenticated API responses.

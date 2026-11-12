@@ -96,7 +96,14 @@ class WebViewSecurityContractTest {
         val prompt = bodiesOf(mainActivity, "private fun showHttpAuthPrompt(").single()
         assertThat(prompt).contains("isTrustedHttpAuthHost(host)")
         assertThat(prompt).contains("handler.cancel()")
-        assertThat(prompt).doesNotContain("save")
+        // Saving is opt-in: only from the prompt's Remember checkbox, which exists only while
+        // the setting is on, and saved sign-ins are reused only on WebView's first attempt.
+        assertThat(Regex("""saveHttpAuthCredential\(""").findAll(prompt).count()).isEqualTo(1)
+        assertThat(prompt).contains("if (remember?.isChecked == true")
+        assertThat(prompt).contains("settingsRepository.isRememberHttpAuthEnabled()")
+        assertThat(prompt).contains("saved != null && handler.useHttpAuthUsernamePassword()")
+        assertThat(prompt.indexOf("isTrustedHttpAuthHost(host)"))
+            .isLessThan(prompt.indexOf("getHttpAuthCredential(host, realm)"))
         val proceed = bodiesOf(mainActivity, "private fun proceedHttpAuthPrompt(").single()
         assertThat(proceed).contains("prompt.handler.proceed(username, password)")
         val cancel = bodiesOf(mainActivity, "private fun cancelHttpAuthPrompt(").single()
@@ -146,6 +153,28 @@ class WebViewSecurityContractTest {
         val switchAt = switchBody.indexOf("viewModel.switchServerProfile(")
         assertThat(wipeAt).isAtLeast(0)
         assertThat(switchAt).isGreaterThan(wipeAt)
+    }
+
+    @Test
+    fun `sign in with chrome launches only a verified auth tab and returns only verified callbacks`() {
+        // Issue #184: an unsupported browser silently opens a plain Custom Tab that can never return
+        // the callback, so Auth Tab support is checked and the browser pinned before launching.
+        val mainActivity = codeOnly.entries.single { it.key.endsWith("MainActivity.kt") }.value
+        val launch = bodiesOf(mainActivity, "private fun launchBrowserSignIn(").single()
+        val launchAt = launch.indexOf("authTab.launch(")
+        listOf(
+            "isBrowserSignInEnabled()",
+            "BrowserSignIn.authTabCallback(",
+            "CustomTabsClient.isAuthTabSupported(",
+            "intent.setPackage(browserPackage)"
+        ).forEach { guard ->
+            assertWithMessage("launchBrowserSignIn guard $guard").that(launch.indexOf(guard)).isAtLeast(0)
+            assertWithMessage("launchBrowserSignIn guard $guard").that(launch.indexOf(guard)).isLessThan(launchAt)
+        }
+        val result = bodiesOf(mainActivity, "private fun onBrowserSignInResult(").single()
+        assertThat(result).contains("isBrowserSignInStillTrusted(pending)")
+        assertThat(result).contains("pending.flow.isVerifiedCallbackUrl(callbackUrl)")
+        assertThat(manifest).contains("android.support.customtabs.action.CustomTabsService")
     }
 
     @Test

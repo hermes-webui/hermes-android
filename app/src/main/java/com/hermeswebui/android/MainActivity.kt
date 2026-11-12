@@ -46,6 +46,7 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -55,7 +56,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -121,6 +124,7 @@ import com.hermeswebui.android.webview.HermesClipboardBridgeCoordinator
 import com.hermeswebui.android.webview.HermesWebView
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.data.HermesApiClient
+import com.hermeswebui.android.data.HttpAuthCredential
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.notification.HermesNotificationBridgeCoordinator
@@ -152,6 +156,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesClipboardBridgeName = "HermesAndroidClipboard"
@@ -250,12 +255,23 @@ class MainActivity : ComponentActivity() {
     // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
     // configured server when this hop is exactly that origin (Issue #134).
     private var lastMainFrameHopUrl: String? = null
+    private var mainFrameNavigationGeneration = 0L
     private var serverTypeDocumentGeneration = 0L
     private var proxySignInDialog: android.app.AlertDialog? = null
     private var pendingHttpAuthPrompt: PendingHttpAuthPrompt? = null
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
     private val oauthReturnNavigation = OAuthReturnNavigation()
+
+    // Optional Sign in with Chrome: the provider runs in an Auth Tab and only a verified callback
+    // for the flow that launched it is loaded back into the main WebView.
+    private data class PendingBrowserSignIn(
+        val flow: OAuthPopupFlow,
+        val authorizeUrl: String,
+        val serverUrl: String
+    )
+    private var pendingBrowserSignIn: PendingBrowserSignIn? = null
+    private val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this, ::onBrowserSignInResult)
 
     // Popups created by onCreateWindow that have not yet been destroyed. A window.open('') that
     // never navigates never reaches the popup's shouldOverrideUrlLoading/onPageStarted, so it would
@@ -268,6 +284,8 @@ class MainActivity : ComponentActivity() {
 
     private data class PendingHttpAuthPrompt(
         val handler: HttpAuthHandler,
+        val host: String?,
+        val realm: String?,
         var dialog: AlertDialog? = null,
         var resolved: Boolean = false
     )
@@ -787,6 +805,21 @@ class MainActivity : ComponentActivity() {
                     onSetRequireVpnForTailscaleEnabled = { enabled ->
                         viewModel.setRequireVpnForTailscaleEnabled(enabled)
                     },
+                    rememberHttpAuthEnabled = uiState.rememberHttpAuthEnabled,
+                    savedHttpAuthCredentialCount = uiState.savedHttpAuthCredentialCount,
+                    onSetRememberHttpAuthEnabled = { enabled ->
+                        viewModel.setRememberHttpAuthEnabled(enabled)
+                    },
+                    onForgetSavedHttpAuth = {
+                        viewModel.forgetSavedHttpAuthCredentials()
+                    },
+                    browserSignInEnabled = uiState.browserSignInEnabled,
+                    onSetBrowserSignInEnabled = { enabled ->
+                        viewModel.setBrowserSignInEnabled(enabled)
+                    },
+                    onCopyBrowserSignInAssetLinks = {
+                        copyBrowserSignInAssetLinks()
+                    },
                     onSetVpnLaunchPackageName = { packageName ->
                         viewModel.setVpnLaunchPackageName(packageName)
                     },
@@ -999,7 +1032,7 @@ class MainActivity : ComponentActivity() {
                         activeMainFrameOAuthFlow == null &&
                         parseTrustedOAuthStart(target) == null &&
                         request.isRedirect &&
-                        matchesConfiguredWebUiRoute(view?.url)
+                        isConfiguredRouteOrNoCommittedPage(view?.url)
                     ) {
                         val origin = ProxyAuthNavigation.mainFrameRedirectConsentOrigin(serverUrl, lastMainFrameHopUrl, target)
                         if (origin != null) {
@@ -1008,12 +1041,15 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     val handled = if (request.isForMainFrame && proxyAuthNavigation.allows(serverUrl, target)) {
+                        // Consent-allowed callbacks bypass handleMainWebViewNavigation, but must still
+                        // end the in-app OAuth flow so later external links are externalized.
+                        completeMainFrameOAuthIfCallback(target)
                         false
                     } else {
                         handleMainWebViewNavigation(target)
                     }
                     if (!handled && request.isForMainFrame) {
-                        lastMainFrameHopUrl = target
+                        recordMainFrameHop(target)
                         restrictMediaPlaybackBeforeNavigation(target)
                     }
                     return handled
@@ -1265,6 +1301,10 @@ class MainActivity : ComponentActivity() {
 
         val flow = parseTrustedOAuthStart(target)
         if (flow != null) {
+            if (launchBrowserSignIn(flow, target)) {
+                destroyPopup(popup)
+                return true
+            }
             // Move popup OAuth flows to the main frame so they are visible and interactive.
             rememberActiveMainFrameOAuth(flow)
             restrictMediaPlaybackBeforeNavigation(target)
@@ -1295,6 +1335,10 @@ class MainActivity : ComponentActivity() {
 
         val startedFlow = parseTrustedOAuthStart(url)
         if (startedFlow != null) {
+            if (launchBrowserSignIn(startedFlow, url)) {
+                destroyPopup(popup)
+                return
+            }
             // Move popup OAuth flows to the main frame so they are visible and interactive.
             rememberActiveMainFrameOAuth(startedFlow)
             restrictMediaPlaybackBeforeNavigation(url)
@@ -1316,15 +1360,12 @@ class MainActivity : ComponentActivity() {
     private fun handleMainWebViewNavigation(target: String): Boolean {
         if (handleAppSettingsNavigation(target)) return true
 
+        if (completeMainFrameOAuthIfCallback(target)) return false
         val activeTopLevelFlow = activeMainFrameOAuthFlow
-        if (activeTopLevelFlow?.isVerifiedCallbackUrl(target) == true) {
-            oauthReturnNavigation.begin(activeTopLevelFlow)
-            clearActiveMainFrameOAuth()
-            return false
-        }
 
         val startedTopLevelFlow = parseTrustedOAuthStart(target)
         if (startedTopLevelFlow != null) {
+            if (launchBrowserSignIn(startedTopLevelFlow, target)) return true
             rememberActiveMainFrameOAuth(startedTopLevelFlow)
             return false
         }
@@ -1370,16 +1411,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun completeMainFrameOAuthIfCallback(url: String): Boolean {
+        val flow = activeMainFrameOAuthFlow ?: return false
+        if (!flow.isVerifiedCallbackUrl(url)) return false
+        oauthReturnNavigation.begin(flow)
+        clearActiveMainFrameOAuth()
+        return true
+    }
+
     private fun handleMainWebViewPageStarted(url: String?) {
-        if (!url.isNullOrBlank()) lastMainFrameHopUrl = url
-        if (!url.isNullOrBlank()) {
-            val activeTopLevelFlow = activeMainFrameOAuthFlow
-            if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
-                oauthReturnNavigation.begin(activeTopLevelFlow)
-                clearActiveMainFrameOAuth()
-            } else {
-                parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
-            }
+        // The server-switch about:blank placeholder can report its start after the new server's
+        // redirect opened proxy consent; it is not a navigation away, so it must not void that consent.
+        if (url != "about:blank") recordMainFrameHop(url?.takeIf { it.isNotBlank() })
+        if (!url.isNullOrBlank() && !completeMainFrameOAuthIfCallback(url)) {
+            parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
         }
         updateOAuthInFlowHost(url)
         webView.settings.mediaPlaybackRequiresUserGesture =
@@ -1406,17 +1451,37 @@ class MainActivity : ComponentActivity() {
                 return@runOnUiThread
             }
 
-            val prompt = PendingHttpAuthPrompt(handler)
+            // A saved sign-in is offered once per request; WebView reports a rejected attempt
+            // through useHttpAuthUsernamePassword(), which then falls back to the prompt.
+            val saved = settingsRepository.getHttpAuthCredential(host, realm)
+            val savedUsable = saved != null && handler.useHttpAuthUsernamePassword()
+            if (savedUsable) {
+                DiagnosticsLogger.record(this, "http_auth_saved_sign_in", mapOf("used" to "true"))
+                handler.proceed(saved!!.username, saved.password)
+                return@runOnUiThread
+            }
+
+            val prompt = PendingHttpAuthPrompt(handler, host, realm)
             pendingHttpAuthPrompt = prompt
             val username = EditText(this).apply {
                 hint = "Username"
                 inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
                 setSingleLine()
+                saved?.let { setText(it.username) }
             }
             val password = EditText(this).apply {
                 hint = "Password"
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                // setSingleLine replaces the password transformation.
                 setSingleLine()
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            val remember = if (settingsRepository.isRememberHttpAuthEnabled()) {
+                CheckBox(this).apply {
+                    text = "Remember on this device"
+                    isChecked = true
+                }
+            } else {
+                null
             }
             val content = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1425,12 +1490,20 @@ class MainActivity : ComponentActivity() {
                 setPadding(horizontalPadding, verticalPadding, horizontalPadding, 0)
                 addView(username, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 addView(password, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                remember?.let {
+                    addView(it, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
             }
 
             val challenge = realm?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+            val message = if (saved != null) {
+                "The saved sign-in was not accepted. Enter the username and password$challenge."
+            } else {
+                "This server requires a username and password$challenge."
+            }
             val dialog = AlertDialog.Builder(this)
                 .setTitle("Sign in to $host")
-                .setMessage("This server requires a username and password$challenge.")
+                .setMessage(message)
                 .setView(content)
                 .setPositiveButton("Sign in", null)
                 .setNegativeButton("Cancel") { _, _ -> cancelHttpAuthPrompt(prompt) }
@@ -1439,10 +1512,20 @@ class MainActivity : ComponentActivity() {
             prompt.dialog = dialog
             dialog.setOnShowListener {
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                    proceedHttpAuthPrompt(prompt, username.text.toString(), password.text.toString())
+                    val enteredUsername = username.text.toString()
+                    val enteredPassword = password.text.toString()
+                    if (remember?.isChecked == true && !prompt.resolved) {
+                        settingsRepository.saveHttpAuthCredential(
+                            prompt.host,
+                            prompt.realm,
+                            HttpAuthCredential(enteredUsername, enteredPassword)
+                        )
+                        viewModel.refreshSavedHttpAuthState()
+                    }
+                    proceedHttpAuthPrompt(prompt, enteredUsername, enteredPassword)
                     dialog.dismiss()
                 }
-                username.requestFocus()
+                if (saved != null) password.requestFocus() else username.requestFocus()
                 dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
             }
             dialog.show()
@@ -1465,6 +1548,7 @@ class MainActivity : ComponentActivity() {
 
     private fun confirmProxySignInRedirect(serverUrl: String, origin: String, target: String) {
         if (proxySignInDialog?.isShowing == true) return
+        val navigationGeneration = mainFrameNavigationGeneration
         DiagnosticsLogger.record(this, "proxy_sign_in_redirect", mapOf(
             "origin" to DiagnosticsLogger.originOnly(serverUrl),
             "login_origin" to origin
@@ -1478,8 +1562,11 @@ class MainActivity : ComponentActivity() {
             )
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Continue") { _, _ ->
+                // An intercepted initial redirect can leave WebView.url null even without a new navigation.
                 val stillConfigured = viewModel.uiState.value.settings.serverUrl == serverUrl &&
-                    matchesConfiguredWebUiRoute(webView.url)
+                    mainFrameNavigationGeneration == navigationGeneration &&
+                    matchesConfiguredWebUiRoute(lastMainFrameHopUrl) &&
+                    ProxyAuthNavigation.mainFrameRedirectConsentOrigin(serverUrl, lastMainFrameHopUrl, target) == origin
                 DiagnosticsLogger.record(this, "proxy_sign_in_approval", mapOf(
                     "origin" to DiagnosticsLogger.originOnly(serverUrl),
                     "current_origin" to DiagnosticsLogger.originOnly(webView.url),
@@ -2091,6 +2178,12 @@ class MainActivity : ComponentActivity() {
         return currentWebTrustPolicy().isConfiguredWebUiRoute(url)
     }
 
+    // A server switch commits about:blank before loading the new server, so its first redirect
+    // can arrive before any server page commits; the exact-origin hop check still attributes it.
+    private fun isConfiguredRouteOrNoCommittedPage(url: String?): Boolean {
+        return url == null || url == "about:blank" || matchesConfiguredWebUiRoute(url)
+    }
+
     private fun detectLoadedServerType(view: WebView?) {
         if (view == null || view !== webView || !matchesConfiguredWebUiRoute(view.url)) return
         val serverUrl = viewModel.uiState.value.settings.serverUrl
@@ -2134,8 +2227,13 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun loadInMainWebView(url: String) {
+    private fun recordMainFrameHop(url: String?) {
         lastMainFrameHopUrl = url
+        mainFrameNavigationGeneration++
+    }
+
+    private fun loadInMainWebView(url: String) {
+        recordMainFrameHop(url)
         webView.loadUrl(url)
     }
 
@@ -2188,7 +2286,7 @@ class MainActivity : ComponentActivity() {
     private fun goBackInMainWebView() {
         // History navigation skips shouldOverrideUrlLoading, so record the entry being restored.
         val history = webView.copyBackForwardList()
-        lastMainFrameHopUrl = history.getItemAtIndex(history.currentIndex - 1)?.url
+        recordMainFrameHop(history.getItemAtIndex(history.currentIndex - 1)?.url)
         webView.goBack()
     }
 
@@ -2214,10 +2312,132 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun parseTrustedOAuthStart(url: String): OAuthPopupFlow? {
-        val settings = viewModel.uiState.value.settings
-        return OAuthPopupFlow.parseAuthorizationStart(url)
-            ?.takeIf { it.redirectsToOrigin(settings.serverUrl) }
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        val flow = OAuthPopupFlow.parseAuthorizationStart(url) ?: return null
+        if (flow.redirectsToOrigin(serverUrl)) return flow
+        return flow.takeIf {
+            proxyAuthNavigation.allowsGatewayOAuthCallback(serverUrl, lastMainFrameHopUrl, it.redirectUri)
+        }
     }
+
+    private fun isBrowserSignInStillTrusted(pending: PendingBrowserSignIn): Boolean {
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        return serverUrl == pending.serverUrl &&
+            (pending.flow.redirectsToOrigin(serverUrl) ||
+                proxyAuthNavigation.isActiveLoginOrigin(serverUrl, pending.flow.redirectUri))
+    }
+
+    /** Opens a trusted OAuth start in a Chrome Auth Tab when the user opted in and Chrome supports it. */
+    private fun launchBrowserSignIn(flow: OAuthPopupFlow, authorizeUrl: String): Boolean {
+        if (!settingsRepository.isBrowserSignInEnabled()) return false
+        // Nested authorizations inside an in-app flow, including after "Continue in app", stay in the app.
+        if (activeMainFrameOAuthFlow != null) return false
+        val callback = BrowserSignIn.authTabCallback(flow.redirectUri) ?: return false
+        val browserPackage = CustomTabsClient.getPackageName(this, null) ?: return false
+        // An unsupported browser would silently open a plain Custom Tab that can never return the callback.
+        if (!CustomTabsClient.isAuthTabSupported(this, browserPackage)) return false
+        val authTab = AuthTabIntent.Builder().build()
+        authTab.intent.setPackage(browserPackage)
+        pendingBrowserSignIn = PendingBrowserSignIn(flow, authorizeUrl, viewModel.uiState.value.settings.serverUrl)
+        return try {
+            authTab.launch(authTabLauncher, authorizeUrl.toUri(), callback.host, callback.path)
+            DiagnosticsLogger.record(this, "browser_sign_in", mapOf(
+                "event" to "launched",
+                "callback_origin" to DiagnosticsLogger.originOnly(flow.redirectUri)
+            ))
+            true
+        } catch (_: ActivityNotFoundException) {
+            pendingBrowserSignIn = null
+            false
+        }
+    }
+
+    private fun onBrowserSignInResult(result: AuthTabIntent.AuthResult) {
+        val pending = pendingBrowserSignIn
+        if (pending == null) {
+            // The activity was recreated while Chrome was open; the in-memory flow and consent are gone.
+            if (result.resultCode == AuthTabIntent.RESULT_OK) {
+                Toast.makeText(this, "Sign-in was interrupted. Please try again.", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        pendingBrowserSignIn = null
+        val trusted = isBrowserSignInStillTrusted(pending)
+        DiagnosticsLogger.record(this, "browser_sign_in", mapOf(
+            "event" to "result",
+            "code" to result.resultCode.toString(),
+            "trusted" to trusted.toString()
+        ))
+        when (result.resultCode) {
+            AuthTabIntent.RESULT_OK -> {
+                val callbackUrl = result.resultUri?.toString()
+                if (trusted && callbackUrl != null && pending.flow.isVerifiedCallbackUrl(callbackUrl)) {
+                    loadOAuthCallbackInMainWebView(pending.flow, callbackUrl)
+                } else {
+                    Toast.makeText(this, "Sign-in could not be completed. Please try again.", Toast.LENGTH_LONG).show()
+                }
+            }
+            AuthTabIntent.RESULT_VERIFICATION_FAILED, AuthTabIntent.RESULT_VERIFICATION_TIMED_OUT -> {
+                if (trusted) {
+                    showBrowserSignInVerificationDialog(pending)
+                } else {
+                    Toast.makeText(this, "Server changed. Please retry sign-in.", Toast.LENGTH_LONG).show()
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    private fun showBrowserSignInVerificationDialog(pending: PendingBrowserSignIn) {
+        val host = UrlOrigins.hostFrom(pending.flow.redirectUri) ?: "the sign-in site"
+        AlertDialog.Builder(this)
+            .setTitle("Chrome couldn't confirm this app")
+            .setMessage(
+                "Chrome returns a sign-in to Hermes only when $host publishes this app's " +
+                    "/.well-known/assetlinks.json file. Copy it from Settings > Connection > " +
+                    "Sign in with Chrome, or continue signing in inside the app."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue in app") { _, _ ->
+                if (!isBrowserSignInStillTrusted(pending)) {
+                    Toast.makeText(this, "Server changed. Please retry sign-in.", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                rememberActiveMainFrameOAuth(pending.flow)
+                restrictMediaPlaybackBeforeNavigation(pending.authorizeUrl)
+                loadInMainWebView(pending.authorizeUrl)
+            }
+            .show()
+    }
+
+    private fun copyBrowserSignInAssetLinks() {
+        val fingerprints = signingCertificateFingerprints()
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (fingerprints.isEmpty() || clipboard == null) {
+            Toast.makeText(this, "Couldn't prepare assetlinks.json on this device.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText("Hermes assetlinks.json", BrowserSignIn.assetLinksJson(packageName, fingerprints))
+        )
+        Toast.makeText(this, "Copied assetlinks.json for $packageName.", Toast.LENGTH_SHORT).show()
+    }
+
+    /** SHA-256 fingerprints of the certificates this installed build is signed with. */
+    @android.annotation.SuppressLint("PackageManagerGetSignatures")
+    private fun signingCertificateFingerprints(): List<String> = runCatching {
+        val certificates = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                .signingInfo?.apkContentsSigners
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures
+        }
+        certificates.orEmpty().map {
+            BrowserSignIn.sha256Fingerprint(MessageDigest.getInstance("SHA-256").digest(it.toByteArray()))
+        }.distinct()
+    }.getOrDefault(emptyList())
 
     private fun isHttpOrHttpsUrl(url: String): Boolean {
         val scheme = runCatching { url.toUri().scheme }.getOrNull()

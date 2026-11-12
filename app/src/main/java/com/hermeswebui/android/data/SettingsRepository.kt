@@ -287,6 +287,14 @@ class SettingsRepository(context: Context) : SettingsStore {
         }
     }
 
+    fun isBrowserSignInEnabled(): Boolean {
+        return sharedPreferences.getBoolean(KEY_BROWSER_SIGN_IN_ENABLED, false)
+    }
+
+    fun setBrowserSignInEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean(KEY_BROWSER_SIGN_IN_ENABLED, enabled) }
+    }
+
     fun getHttpAuthCredential(host: String?, realm: String?): HttpAuthCredential? {
         if (!isRememberHttpAuthEnabled()) return null
         val key = HttpAuthCredential.scopeKey(host, realm) ?: return null
@@ -616,6 +624,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         private const val KEY_VPN_LAUNCH_PACKAGE = "vpn_launch_package"
         private const val KEY_REMEMBER_HTTP_AUTH_ENABLED = "remember_http_auth_enabled"
         private const val KEY_HTTP_AUTH_CREDENTIALS = "http_auth_credentials"
+        private const val KEY_BROWSER_SIGN_IN_ENABLED = "browser_sign_in_enabled"
         private const val KEY_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
         private const val KEY_SSE_TRANSPORT_ENABLED = "sse_transport_enabled"
         private const val KEY_BLOCK_SCREENSHOTS_ENABLED = "block_screenshots_enabled"

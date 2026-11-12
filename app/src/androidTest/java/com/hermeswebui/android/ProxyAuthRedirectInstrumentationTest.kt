@@ -703,6 +703,61 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
+    /**
+     * Issue #184: a proxy sign-in gateway (TinyAuth-like) starts its own OIDC flow whose callback
+     * returns to the gateway. The provider must stay in the app so the gateway's state cookie is
+     * present at the callback; externalizing it produced "OAuth session cookie missing".
+     */
+    @Test
+    fun proxyGatewayOidc_keepsProviderInAppSoTheGatewayCallbackHasItsCookie() {
+        withConfiguredServer(gatewayOidc = true) { server, repository ->
+            assertGatewayOidcSignInStaysInApp(server, repository)
+        }
+    }
+
+    /**
+     * With Sign in with Chrome on, a callback Chrome cannot return (Auth Tab requires https) must
+     * not swallow the flow: the gateway sign-in still completes in the app.
+     */
+    @Test
+    fun proxyGatewayOidc_withSignInWithChromeAndHttpCallback_continuesInApp() {
+        withConfiguredServer(gatewayOidc = true) { server, repository ->
+            repository.setBrowserSignInEnabled(true)
+            assertGatewayOidcSignInStaysInApp(server, repository)
+        }
+    }
+
+    private fun assertGatewayOidcSignInStaysInApp(server: ProxyServer, repository: SettingsRepository) {
+        val externalized = CopyOnWriteArrayList<String>()
+        val monitor = recordExternalViews(externalized)
+        instrumentation.addMonitor(monitor)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Continue to server sign-in?")
+                clickDialogButton("Continue")
+                awaitDomControl(scenario, server.loginOrigin, "provider")
+                evaluateWebView(scenario, "document.getElementById('provider').click();")
+
+                awaitDomControl(scenario, server.providerOrigin, "approve")
+                assertThat(repository.getLastLoadedUrl()).doesNotContain("authorize")
+                evaluateWebView(scenario, "document.getElementById('approve').click();")
+
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in"
+                }
+                eventually("Final Hermes route persisted") {
+                    repository.getLastLoadedUrl() == "${server.baseUrl}/session/issue132"
+                }
+            }
+            val callback = server.requests.single { it.path == "/gw/callback" }
+            assertThat(callback.cookie).contains("gateway_oauth_state=gw1")
+            assertThat(externalized).isEmpty()
+            assertThat(repository.getLastLoadedUrl()).doesNotContain("gw/callback")
+        } finally {
+            instrumentation.removeMonitor(monitor)
+        }
+    }
+
     /** Issue #8: a saved but wrong/dead server URL must land in Settings, not a permanent error screen. */
     @Test
     fun deadSavedServerUrl_opensSettingsWithEditableUrlInsteadOfTrappingTheUser() {
@@ -899,6 +954,7 @@ class ProxyAuthRedirectInstrumentationTest {
         oidc: Boolean = false,
         basicAuth: Boolean = false,
         publicStatus: Boolean = false,
+        gatewayOidc: Boolean = false,
         block: (ProxyServer, SettingsRepository) -> Unit
     ) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
@@ -909,7 +965,8 @@ class ProxyAuthRedirectInstrumentationTest {
             officialWebapp = officialWebapp,
             oidc = oidc,
             basicAuth = basicAuth,
-            publicStatus = publicStatus
+            publicStatus = publicStatus,
+            gatewayOidc = gatewayOidc
         ).use { server ->
             try {
                 val repository = SettingsRepository(context)
@@ -924,6 +981,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 if (!loggingWasEnabled) HermesDebugLoggingService.stop(context)
                 instrumentation.runOnMainSync {
                     CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=; Max-Age=0; Path=/")
+                    CookieManager.getInstance().setCookie(server.loginOrigin, "gateway_oauth_state=; Max-Age=0; Path=/")
                 }
                 val editor = preferences.edit().clear()
                 original.forEach { (key, value) ->
@@ -1066,18 +1124,25 @@ class ProxyAuthRedirectInstrumentationTest {
         private val oidc: Boolean = false,
         private val basicAuth: Boolean = false,
         private val publicStatus: Boolean = false,
+        private val gatewayOidc: Boolean = false,
         port: Int = 0
     ) : AutoCloseable {
         data class Request(val path: String, val host: String, val cookie: String, val authorization: String)
         private val socket = ServerSocket(port, 20, InetAddress.getByName("127.0.0.1"))
+        // Issue #184: a separate origin for an OIDC provider used by the proxy's own sign-in gateway.
+        private val providerSocket = if (gatewayOidc) ServerSocket(0, 20, InetAddress.getByName("127.0.0.1")) else null
         private val running = AtomicBoolean(true)
         val baseUrl = "http://127.0.0.1:${socket.localPort}"
         val loginOrigin = "http://localhost:${socket.localPort}"
+        val providerOrigin = providerSocket?.let { "http://localhost:${it.localPort}" }.orEmpty()
         val requests = CopyOnWriteArrayList<Request>()
         val rejectSession = AtomicBoolean(false)
-        private val worker = thread(name = "proxy-auth-fixture") {
+        private val worker = thread(name = "proxy-auth-fixture") { serve(socket) }
+        private val providerWorker = providerSocket?.let { listener -> thread(name = "proxy-auth-provider") { serve(listener) } }
+
+        private fun serve(listener: ServerSocket) {
             while (running.get()) {
-                val client = try { socket.accept() } catch (exception: SocketException) {
+                val client = try { listener.accept() } catch (exception: SocketException) {
                     if (running.get()) throw exception
                     break
                 }
@@ -1154,6 +1219,24 @@ class ProxyAuthRedirectInstrumentationTest {
                             Triple("200 OK", "", """{"version":"test","initialized":true}""")
                         path == "/api/status" || (path == "/" && !authenticated) ->
                             Triple("$redirectCode Redirect", "Location: ${(locationOverride ?: "$loginOrigin/login?rd=synthetic-secret").replace("{port}", socket.localPort.toString())}\r\n", "")
+                        // Issue #184 gateway fixture (TinyAuth-like): the gateway sets its own OAuth state
+                        // cookie, sends the user to a provider on another origin, and rejects a callback
+                        // that arrives without that cookie.
+                        gatewayOidc && path == "/login" -> Triple("200 OK",
+                            "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\n", """
+                            <title>Gateway sign-in</title>
+                            <button id="provider" onclick="location.href='$providerOrigin/gw/authorize?response_type=code&client_id=gateway&redirect_uri=${java.net.URLEncoder.encode("$loginOrigin/gw/callback", "UTF-8")}&state=gw1'">Sign in with provider</button>
+                        """.trimIndent())
+                        gatewayOidc && path == "/gw/authorize" -> Triple("200 OK", "", """
+                            <title>Provider sign-in</title>
+                            <button id="approve" onclick="location.href='$loginOrigin/gw/callback?code=abc&state=gw1'">Approve</button>
+                        """.trimIndent())
+                        gatewayOidc && path == "/gw/callback" ->
+                            if (cookie.contains(GATEWAY_COOKIE) && query.contains("code=abc")) {
+                                Triple("302 Found", "Location: $baseUrl/auth/return?ticket=synthetic\r\n", "")
+                            } else {
+                                Triple("400 Bad Request", "", "OAuth session cookie missing")
+                            }
                         path == "/login" -> Triple("200 OK", "", """
                             <title>Proxy sign-in</title>
                             $FILE_INPUT
@@ -1202,13 +1285,16 @@ class ProxyAuthRedirectInstrumentationTest {
         override fun close() {
             running.set(false)
             socket.close()
+            providerSocket?.close()
             worker.join(6_000)
-            check(!worker.isAlive)
+            providerWorker?.join(6_000)
+            check(!worker.isAlive && providerWorker?.isAlive != true)
         }
 
         private companion object {
             // Full-viewport so a real centre tap provides the user activation file choosers need.
             const val PKCE_COOKIE = "hermes_oidc_pkce=verifier123"
+            const val GATEWAY_COOKIE = "gateway_oauth_state=gw1"
             const val FILE_INPUT = """<input type="file" id="picker" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;opacity:0.01;z-index:10" onclick="window.pickerClicks=(window.pickerClicks||0)+1" onchange="window.pickedCount=this.files.length">"""
         }
     }

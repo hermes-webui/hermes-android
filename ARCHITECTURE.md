@@ -240,6 +240,37 @@ Provider/interstitial URLs are not persisted during this pending return, even
 after navigation permission expires. Existing validated OAuth/OIDC handling
 remains separate; arbitrary additional proxy-login origins are not authorized.
 
+A sign-in gateway approved through that consent (for example TinyAuth) can start
+its own OAuth/OIDC code flow whose `redirect_uri` returns to the gateway rather
+than to Hermes. `parseTrustedOAuthStart` accepts such a flow only while the
+consent window is active, the main-frame hop that started it is exactly the
+approved login origin, and the `redirect_uri` is that same exact origin with no
+userinfo (`ProxyAuthNavigation.allowsGatewayOAuthCallback`). The provider then
+stays in the main WebView, so the gateway's state cookie is present at its
+callback; externalizing it broke the gateway sign-in.
+
+### Sign in with Chrome (Auth Tab)
+
+**Settings → Connection → Sign in with Chrome** (off by default) sends a trusted
+OAuth start (Hermes or approved-gateway callback, as above) to a Chrome Auth Tab
+instead of the WebView, so browser passkeys can be used. `launchBrowserSignIn`
+proceeds only when the setting is on, no in-app OAuth flow is already active, the
+callback is `https` on the default port without userinfo, a default Custom Tabs
+browser exists, and that browser reports `isAuthTabSupported`; the intent is
+pinned to that package because an unsupported browser would otherwise open a
+plain Custom Tab that can never return the result. The manifest `<queries>`
+declares the browsable https and Custom Tabs service intents so Android 11+
+package visibility can find the browser. Chrome returns the callback only after
+verifying Digital Asset Links on the callback host; on `RESULT_OK` the app
+reloads the result in the WebView only if the configured server and consent
+window are unchanged and `OAuthPopupFlow.isVerifiedCallbackUrl` accepts it.
+Verification failure or timeout offers **Continue in app**, which runs the same
+authorization in the WebView; cancel does nothing. Browser cookies are not
+WebView cookies, so the callback must establish the WebView session itself. The
+Settings action copies an `assetlinks.json` built from the installed package name
+and runtime signing-certificate SHA-256 fingerprints, so each channel (Play
+App Signing, GitHub, F-Droid, debug) gets its own entry.
+
 ## Build and release flow
 
 - Local signed release builds load upload-key credentials from an untracked repo-root `keystore.properties` file.

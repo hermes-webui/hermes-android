@@ -131,6 +131,9 @@ fun SettingsScreen(
     savedHttpAuthCredentialCount: Int = 0,
     onSetRememberHttpAuthEnabled: (Boolean) -> Unit = {},
     onForgetSavedHttpAuth: () -> Unit = {},
+    browserSignInEnabled: Boolean = false,
+    onSetBrowserSignInEnabled: (Boolean) -> Unit = {},
+    onCopyBrowserSignInAssetLinks: () -> Unit = {},
     onSetVpnLaunchPackageName: (String) -> Unit,
     onSetSseTransportEnabled: (Boolean) -> Unit,
     onCheckSseSupport: () -> Unit,
@@ -768,6 +771,60 @@ fun SettingsScreen(
                                 )
                                 TextButton(onClick = onForgetSavedHttpAuth) {
                                     Text("Forget saved sign-ins")
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
+
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    "Sign in with Chrome",
+                                    color = onSurface,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    "Opens single sign-on providers (for example passkey logins) in a Chrome sign-in tab and returns the result to the app. Needs Chrome 137 or later, an https sign-in callback, and the app's assetlinks.json file published on the callback's site. Otherwise sign-in continues inside the app.",
+                                    color = onSurfaceVar,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            trailingContent = {
+                                Switch(
+                                    checked = browserSignInEnabled,
+                                    onCheckedChange = onSetBrowserSignInEnabled,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                        checkedTrackColor = primaryColor,
+                                        uncheckedThumbColor = onSurfaceVar,
+                                        uncheckedTrackColor = surfaceVariant
+                                    )
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = surfaceColor),
+                            modifier = Modifier.clickable {
+                                onSetBrowserSignInEnabled(!browserSignInEnabled)
+                            }
+                        )
+
+                        if (browserSignInEnabled) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Publish at https://<callback host>/.well-known/assetlinks.json",
+                                    color = onSurfaceVar,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = onCopyBrowserSignInAssetLinks) {
+                                    Text("Copy assetlinks.json")
                                 }
                             }
                         }

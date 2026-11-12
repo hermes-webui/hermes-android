@@ -32,6 +32,22 @@ class ProxyAuthNavigation(private val now: () -> Long = { android.os.SystemClock
         return origin == serverOrigin || origin == loginOrigin
     }
 
+    /** True while [url] is on the approved sign-in gateway origin for this server's active consent. */
+    fun isActiveLoginOrigin(serverUrl: String, url: String?): Boolean {
+        if (!isActive(serverUrl) || url == null) return false
+        if (runCatching { URI(url) }.getOrNull()?.rawUserInfo != null) return false
+        return loginOrigin != null && UrlOrigins.pageOrigin(url) == loginOrigin
+    }
+
+    /**
+     * An approved sign-in gateway (for example TinyAuth or Authelia) may start its own OIDC flow
+     * whose callback returns to the gateway rather than to Hermes. Keep that provider round trip in
+     * the app, where the gateway's state cookie lives, only when the page starting it is on the
+     * approved gateway origin and the callback returns to that exact origin (Issue #184).
+     */
+    fun allowsGatewayOAuthCallback(serverUrl: String, initiatingHopUrl: String?, redirectUri: String): Boolean =
+        isActiveLoginOrigin(serverUrl, initiatingHopUrl) && isActiveLoginOrigin(serverUrl, redirectUri)
+
     fun completeIfHermesPage(serverUrl: String, url: String, isHermesPage: Boolean) {
         if (isPending(serverUrl) && UrlOrigins.hasSameOrigin(url, serverUrl) && isHermesPage) {
             clear()

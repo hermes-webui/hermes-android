@@ -22,12 +22,18 @@
   Pocket ID passkey sign-in on v1.2.2; Pocket ID may reject Android-app
   WebAuthn origins even with an association
   ([pocket-id/pocket-id#1845](https://github.com/pocket-id/pocket-id/issues/1845)).
-  Browser-based OAuth is a possible follow-up, not implemented: an HTTPS Auth
-  Tab callback needs an association on the callback host for the installed
-  package/signing key, unsupported-browser fallback needs separate handling,
-  and browser cookies are not WebView cookies. Proxy OAuth callbacks may belong
-  to the approved proxy login origin rather than the configured server, which
-  requires a separate scoped design. No live Pocket ID flow has been verified.
+  No live Pocket ID flow has been verified.
+- [~] Issue #184 follow-up: proxy-gateway OAuth and optional **Sign in with
+  Chrome**. A sign-in gateway approved through proxy consent (for example
+  TinyAuth) may start OIDC whose callback returns to that exact gateway origin;
+  the provider now stays in the app so the gateway's state cookie is present
+  (the reported "OAuth session cookie missing"). The opt-in setting opens
+  trusted OAuth starts in a Chrome Auth Tab and loads only a verified callback
+  back in the WebView; it needs Chrome 137+, an https callback, and
+  assetlinks.json on the callback host for the installed package/signing key,
+  and falls back to in-app sign-in otherwise. API 35 loopback tests cover the
+  in-app gateway flow and the http-callback fallback; a real Auth Tab round trip,
+  live TinyAuth/Pocket ID, and reporter acceptance are not verified.
 - [~] Issue #184 follow-up: optional remembered HTTP Basic login. **Settings →
   Connection → Remember server sign-in** (off by default) saves the prompt's
   credentials in encrypted settings for the exact configured host and realm,
@@ -233,6 +239,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-060 | 2026-11-12 | Authentication | Issue #184 follow-up: keep OIDC started by an approved proxy sign-in gateway in the app when its callback returns to that exact gateway origin, and add opt-in Sign in with Chrome (Auth Tab with verified callback return and in-app fallback). API 35 loopback gateway tests were RED with the gateway trust removed and GREEN locally; real Auth Tab, live TinyAuth/Pocket ID, and reporter acceptance remain open. |
 | BUG-059 | 2026-11-12 | Authentication | Issue #184 follow-up: mask native HTTP Basic passwords and allow an initial proxy redirect after consent when WebView has no committed URL, while rejecting consent after a later navigation. API 35 loopback regressions were RED on base and GREEN locally; live reporter acceptance and passkey sign-in remain open. |
 | BUG-058 | 2026-11-11 | Authentication | Fixed Issue #185: proxy-level HTTP Basic challenges from the configured server now show a native username/password dialog in main and popup WebViews. Credentials are never saved, and challenges from other hosts are canceled. JVM policy/source-contract tests pass; the API 36 loopback regression test compiles but was not run locally because no emulator/device is attached. |
 | BUG-057 | 2026-11-07 | Deep links | Fixed Issue #170: `hermes://session/{id}` and `hermes://app/settings` now work when the app starts from a closed state, not only through `onNewIntent`. A cold-start session link feeds the same trusted-route startup override as a notification tap, so `SelectedServerNavigation.startupUrl` still gates it, and the settings link is skipped on activity recreation. Two cold-start API 35 tests failed before the fix and pass after it. |

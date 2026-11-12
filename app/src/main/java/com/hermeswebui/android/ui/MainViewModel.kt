@@ -53,6 +53,7 @@ class MainViewModel(
         requireVpnForTailscaleEnabled = settingsRepositoryImpl?.isRequireVpnForTailscaleEnabled() ?: false,
         rememberHttpAuthEnabled = settingsRepositoryImpl?.isRememberHttpAuthEnabled() ?: false,
         savedHttpAuthCredentialCount = settingsRepositoryImpl?.savedHttpAuthCredentialCount() ?: 0,
+        browserSignInEnabled = settingsRepositoryImpl?.isBrowserSignInEnabled() ?: false,
         vpnLaunchPackageName = settingsRepositoryImpl?.getVpnLaunchPackageName().orEmpty(),
         sseTransportEnabled = settingsRepositoryImpl?.isSseTransportEnabled() ?: false,
         debugLoggingEnabled = settingsRepositoryImpl?.isDebugLoggingEnabled() ?: false,
@@ -461,6 +462,11 @@ class MainViewModel(
         }
     }
 
+    fun setBrowserSignInEnabled(enabled: Boolean) {
+        settingsRepositoryImpl?.setBrowserSignInEnabled(enabled)
+        _uiState.update { it.copy(browserSignInEnabled = enabled) }
+    }
+
     fun setDebugLoggingEnabled(enabled: Boolean) {
         settingsRepositoryImpl?.setDebugLoggingEnabled(enabled)
         _uiState.update { it.copy(debugLoggingEnabled = enabled) }
@@ -567,6 +573,7 @@ class MainViewModel(
                 requireVpnForTailscaleEnabled = repo.isRequireVpnForTailscaleEnabled(),
                 rememberHttpAuthEnabled = repo.isRememberHttpAuthEnabled(),
                 savedHttpAuthCredentialCount = repo.savedHttpAuthCredentialCount(),
+                browserSignInEnabled = repo.isBrowserSignInEnabled(),
                 vpnLaunchPackageName = repo.getVpnLaunchPackageName(),
                 sseTransportEnabled = repo.isSseTransportEnabled(),
                 debugLoggingEnabled = repo.isDebugLoggingEnabled(),

@@ -56,7 +56,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.browser.auth.AuthTabIntent
 import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -154,6 +156,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesClipboardBridgeName = "HermesAndroidClipboard"
@@ -259,6 +262,16 @@ class MainActivity : ComponentActivity() {
     private var oauthFlowTimeoutMs: Long = 0
     private val OAUTH_FLOW_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
     private val oauthReturnNavigation = OAuthReturnNavigation()
+
+    // Optional Sign in with Chrome: the provider runs in an Auth Tab and only a verified callback
+    // for the flow that launched it is loaded back into the main WebView.
+    private data class PendingBrowserSignIn(
+        val flow: OAuthPopupFlow,
+        val authorizeUrl: String,
+        val serverUrl: String
+    )
+    private var pendingBrowserSignIn: PendingBrowserSignIn? = null
+    private val authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this, ::onBrowserSignInResult)
 
     // Popups created by onCreateWindow that have not yet been destroyed. A window.open('') that
     // never navigates never reaches the popup's shouldOverrideUrlLoading/onPageStarted, so it would
@@ -800,6 +813,13 @@ class MainActivity : ComponentActivity() {
                     onForgetSavedHttpAuth = {
                         viewModel.forgetSavedHttpAuthCredentials()
                     },
+                    browserSignInEnabled = uiState.browserSignInEnabled,
+                    onSetBrowserSignInEnabled = { enabled ->
+                        viewModel.setBrowserSignInEnabled(enabled)
+                    },
+                    onCopyBrowserSignInAssetLinks = {
+                        copyBrowserSignInAssetLinks()
+                    },
                     onSetVpnLaunchPackageName = { packageName ->
                         viewModel.setVpnLaunchPackageName(packageName)
                     },
@@ -1278,6 +1298,10 @@ class MainActivity : ComponentActivity() {
 
         val flow = parseTrustedOAuthStart(target)
         if (flow != null) {
+            if (launchBrowserSignIn(flow, target)) {
+                destroyPopup(popup)
+                return true
+            }
             // Move popup OAuth flows to the main frame so they are visible and interactive.
             rememberActiveMainFrameOAuth(flow)
             restrictMediaPlaybackBeforeNavigation(target)
@@ -1308,6 +1332,10 @@ class MainActivity : ComponentActivity() {
 
         val startedFlow = parseTrustedOAuthStart(url)
         if (startedFlow != null) {
+            if (launchBrowserSignIn(startedFlow, url)) {
+                destroyPopup(popup)
+                return
+            }
             // Move popup OAuth flows to the main frame so they are visible and interactive.
             rememberActiveMainFrameOAuth(startedFlow)
             restrictMediaPlaybackBeforeNavigation(url)
@@ -1338,6 +1366,7 @@ class MainActivity : ComponentActivity() {
 
         val startedTopLevelFlow = parseTrustedOAuthStart(target)
         if (startedTopLevelFlow != null) {
+            if (launchBrowserSignIn(startedTopLevelFlow, target)) return true
             rememberActiveMainFrameOAuth(startedTopLevelFlow)
             return false
         }
@@ -2274,10 +2303,125 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun parseTrustedOAuthStart(url: String): OAuthPopupFlow? {
-        val settings = viewModel.uiState.value.settings
-        return OAuthPopupFlow.parseAuthorizationStart(url)
-            ?.takeIf { it.redirectsToOrigin(settings.serverUrl) }
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        val flow = OAuthPopupFlow.parseAuthorizationStart(url) ?: return null
+        if (flow.redirectsToOrigin(serverUrl)) return flow
+        return flow.takeIf {
+            proxyAuthNavigation.allowsGatewayOAuthCallback(serverUrl, lastMainFrameHopUrl, it.redirectUri)
+        }
     }
+
+    private fun isBrowserSignInStillTrusted(pending: PendingBrowserSignIn): Boolean {
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        return serverUrl == pending.serverUrl &&
+            (pending.flow.redirectsToOrigin(serverUrl) ||
+                proxyAuthNavigation.isActiveLoginOrigin(serverUrl, pending.flow.redirectUri))
+    }
+
+    /** Opens a trusted OAuth start in a Chrome Auth Tab when the user opted in and Chrome supports it. */
+    private fun launchBrowserSignIn(flow: OAuthPopupFlow, authorizeUrl: String): Boolean {
+        if (!settingsRepository.isBrowserSignInEnabled()) return false
+        // Nested authorizations inside an in-app flow, including after "Continue in app", stay in the app.
+        if (activeMainFrameOAuthFlow != null) return false
+        val callback = BrowserSignIn.authTabCallback(flow.redirectUri) ?: return false
+        val browserPackage = CustomTabsClient.getPackageName(this, null) ?: return false
+        // An unsupported browser would silently open a plain Custom Tab that can never return the callback.
+        if (!CustomTabsClient.isAuthTabSupported(this, browserPackage)) return false
+        val authTab = AuthTabIntent.Builder().build()
+        authTab.intent.setPackage(browserPackage)
+        pendingBrowserSignIn = PendingBrowserSignIn(flow, authorizeUrl, viewModel.uiState.value.settings.serverUrl)
+        return try {
+            authTab.launch(authTabLauncher, authorizeUrl.toUri(), callback.host, callback.path)
+            DiagnosticsLogger.record(this, "browser_sign_in", mapOf(
+                "event" to "launched",
+                "callback_origin" to DiagnosticsLogger.originOnly(flow.redirectUri)
+            ))
+            true
+        } catch (_: ActivityNotFoundException) {
+            pendingBrowserSignIn = null
+            false
+        }
+    }
+
+    private fun onBrowserSignInResult(result: AuthTabIntent.AuthResult) {
+        val pending = pendingBrowserSignIn ?: return
+        pendingBrowserSignIn = null
+        val trusted = isBrowserSignInStillTrusted(pending)
+        DiagnosticsLogger.record(this, "browser_sign_in", mapOf(
+            "event" to "result",
+            "code" to result.resultCode.toString(),
+            "trusted" to trusted.toString()
+        ))
+        when (result.resultCode) {
+            AuthTabIntent.RESULT_OK -> {
+                val callbackUrl = result.resultUri?.toString()
+                if (trusted && callbackUrl != null && pending.flow.isVerifiedCallbackUrl(callbackUrl)) {
+                    loadOAuthCallbackInMainWebView(pending.flow, callbackUrl)
+                } else {
+                    Toast.makeText(this, "Sign-in could not be completed. Please try again.", Toast.LENGTH_LONG).show()
+                }
+            }
+            AuthTabIntent.RESULT_VERIFICATION_FAILED, AuthTabIntent.RESULT_VERIFICATION_TIMED_OUT -> {
+                if (trusted) {
+                    showBrowserSignInVerificationDialog(pending)
+                } else {
+                    Toast.makeText(this, "Server changed. Please retry sign-in.", Toast.LENGTH_LONG).show()
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    private fun showBrowserSignInVerificationDialog(pending: PendingBrowserSignIn) {
+        val host = UrlOrigins.hostFrom(pending.flow.redirectUri) ?: "the sign-in site"
+        AlertDialog.Builder(this)
+            .setTitle("Chrome couldn't confirm this app")
+            .setMessage(
+                "Chrome returns a sign-in to Hermes only when $host publishes this app's " +
+                    "/.well-known/assetlinks.json file. Copy it from Settings > Connection > " +
+                    "Sign in with Chrome, or continue signing in inside the app."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue in app") { _, _ ->
+                if (!isBrowserSignInStillTrusted(pending)) {
+                    Toast.makeText(this, "Server changed. Please retry sign-in.", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                rememberActiveMainFrameOAuth(pending.flow)
+                restrictMediaPlaybackBeforeNavigation(pending.authorizeUrl)
+                loadInMainWebView(pending.authorizeUrl)
+            }
+            .show()
+    }
+
+    private fun copyBrowserSignInAssetLinks() {
+        val fingerprints = signingCertificateFingerprints()
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (fingerprints.isEmpty() || clipboard == null) {
+            Toast.makeText(this, "Couldn't prepare assetlinks.json on this device.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText("Hermes assetlinks.json", BrowserSignIn.assetLinksJson(packageName, fingerprints))
+        )
+        Toast.makeText(this, "Copied assetlinks.json for $packageName.", Toast.LENGTH_SHORT).show()
+    }
+
+    /** SHA-256 fingerprints of the certificates this installed build is signed with. */
+    @android.annotation.SuppressLint("PackageManagerGetSignatures")
+    private fun signingCertificateFingerprints(): List<String> = runCatching {
+        val certificates = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                .signingInfo?.apkContentsSigners
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures
+        }
+        certificates.orEmpty().map {
+            BrowserSignIn.sha256Fingerprint(MessageDigest.getInstance("SHA-256").digest(it.toByteArray()))
+        }.distinct()
+    }.getOrDefault(emptyList())
 
     private fun isHttpOrHttpsUrl(url: String): Boolean {
         val scheme = runCatching { url.toUri().scheme }.getOrNull()

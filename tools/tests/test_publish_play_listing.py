@@ -1,13 +1,16 @@
+import os
 import re
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
-from tools.publish_play_listing import API, main, publish_listing, read_descriptions
+from tools.publish_play_listing import API, publish_listing, read_descriptions
 from tools.tests.test_workflow_contracts import ROOT, read_workflow
 
 
@@ -99,15 +102,12 @@ class PlayListingTests(unittest.TestCase):
                 self.assertEqual(session.request.call_args.args, ("DELETE", f"{API}/verify"))
 
     def test_production_readback_requires_version_and_notes_together(self):
-        for kwargs in (
-            {"expected_production_version_code": 10300},
-            {"expected_play_notes": "Release notes"},
-        ):
-            with self.subTest(kwargs=kwargs):
-                session = Mock()
-                with self.assertRaises(ValueError):
-                    publish_listing(session, {}, **kwargs)
-                session.request.assert_not_called()
+        session = Mock()
+        with self.assertRaises(ValueError):
+            publish_listing(session, {}, expected_production_version_code=10300)
+        with self.assertRaises(ValueError):
+            publish_listing(session, {}, expected_play_notes="Release notes")
+        session.request.assert_not_called()
 
     def test_cli_rejects_mismatched_production_version(self):
         track = {
@@ -138,7 +138,7 @@ class PlayListingTests(unittest.TestCase):
             ]
             with patch.dict(sys.modules, modules), patch.object(sys, "argv", args):
                 with self.assertRaisesRegex(RuntimeError, "production.*readback"):
-                    main()
+                    runpy.run_path(str(ROOT / "tools" / "publish_play_listing.py"), run_name="__main__")
         self.assertEqual(session.request.call_args_list[6].args, ("GET", f"{API}/verify/tracks/production"))
         self.assertEqual(session.request.call_args.args, ("DELETE", f"{API}/verify"))
 
@@ -174,21 +174,30 @@ class PlayListingTests(unittest.TestCase):
         self.assertIn("repository: ${{ job.workflow_repository }}", checkout)
         self.assertIn("ref: ${{ job.workflow_sha }}", checkout)
         self.assertIn("path: .publish-workflow", checkout)
-        self.assertIn("python3 .publish-workflow/tools/publish_play_listing.py", workflow)
+        publish = workflow.split("name: Publish listing and verify production track", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("if: inputs.track == 'production'", publish)
+        self.assertIn("python3 .publish-workflow/tools/publish_play_listing.py", publish)
         self.assertLess(workflow.index("Check out publication workflow tools"), workflow.index("Upload AAB to Google Play"))
         self.assertLess(workflow.index("Prepare production verification"), workflow.index("Upload AAB to Google Play"))
-        self.assertIn("if: inputs.track == 'production'", workflow)
-        self.assertIn("--credentials signing/google-play-service-account.json", workflow)
-        self.assertIn("--metadata store/google-play/en-US", workflow)
-        self.assertIn("--expected-production-version-code", workflow)
-        self.assertIn("--expected-play-notes", workflow)
+        self.assertIn("--credentials signing/google-play-service-account.json", publish)
+        self.assertIn("--metadata store/google-play/en-US", publish)
+        self.assertIn("--expected-production-version-code", publish)
+        self.assertIn("--expected-play-notes", publish)
 
     def test_retry_preflight_uses_workflow_tools_even_if_release_has_its_own_tools_package(self):
         workflow = read_workflow("_publish-play-store.yml")
         prepare = workflow.split("name: Prepare production verification", 1)[1].split("\n      - name:", 1)[0]
-        commands = re.findall(r"python3 -c '([^']+)'", prepare)
-        version_command = next(command for command in commands if "version_code" in command)
-        listing_command = next(command for command in commands if "read_descriptions" in command)
+        script = textwrap.dedent(prepare.split("        run: |\n", 1)[1])
+        script = script.replace(
+            "python3 -m pip install -r .publish-workflow/tools/requirements-play-listing.txt",
+            "test -s .publish-workflow/tools/requirements-play-listing.txt",
+        )
+        script = re.sub(r"\bpython3\b", '"$TEST_PYTHON"', script)
+        git = shutil.which("git")
+        git_bash = Path(git).parent.parent / "bin" / "bash.exe" if os.name == "nt" and git else None
+        bash = str(git_bash) if git_bash is not None and git_bash.is_file() else shutil.which("bash")
+        if bash is None:
+            self.fail("Bash is required to exercise the publishing workflow")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             release_tools = root / "tools"
@@ -196,14 +205,14 @@ class PlayListingTests(unittest.TestCase):
             (release_tools / "__init__.py").write_text("raise RuntimeError('wrong tools package')\n", encoding="utf-8")
             workflow_tools = root / ".publish-workflow" / "tools"
             workflow_tools.mkdir(parents=True)
-            for name in ("bump_version.py", "publish_play_listing.py"):
+            for name in ("bump_version.py", "publish_play_listing.py", "requirements-play-listing.txt"):
                 shutil.copyfile(ROOT / "tools" / name, workflow_tools / name)
             metadata = root / "store" / "google-play" / "en-US"
             metadata.mkdir(parents=True)
             (metadata / "short_description.txt").write_text("Short", encoding="utf-8")
             (metadata / "full_description.txt").write_text("Full", encoding="utf-8")
-            code = subprocess.check_output(
-                [sys.executable, "-c", version_command, "1.2.0"], cwd=root, text=True
-            )
-            self.assertEqual(code.strip(), "10200")
-            subprocess.run([sys.executable, "-c", listing_command], cwd=root, check=True)
+            output = root / "github-output"
+            env = dict(os.environ, TEST_PYTHON=sys.executable, VERSION_NAME="1.2.0", GITHUB_OUTPUT=str(output))
+            subprocess.run([bash, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                           cwd=root, env=env, check=True)
+            self.assertEqual(output.read_text(encoding="utf-8").strip(), "version_code=10200")

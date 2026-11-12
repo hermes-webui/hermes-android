@@ -56,7 +56,7 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - `HermesServerProfileCoordinator`: owns startup preflight plus add/edit/delete/switch validation and confirmation flows for Hermes server profiles.
 - `HermesForegroundServiceCoordinator`: owns reconnect/debug foreground-service lifecycle sync so `onResume`, `onStop`, and settings toggles do not each duplicate service promotion/teardown rules.
 - `HermesWebViewConfigurator`: centralizes shared main/popup WebView hardening and settings setup.
-- `MainActivity` handles HTTP Basic challenges from the configured server with a native username/password prompt. The challenge host must exactly match the configured server host; unrelated hosts are canceled. The app does not save or automatically submit Basic credentials (see Reverse-proxy authentication).
+- `MainActivity` handles HTTP Basic challenges from the configured server with a native username/password prompt. The challenge host must exactly match the configured server host; unrelated hosts are canceled. The app does not remember prompt credentials (see Reverse-proxy authentication).
 - `HermesWebViewDownloadListener`: hands allowlisted WebView downloads to Android DownloadManager with session cookies and the WebView user agent. AndroidX WebKit's RFC-compatible filename parser honors `filename*` over `filename` and preserves server-provided extensions even with generic MIME types. Explicit image downloads also retain filenames from inline preview headers; filenames cannot introduce nested destination paths. On Android 10+ downloads land in the shared `Download` folder so they appear in Files > Downloads; Android 8/9 keep the app-specific `Download` folder because shared storage would need `WRITE_EXTERNAL_STORAGE`. Emulator regression tests exercise the production listener and downloaded bytes for both chat and Files endpoints.
 
 Selected-server persistence reconciles a missing or dangling active profile ID
@@ -189,12 +189,16 @@ pending; loopback WebView fixtures cover the Android boundary only.
 WebView HTTP Basic challenges are distinct from redirect-based proxy sign-in.
 The main and popup WebViews show a native prompt with a masked password only
 when the challenge host exactly matches the configured server host. The app
-passes credentials to WebView only after the user confirms the prompt; it does
-not save or automatically submit them. WebView supplies no challenged scheme
-or port, so host-and-realm matching cannot safely scope saved credentials.
-Previously saved encrypted data remains unused until the user explicitly
-chooses **Settings → Connection → Forget saved sign-ins**. WebView's own
-in-memory authentication behavior has not been independently verified.
+passes prompt credentials to WebView only after user confirmation; it does not
+save or automatically supply previously remembered sign-ins. WebView
+supplies no challenged scheme or port, so host-and-realm matching cannot safely
+scope app-managed saved credentials. Previously remembered encrypted data
+remains unused until the user explicitly chooses **Settings → Connection →
+Forget saved sign-ins**. WebView may reuse a manually entered sign-in in memory
+for the same origin, including after clearing WebView data. Credentials embedded
+in a saved server URL remain part of that URL and may be sent automatically;
+the user must edit the URL to remove them. Forgetting the legacy sign-ins does
+not alter server URLs or clear WebView's in-memory authentication cache.
 Challenges from other hosts are canceled. This does not broaden the proxy
 redirect grant or the app's notification, microphone, download, or navigation trust.
 

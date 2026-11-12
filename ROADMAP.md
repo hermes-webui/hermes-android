@@ -36,11 +36,12 @@
   and falls back to in-app sign-in otherwise. API 35 loopback tests cover the
   in-app gateway flow and the http-callback fallback; a real Auth Tab round trip,
   live TinyAuth/Pocket ID, and reporter acceptance are not verified.
-- [~] Issue #184 follow-up: HTTP Basic sign-ins are manual. The app no longer
-  saves or automatically submits credentials; previously saved encrypted data
-  remains unused until explicitly deleted via **Forget saved sign-ins**.
-  Reporter acceptance remains open.
-- [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews prompt for credentials on challenges from the configured server host only. Hermes-Android does not save Basic credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
+- [~] Issue #184 follow-up: the app no longer remembers credentials entered in
+  the HTTP Basic prompt or supplies previously remembered credentials. Legacy
+  encrypted data remains unused until explicitly deleted via **Forget saved
+  sign-ins**. WebView may reuse same-origin credentials in memory, and saved
+  server URLs can still contain credentials. Reporter acceptance remains open.
+- [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews prompt for credentials on challenges from the configured server host only. Hermes-Android does not remember prompt credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,
   authentication, HTTPS and reusable URLs. Include the requested AGP 9.5.1

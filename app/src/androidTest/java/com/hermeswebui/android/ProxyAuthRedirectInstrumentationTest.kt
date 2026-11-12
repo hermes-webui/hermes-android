@@ -106,18 +106,63 @@ class ProxyAuthRedirectInstrumentationTest {
         withConfiguredServer(basicAuth = true) { _, _ ->
             ActivityScenario.launch(MainActivity::class.java).use {
                 awaitText("Sign in to 127.0.0.1")
-                instrumentation.runOnMainSync {
-                    val password = WindowInspector.getGlobalWindowViews().asSequence()
-                        .flatMap { root -> descendants(root) }
-                        .filterIsInstance<EditText>()
-                        .single { field -> field.isShown && field.hint == "Password" }
-                    password.setText("test-pass")
-                    assertThat(password.transformationMethod)
-                        .isInstanceOf(PasswordTransformationMethod::class.java)
-                    val displayed = password.transformationMethod
-                        .getTransformation(password.text, password).toString()
-                    assertThat(displayed).hasLength(password.text.length)
-                    assertThat(displayed).doesNotContain("test-pass")
+                assertHttpAuthPasswordMasked()
+            }
+        }
+    }
+
+    @Test
+    fun popupHttpBasicChallenge_trustedHostRequiresMaskedManualSignIn() {
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            seedLegacyHttpAuth(enabled = true, saved = legacyHttpAuthJson())
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ProxyServer(basicAuth = true).use { authServer ->
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitWebView(scenario) { it.title == "Hermes signed in" }
+                    val challengeView = dispatchChallengeThroughPopup(scenario, authServer.baseUrl)
+                    try {
+                        eventually("Popup prompt or automatic credential submission") {
+                            isTextShown("Sign in to 127.0.0.1") ||
+                                authServer.requests.any { it.authorization.isNotEmpty() }
+                        }
+                        assertThat(authServer.requests.filter { it.authorization.isNotEmpty() }).isEmpty()
+                        assertThat(isTextShown("Sign in to 127.0.0.1")).isTrue()
+                        assertThat(isTextShown("Remember on this device")).isFalse()
+                        assertHttpAuthPasswordMasked()
+                        enterHttpAuthCredentials("test-user", "test-pass")
+                        clickDialogButton("Sign in")
+                        eventually("Popup-dispatched challenge accepted after confirmation") {
+                            authServer.requests.any {
+                                it.authorization == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="
+                            }
+                        }
+                    } finally {
+                        scenario.onActivity { challengeView.destroy() }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun popupHttpBasicChallenge_untrustedHostIsCancelled() {
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ProxyServer(basicAuth = true).use { authServer ->
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitWebView(scenario) { it.title == "Hermes signed in" }
+                    val challengeView = dispatchChallengeThroughPopup(scenario, authServer.loginOrigin)
+                    try {
+                        instrumentation.waitForIdleSync()
+                        assertThat(isTextShown("Sign in to localhost")).isFalse()
+                        assertThat(authServer.requests.filter { it.authorization.isNotEmpty() }).isEmpty()
+                    } finally {
+                        scenario.onActivity { challengeView.destroy() }
+                    }
                 }
             }
         }
@@ -586,6 +631,50 @@ class ProxyAuthRedirectInstrumentationTest {
             fields.single { it.hint == "Username" }.setText(username)
             fields.single { it.hint == "Password" }.setText(password)
         }
+    }
+
+    private fun assertHttpAuthPasswordMasked() {
+        instrumentation.runOnMainSync {
+            val password = WindowInspector.getGlobalWindowViews().asSequence()
+                .flatMap { root -> descendants(root) }
+                .filterIsInstance<EditText>()
+                .single { field -> field.isShown && field.hint == "Password" }
+            password.setText("test-pass")
+            assertThat(password.transformationMethod).isInstanceOf(PasswordTransformationMethod::class.java)
+            val displayed = password.transformationMethod.getTransformation(password.text, password).toString()
+            assertThat(displayed).hasLength(password.text.length)
+            assertThat(displayed).doesNotContain("test-pass")
+        }
+    }
+
+    private fun dispatchChallengeThroughPopup(scenario: ActivityScenario<MainActivity>, url: String): WebView {
+        val dispatched = CountDownLatch(1)
+        lateinit var challengeView: WebView
+        scenario.onActivity { activity ->
+            val main = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+            val transport = main.WebViewTransport()
+            val message = android.os.Handler(android.os.Looper.getMainLooper()).obtainMessage().apply {
+                obj = transport
+            }
+            checkNotNull(main.webChromeClient).onCreateWindow(main, false, true, message)
+            val popup = checkNotNull(transport.webView)
+            challengeView = WebView(activity).apply {
+                webViewClient = object : android.webkit.WebViewClient() {
+                    override fun onReceivedHttpAuthRequest(
+                        view: WebView?,
+                        handler: android.webkit.HttpAuthHandler?,
+                        host: String?,
+                        realm: String?
+                    ) {
+                        popup.webViewClient.onReceivedHttpAuthRequest(popup, handler, host, realm)
+                        dispatched.countDown()
+                    }
+                }
+                loadUrl(url)
+            }
+        }
+        check(dispatched.await(20, TimeUnit.SECONDS)) { "Popup authentication callback was not dispatched" }
+        return challengeView
     }
 
     private fun legacyHttpAuthJson(): String = JSONObject()

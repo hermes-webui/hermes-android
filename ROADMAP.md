@@ -28,10 +28,13 @@
   and browser cookies are not WebView cookies. Proxy OAuth callbacks may belong
   to the approved proxy login origin rather than the configured server, which
   requires a separate scoped design. No live Pocket ID flow has been verified.
-- [ ] Issue #184 follow-up: consider the reporter's request for optional
-  remembered HTTP Basic login without weakening the current no-persistence
-  policy; no credentials are saved today.
-- [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews now prompt for credentials on challenges from the configured server host only. Hermes-Android does not save credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
+- [~] Issue #184 follow-up: optional remembered HTTP Basic login. **Settings →
+  Connection → Remember server sign-in** (off by default) saves the prompt's
+  credentials in encrypted settings for the exact configured host and realm,
+  reuses them only on WebView's first attempt, and deletes them when turned off
+  or via **Forget saved sign-ins**. Covered by API 35/36 loopback tests; not yet
+  confirmed by the reporter.
+- [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews now prompt for credentials on challenges from the configured server host only. Hermes-Android does not save credentials by default (see the opt-in #184 follow-up above); an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,
   authentication, HTTPS and reusable URLs. Include the requested AGP 9.5.1

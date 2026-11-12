@@ -122,6 +122,84 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
+    fun httpBasicChallenge_remembersSignInOnlyWhenOptedIn() {
+        withConfiguredServer(basicAuth = true) { _, repository ->
+            repository.setRememberHttpAuthEnabled(true)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Sign in to 127.0.0.1")
+                assertThat(isTextShown("Remember on this device")).isTrue()
+                enterHttpAuthCredentials("test-user", "test-pass")
+                clickDialogButton("Sign in")
+                awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+            }
+            assertThat(repository.getHttpAuthCredential("127.0.0.1", "Hermes WebUI"))
+                .isEqualTo(com.hermeswebui.android.data.HttpAuthCredential("test-user", "test-pass"))
+            assertThat(repository.getHttpAuthCredential("127.0.0.2", "Hermes WebUI")).isNull()
+            repository.setRememberHttpAuthEnabled(false)
+            assertThat(repository.savedHttpAuthCredentialCount()).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_withoutOptIn_neverOffersOrSavesSignIn() {
+        withConfiguredServer(basicAuth = true) { _, repository ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Sign in to 127.0.0.1")
+                assertThat(isTextShown("Remember on this device")).isFalse()
+                enterHttpAuthCredentials("test-user", "test-pass")
+                clickDialogButton("Sign in")
+                awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+            }
+            assertThat(repository.savedHttpAuthCredentialCount()).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_usesSavedSignInWithoutPrompting() {
+        withConfiguredServer(basicAuth = true) { server, repository ->
+            repository.setRememberHttpAuthEnabled(true)
+            repository.saveHttpAuthCredential(
+                "127.0.0.1",
+                "Hermes WebUI",
+                com.hermeswebui.android.data.HttpAuthCredential("test-user", "test-pass")
+            )
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
+                }
+                assertThat(isTextShown("Sign in to 127.0.0.1")).isFalse()
+            }
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_rejectedSavedSignInFallsBackToPromptAndIsReplaced() {
+        withConfiguredServer(basicAuth = true) { _, repository ->
+            repository.setRememberHttpAuthEnabled(true)
+            repository.saveHttpAuthCredential(
+                "127.0.0.1",
+                "Hermes WebUI",
+                com.hermeswebui.android.data.HttpAuthCredential("test-user", "stale-pass")
+            )
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("The saved sign-in was not accepted")
+                instrumentation.runOnMainSync {
+                    val username = WindowInspector.getGlobalWindowViews().asSequence()
+                        .flatMap { root -> descendants(root) }
+                        .filterIsInstance<EditText>()
+                        .single { field -> field.isShown && field.hint == "Username" }
+                    assertThat(username.text.toString()).isEqualTo("test-user")
+                }
+                enterHttpAuthCredentials("test-user", "test-pass")
+                clickDialogButton("Sign in")
+                awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+            }
+            assertThat(repository.getHttpAuthCredential("127.0.0.1", "Hermes WebUI")?.password)
+                .isEqualTo("test-pass")
+        }
+    }
+
+    @Test
     fun automaticallyLabelsBothFrontendsWithoutChangingManualSelectionOrReloading() {
         for (official in listOf(true, false)) {
             withConfiguredServer(officialWebapp = official) { server, repository ->

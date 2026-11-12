@@ -51,6 +51,8 @@ class MainViewModel(
         backgroundActivityFullTextEnabled = settingsRepositoryImpl?.isBackgroundActivityFullTextEnabled() ?: false,
         reconnectPollIntervalSeconds = settingsRepositoryImpl?.getReconnectPollIntervalSeconds() ?: 1,
         requireVpnForTailscaleEnabled = settingsRepositoryImpl?.isRequireVpnForTailscaleEnabled() ?: false,
+        rememberHttpAuthEnabled = settingsRepositoryImpl?.isRememberHttpAuthEnabled() ?: false,
+        savedHttpAuthCredentialCount = settingsRepositoryImpl?.savedHttpAuthCredentialCount() ?: 0,
         vpnLaunchPackageName = settingsRepositoryImpl?.getVpnLaunchPackageName().orEmpty(),
         sseTransportEnabled = settingsRepositoryImpl?.isSseTransportEnabled() ?: false,
         debugLoggingEnabled = settingsRepositoryImpl?.isDebugLoggingEnabled() ?: false,
@@ -439,6 +441,26 @@ class MainViewModel(
         _uiState.update { it.copy(vpnLaunchPackageName = packageName.trim()) }
     }
 
+    fun setRememberHttpAuthEnabled(enabled: Boolean) {
+        settingsRepositoryImpl?.setRememberHttpAuthEnabled(enabled)
+        refreshSavedHttpAuthState()
+    }
+
+    fun forgetSavedHttpAuthCredentials() {
+        settingsRepositoryImpl?.clearHttpAuthCredentials()
+        refreshSavedHttpAuthState()
+    }
+
+    fun refreshSavedHttpAuthState() {
+        val repo = settingsRepositoryImpl ?: return
+        _uiState.update {
+            it.copy(
+                rememberHttpAuthEnabled = repo.isRememberHttpAuthEnabled(),
+                savedHttpAuthCredentialCount = repo.savedHttpAuthCredentialCount()
+            )
+        }
+    }
+
     fun setDebugLoggingEnabled(enabled: Boolean) {
         settingsRepositoryImpl?.setDebugLoggingEnabled(enabled)
         _uiState.update { it.copy(debugLoggingEnabled = enabled) }
@@ -543,6 +565,8 @@ class MainViewModel(
                 backgroundActivityFullTextEnabled = repo.isBackgroundActivityFullTextEnabled(),
                 reconnectPollIntervalSeconds = repo.getReconnectPollIntervalSeconds(),
                 requireVpnForTailscaleEnabled = repo.isRequireVpnForTailscaleEnabled(),
+                rememberHttpAuthEnabled = repo.isRememberHttpAuthEnabled(),
+                savedHttpAuthCredentialCount = repo.savedHttpAuthCredentialCount(),
                 vpnLaunchPackageName = repo.getVpnLaunchPackageName(),
                 sseTransportEnabled = repo.isSseTransportEnabled(),
                 debugLoggingEnabled = repo.isDebugLoggingEnabled(),

@@ -28,6 +28,8 @@ data class MainUiState(
     val backgroundActivityFullTextEnabled: Boolean = false,
     val reconnectPollIntervalSeconds: Int = 1,
     val requireVpnForTailscaleEnabled: Boolean = false,
+    val rememberHttpAuthEnabled: Boolean = false,
+    val savedHttpAuthCredentialCount: Int = 0,
     val vpnLaunchPackageName: String = "",
     val sseTransportEnabled: Boolean = false,
     val sseSupportStatus: String? = null,

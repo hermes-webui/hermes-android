@@ -96,7 +96,14 @@ class WebViewSecurityContractTest {
         val prompt = bodiesOf(mainActivity, "private fun showHttpAuthPrompt(").single()
         assertThat(prompt).contains("isTrustedHttpAuthHost(host)")
         assertThat(prompt).contains("handler.cancel()")
-        assertThat(prompt).doesNotContain("save")
+        // Saving is opt-in: only from the prompt's Remember checkbox, which exists only while
+        // the setting is on, and saved sign-ins are reused only on WebView's first attempt.
+        assertThat(Regex("""saveHttpAuthCredential\(""").findAll(prompt).count()).isEqualTo(1)
+        assertThat(prompt).contains("if (remember?.isChecked == true")
+        assertThat(prompt).contains("settingsRepository.isRememberHttpAuthEnabled()")
+        assertThat(prompt).contains("saved != null && handler.useHttpAuthUsernamePassword()")
+        assertThat(prompt.indexOf("isTrustedHttpAuthHost(host)"))
+            .isLessThan(prompt.indexOf("getHttpAuthCredential(host, realm)"))
         val proceed = bodiesOf(mainActivity, "private fun proceedHttpAuthPrompt(").single()
         assertThat(proceed).contains("prompt.handler.proceed(username, password)")
         val cancel = bodiesOf(mainActivity, "private fun cancelHttpAuthPrompt(").single()

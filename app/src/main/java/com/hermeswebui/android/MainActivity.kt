@@ -250,6 +250,7 @@ class MainActivity : ComponentActivity() {
     // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
     // configured server when this hop is exactly that origin (Issue #134).
     private var lastMainFrameHopUrl: String? = null
+    private var mainFrameNavigationGeneration = 0L
     private var serverTypeDocumentGeneration = 0L
     private var proxySignInDialog: android.app.AlertDialog? = null
     private var pendingHttpAuthPrompt: PendingHttpAuthPrompt? = null
@@ -1013,7 +1014,7 @@ class MainActivity : ComponentActivity() {
                         handleMainWebViewNavigation(target)
                     }
                     if (!handled && request.isForMainFrame) {
-                        lastMainFrameHopUrl = target
+                        recordMainFrameHop(target)
                         restrictMediaPlaybackBeforeNavigation(target)
                     }
                     return handled
@@ -1371,7 +1372,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleMainWebViewPageStarted(url: String?) {
-        if (!url.isNullOrBlank()) lastMainFrameHopUrl = url
+        recordMainFrameHop(url?.takeIf { it.isNotBlank() })
         if (!url.isNullOrBlank()) {
             val activeTopLevelFlow = activeMainFrameOAuthFlow
             if (activeTopLevelFlow?.isVerifiedCallbackUrl(url) == true) {
@@ -1415,8 +1416,9 @@ class MainActivity : ComponentActivity() {
             }
             val password = EditText(this).apply {
                 hint = "Password"
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                // setSingleLine replaces the password transformation.
                 setSingleLine()
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             }
             val content = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1465,6 +1467,7 @@ class MainActivity : ComponentActivity() {
 
     private fun confirmProxySignInRedirect(serverUrl: String, origin: String, target: String) {
         if (proxySignInDialog?.isShowing == true) return
+        val navigationGeneration = mainFrameNavigationGeneration
         DiagnosticsLogger.record(this, "proxy_sign_in_redirect", mapOf(
             "origin" to DiagnosticsLogger.originOnly(serverUrl),
             "login_origin" to origin
@@ -1478,8 +1481,11 @@ class MainActivity : ComponentActivity() {
             )
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Continue") { _, _ ->
+                // An intercepted initial redirect can leave WebView.url null even without a new navigation.
                 val stillConfigured = viewModel.uiState.value.settings.serverUrl == serverUrl &&
-                    matchesConfiguredWebUiRoute(webView.url)
+                    mainFrameNavigationGeneration == navigationGeneration &&
+                    matchesConfiguredWebUiRoute(lastMainFrameHopUrl) &&
+                    ProxyAuthNavigation.mainFrameRedirectConsentOrigin(serverUrl, lastMainFrameHopUrl, target) == origin
                 DiagnosticsLogger.record(this, "proxy_sign_in_approval", mapOf(
                     "origin" to DiagnosticsLogger.originOnly(serverUrl),
                     "current_origin" to DiagnosticsLogger.originOnly(webView.url),
@@ -2134,8 +2140,13 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun loadInMainWebView(url: String) {
+    private fun recordMainFrameHop(url: String?) {
         lastMainFrameHopUrl = url
+        mainFrameNavigationGeneration++
+    }
+
+    private fun loadInMainWebView(url: String) {
+        recordMainFrameHop(url)
         webView.loadUrl(url)
     }
 
@@ -2188,7 +2199,7 @@ class MainActivity : ComponentActivity() {
     private fun goBackInMainWebView() {
         // History navigation skips shouldOverrideUrlLoading, so record the entry being restored.
         val history = webView.copyBackForwardList()
-        lastMainFrameHopUrl = history.getItemAtIndex(history.currentIndex - 1)?.url
+        recordMainFrameHop(history.getItemAtIndex(history.currentIndex - 1)?.url)
         webView.goBack()
     }
 

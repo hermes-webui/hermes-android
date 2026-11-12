@@ -18,7 +18,19 @@
   for the exact app package/signing certificate. The separate blank
   Dashboard-after-Basic-login symptom is linked to Hermes Agent issue
   [#142352](https://github.com/NousResearch/hermes-agent/issues/142352); a
-  shared root cause is not established.
+  shared root cause is not established. The reporter still cannot complete
+  Pocket ID passkey sign-in on v1.2.2; Pocket ID may reject Android-app
+  WebAuthn origins even with an association
+  ([pocket-id/pocket-id#1845](https://github.com/pocket-id/pocket-id/issues/1845)).
+  Browser-based OAuth is a possible follow-up, not implemented: an HTTPS Auth
+  Tab callback needs an association on the callback host for the installed
+  package/signing key, unsupported-browser fallback needs separate handling,
+  and browser cookies are not WebView cookies. Proxy OAuth callbacks may belong
+  to the approved proxy login origin rather than the configured server, which
+  requires a separate scoped design. No live Pocket ID flow has been verified.
+- [ ] Issue #184 follow-up: consider the reporter's request for optional
+  remembered HTTP Basic login without weakening the current no-persistence
+  policy; no credentials are saved today.
 - [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews now prompt for credentials on challenges from the configured server host only. Hermes-Android does not save credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,
@@ -218,6 +230,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-059 | 2026-11-12 | Authentication | Issue #184 follow-up: mask native HTTP Basic passwords and allow an initial proxy redirect after consent when WebView has no committed URL, while rejecting consent after a later navigation. API 35 loopback regressions were RED on base and GREEN locally; live reporter acceptance and passkey sign-in remain open. |
 | BUG-058 | 2026-11-11 | Authentication | Fixed Issue #185: proxy-level HTTP Basic challenges from the configured server now show a native username/password dialog in main and popup WebViews. Credentials are never saved, and challenges from other hosts are canceled. JVM policy/source-contract tests pass; the API 36 loopback regression test compiles but was not run locally because no emulator/device is attached. |
 | BUG-057 | 2026-11-07 | Deep links | Fixed Issue #170: `hermes://session/{id}` and `hermes://app/settings` now work when the app starts from a closed state, not only through `onNewIntent`. A cold-start session link feeds the same trusted-route startup override as a notification tap, so `SelectedServerNavigation.startupUrl` still gates it, and the settings link is skipped on activity recreation. Two cold-start API 35 tests failed before the fix and pass after it. |
 | TEST-009 | 2026-11-07 | QA | Closed Issue #150's QA hardening (see QA-001). Added JVM-tested extractions for the LAN preflight, hardware-keyboard, SSE cookie and status-fallback rules, six OIDC/dead-URL/deep-link/Settings flow tests, notification-facade and long-press fixtures, client-certificate password cases and a server-switch session-wipe guard. Each guard was shown to fail when its rule was deliberately broken. |

@@ -5,6 +5,7 @@ import android.app.Instrumentation
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.text.method.PasswordTransformationMethod
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +24,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.filters.SdkSuppress
 import android.webkit.CookieManager
@@ -93,6 +95,28 @@ class ProxyAuthRedirectInstrumentationTest {
                 assertThat(server.requests.any {
                     it.path == "/" && it.authorization == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="
                 }).isTrue()
+            }
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_masksTheEnteredPassword() {
+        withConfiguredServer(basicAuth = true) { _, _ ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                awaitText("Sign in to 127.0.0.1")
+                instrumentation.runOnMainSync {
+                    val password = WindowInspector.getGlobalWindowViews().asSequence()
+                        .flatMap { root -> descendants(root) }
+                        .filterIsInstance<EditText>()
+                        .single { field -> field.isShown && field.hint == "Password" }
+                    password.setText("test-pass")
+                    assertThat(password.transformationMethod)
+                        .isInstanceOf(PasswordTransformationMethod::class.java)
+                    val displayed = password.transformationMethod
+                        .getTransformation(password.text, password).toString()
+                    assertThat(displayed).hasLength(password.text.length)
+                    assertThat(displayed).doesNotContain("test-pass")
+                }
             }
         }
     }
@@ -276,6 +300,94 @@ class ProxyAuthRedirectInstrumentationTest {
                 clickDialogButton("Continue")
                 awaitLoginForm(scenario, server)
                 assertThat(repository.getLastLoadedUrl()).isEqualTo("${server.baseUrl}/session/issue132")
+            }
+        }
+    }
+
+    @Test
+    fun initialMainFrameRedirect_continuesToProxySignInAfterConsent() {
+        withConfiguredServer(publicStatus = true) { server, repository ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("${server.baseUrl} redirected to ${server.loginOrigin}.")
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
+                clickDialogButton("Continue")
+                awaitLoginForm(scenario, server)
+                assertThat(repository.getLastLoadedUrl()).doesNotContain("login")
+                evaluateWebView(scenario, "document.getElementById('signin').click();")
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in"
+                }
+            }
+        }
+    }
+
+    @Test
+    fun editingCurrentServer_continuesToProxySignInAfterConsent() {
+        withConfiguredServer(officialWebapp = true) { original, repository ->
+            ProxyServer(publicStatus = true).use { target ->
+                repository.addProfile("Primary", original.baseUrl)
+                instrumentation.runOnMainSync {
+                    CookieManager.getInstance().setCookie(original.baseUrl, "proxy_auth=ok; Path=/")
+                }
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitWebView(scenario) {
+                        it.url == "${original.baseUrl}/" && it.title == "Hermes signed in"
+                    }
+                    scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                    compose.onNodeWithText("Primary").performTouchInput { longClick() }
+                    compose.onNodeWithText("Server URL").performTextReplacement(target.baseUrl)
+                    compose.onNodeWithText("Save").performClick()
+
+                    awaitText("${target.baseUrl} redirected to ${target.loginOrigin}.")
+                    assertThat(target.requests.none { it.host.startsWith("localhost:") }).isTrue()
+                    clickDialogButton("Continue")
+                    awaitLoginForm(scenario, target)
+                    evaluateWebView(scenario, "document.getElementById('signin').click();")
+                    awaitWebView(scenario) {
+                        it.url == "${target.baseUrl}/session/issue132" && it.title == "Hermes signed in"
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun mainFrameConsent_isRejectedAfterAnotherPageLoads() {
+        withConfiguredServer(publicStatus = true) { server, _ ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("${server.baseUrl} redirected to ${server.loginOrigin}.")
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                        .loadUrl("${server.baseUrl}/api/status")
+                }
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/api/status" && it.progress == 100
+                }
+                clickDialogButton("Continue")
+                assertProxyApproval(server, approved = false)
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
+            }
+        }
+    }
+
+    @Test
+    fun mainFrameConsent_isRejectedAfterTheSameUrlIsReloaded() {
+        withConfiguredServer(publicStatus = true, officialWebapp = true) { server, _ ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("${server.baseUrl} redirected to ${server.loginOrigin}.")
+                instrumentation.runOnMainSync {
+                    CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+                }
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                        .loadUrl(server.baseUrl)
+                }
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/" && it.title == "Hermes signed in"
+                }
+                clickDialogButton("Continue")
+                assertProxyApproval(server, approved = false)
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
             }
         }
     }
@@ -708,13 +820,19 @@ class ProxyAuthRedirectInstrumentationTest {
         officialWebapp: Boolean = false,
         oidc: Boolean = false,
         basicAuth: Boolean = false,
+        publicStatus: Boolean = false,
         block: (ProxyServer, SettingsRepository) -> Unit
     ) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
         val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
         val loggingWasEnabled = SettingsRepository(context).isDebugLoggingEnabled()
-        ProxyServer(officialWebapp = officialWebapp, oidc = oidc, basicAuth = basicAuth).use { server ->
+        ProxyServer(
+            officialWebapp = officialWebapp,
+            oidc = oidc,
+            basicAuth = basicAuth,
+            publicStatus = publicStatus
+        ).use { server ->
             try {
                 val repository = SettingsRepository(context)
                 repository.getProfiles().forEach { repository.deleteProfile(it.id) }
@@ -796,7 +914,10 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     private fun awaitLoginForm(scenario: ActivityScenario<MainActivity>, server: ProxyServer) {
-        eventually("Login document and sign-in button ready") {
+        eventually({
+            "Login document and sign-in button ready; ${webViewSummary(scenario)}\n" +
+                DiagnosticsLogger.recentText(context).takeLast(3_000)
+        }) {
             evaluateWebView(
                 scenario,
                 """
@@ -806,6 +927,16 @@ class ProxyAuthRedirectInstrumentationTest {
                 """.trimIndent()
             ) == "true"
         }
+    }
+
+    private fun assertProxyApproval(server: ProxyServer, approved: Boolean) {
+        var result: String? = null
+        eventually("Proxy sign-in decision recorded") {
+            result = DiagnosticsLogger.recentText(context).lineSequence()
+                .lastOrNull { it.contains("proxy_sign_in_approval") && it.contains("origin=${server.baseUrl}") }
+            result != null
+        }
+        assertThat(result).contains("approved=$approved")
     }
 
     private fun evaluateWebView(scenario: ActivityScenario<MainActivity>, script: String): String? {
@@ -856,6 +987,7 @@ class ProxyAuthRedirectInstrumentationTest {
         private val officialWebapp: Boolean = false,
         private val oidc: Boolean = false,
         private val basicAuth: Boolean = false,
+        private val publicStatus: Boolean = false,
         port: Int = 0
     ) : AutoCloseable {
         data class Request(val path: String, val host: String, val cookie: String, val authorization: String)
@@ -940,7 +1072,8 @@ class ProxyAuthRedirectInstrumentationTest {
                                 <script>window.__HERMES_WEBUI_BUNDLE_VERSION__="fixture";</script>
                                 <div class="layout"><main class="main">Authenticated</main></div>
                             """.trimIndent())
-                        path == "/api/status" && authenticated -> Triple("200 OK", "", """{"version":"test","initialized":true}""")
+                        path == "/api/status" && (authenticated || publicStatus) ->
+                            Triple("200 OK", "", """{"version":"test","initialized":true}""")
                         path == "/api/status" || (path == "/" && !authenticated) ->
                             Triple("$redirectCode Redirect", "Location: ${(locationOverride ?: "$loginOrigin/login?rd=synthetic-secret").replace("{port}", socket.localPort.toString())}\r\n", "")
                         path == "/login" -> Triple("200 OK", "", """

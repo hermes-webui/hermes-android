@@ -116,8 +116,11 @@ class HermesWebUiScriptsTest {
             .substringBefore("function updateRepair(")
         assertThat(collapsed.indexOf("getBoundingClientRect"))
             .isLessThan(collapsed.indexOf("shouldSkipRepairForElement(el)"))
-        assertThat(collapsed.indexOf("if (scrollHeight < 80) return false;"))
+        assertThat(collapsed.indexOf("if (scrollHeight < 80 && !pageShell) return false;"))
             .isLessThan(collapsed.indexOf("shouldSkipRepairForElement(el)"))
+        // A page shell must still honor the exclusion contract before it is classified.
+        assertThat(collapsed.indexOf("shouldSkipRepairForElement(el)"))
+            .isLessThan(collapsed.indexOf("if (pageShell) return 'shell';"))
 
         // The scan loop only pays for the exclusion check on already-repaired elements.
         val scan = script.substringAfter("var elements = document.querySelectorAll('*');")
@@ -139,8 +142,8 @@ class HermesWebUiScriptsTest {
         assertThat(script).contains("isNodeVisible(verified.interactive)")
         // Help fallback placement is never cached.
         assertThat(script).contains("if (!matchesSettingsNode(interactive)) return;")
-        // The WebApp guard still runs before any fast path.
-        assertThat(script.indexOf("__HERMES_UI_SURFACE__ === 'webapp'"))
+        // The WebUI-only guard (which rejects the Webapp and the Dashboard) still runs before any fast path.
+        assertThat(script.indexOf("if (!isHermesWebUiPage()) return;"))
             .isLessThan(script.indexOf("if (placementStillVerified()) return;"))
     }
 

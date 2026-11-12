@@ -1,3 +1,6 @@
+import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -167,13 +170,40 @@ class PlayListingTests(unittest.TestCase):
     def test_production_publish_uses_exact_reviewed_commit_and_existing_credentials(self):
         workflow = read_workflow("_publish-play-store.yml")
         self.assertIn("ref: ${{ inputs.commit_sha }}", workflow)
-        self.assertIn("repository: ${{ job.workflow_repository }}", workflow)
-        self.assertIn("ref: ${{ job.workflow_sha }}", workflow)
-        self.assertIn("path: .publish-workflow", workflow)
+        checkout = workflow.split("name: Check out publication workflow tools", 1)[1].split("\n      - name:", 1)[0]
+        self.assertIn("repository: ${{ job.workflow_repository }}", checkout)
+        self.assertIn("ref: ${{ job.workflow_sha }}", checkout)
+        self.assertIn("path: .publish-workflow", checkout)
         self.assertIn("python3 .publish-workflow/tools/publish_play_listing.py", workflow)
+        self.assertLess(workflow.index("Check out publication workflow tools"), workflow.index("Upload AAB to Google Play"))
         self.assertLess(workflow.index("Prepare production verification"), workflow.index("Upload AAB to Google Play"))
         self.assertIn("if: inputs.track == 'production'", workflow)
         self.assertIn("--credentials signing/google-play-service-account.json", workflow)
         self.assertIn("--metadata store/google-play/en-US", workflow)
         self.assertIn("--expected-production-version-code", workflow)
         self.assertIn("--expected-play-notes", workflow)
+
+    def test_retry_preflight_uses_workflow_tools_even_if_release_has_its_own_tools_package(self):
+        workflow = read_workflow("_publish-play-store.yml")
+        prepare = workflow.split("name: Prepare production verification", 1)[1].split("\n      - name:", 1)[0]
+        commands = re.findall(r"python3 -c '([^']+)'", prepare)
+        version_command = next(command for command in commands if "version_code" in command)
+        listing_command = next(command for command in commands if "read_descriptions" in command)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            release_tools = root / "tools"
+            release_tools.mkdir()
+            (release_tools / "__init__.py").write_text("raise RuntimeError('wrong tools package')\n", encoding="utf-8")
+            workflow_tools = root / ".publish-workflow" / "tools"
+            workflow_tools.mkdir(parents=True)
+            for name in ("bump_version.py", "publish_play_listing.py"):
+                shutil.copyfile(ROOT / "tools" / name, workflow_tools / name)
+            metadata = root / "store" / "google-play" / "en-US"
+            metadata.mkdir(parents=True)
+            (metadata / "short_description.txt").write_text("Short", encoding="utf-8")
+            (metadata / "full_description.txt").write_text("Full", encoding="utf-8")
+            code = subprocess.check_output(
+                [sys.executable, "-c", version_command, "1.2.0"], cwd=root, text=True
+            )
+            self.assertEqual(code.strip(), "10200")
+            subprocess.run([sys.executable, "-c", listing_command], cwd=root, check=True)

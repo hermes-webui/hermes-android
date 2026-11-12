@@ -144,9 +144,9 @@ jobs:
           VERSION_NAME: ${{ inputs.version_name }}
         run: |
           python3 -m pip install -r .publish-workflow/tools/requirements-play-listing.txt
-          version_code="$(cd .publish-workflow && python3 -c 'import sys; from tools.bump_version import version_code; print(version_code(sys.argv[1]))' "$VERSION_NAME")"
+          version_code="$(python3 -c 'import runpy, sys; print(runpy.run_path(".publish-workflow/tools/bump_version.py")["version_code"](sys.argv[1]))' "$VERSION_NAME")"
           python3 .publish-workflow/tools/publish_play_listing.py --help >/dev/null
-          python3 -c 'from pathlib import Path; import sys; sys.path.insert(0, ".publish-workflow"); from tools.publish_play_listing import read_descriptions; read_descriptions(Path("store/google-play/en-US"))'
+          python3 -c 'from pathlib import Path; import runpy; runpy.run_path(".publish-workflow/tools/publish_play_listing.py")["read_descriptions"](Path("store/google-play/en-US"))'
           echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
 
       - name: Decode Google Play service account

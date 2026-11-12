@@ -49,9 +49,11 @@ That workflow:
 6. Publishes the GitHub APK and Play production AAB in the same orchestration run.
 7. Updates the production Play `en-US` short/full descriptions from
    `store/google-play/en-US/`, preserving the existing title and video, then reads
-   them back through a fresh Publisher API edit. Public storefront visibility can
-   still depend on Google review/propagation. A listing failure fails the publish
-   job even if the AAB has already been submitted; inspect the step before retrying.
+   them back through a fresh Publisher API edit. The same edit checks the exact
+   version code, completed status, and English release notes on the production
+   track. Public storefront visibility can still depend on Google review and
+   propagation. A listing or track-readback failure fails the publish job even
+   if the AAB has already been submitted; inspect Play before retrying.
    To retry only the listing with authorized service-account credentials, run
    `python tools/publish_play_listing.py --credentials <credential-file>`.
 

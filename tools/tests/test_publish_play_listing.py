@@ -8,7 +8,7 @@ from tools.tests.test_workflow_contracts import ROOT, read_workflow
 
 
 class PlayListingTests(unittest.TestCase):
-    def session(self, mismatch=False):
+    def session(self, mismatch=False, track=None):
         session = Mock()
         values = [
             {"id": "write"},
@@ -19,6 +19,8 @@ class PlayListingTests(unittest.TestCase):
              "shortDescription": "Wrong" if mismatch else "Short", "fullDescription": "Full"},
             {},
         ]
+        if track is not None:
+            values.insert(6, track)
         session.request.side_effect = [
             Mock(content=b"json", json=Mock(return_value=value)) for value in values
         ]
@@ -42,6 +44,66 @@ class PlayListingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "readback mismatch"):
             publish_listing(session, {"shortDescription": "Short", "fullDescription": "Full"})
         self.assertEqual(session.request.call_args.args, ("DELETE", f"{API}/verify"))
+
+    def test_production_readback_checks_version_status_and_english_notes(self):
+        track = {
+            "track": "production",
+            "releases": [{
+                "status": "completed",
+                "versionCodes": ["10300"],
+                "releaseNotes": [{"language": "en-US", "text": "Release notes\n"}],
+            }],
+        }
+        session = self.session(track=track)
+        publish_listing(
+            session, {"shortDescription": "Short", "fullDescription": "Full"},
+            expected_production_version_code=10300, expected_play_notes="Release notes\n",
+        )
+        self.assertEqual(session.request.call_args_list[6].args, ("GET", f"{API}/verify/tracks/production"))
+        self.assertEqual(session.request.call_args.args, ("DELETE", f"{API}/verify"))
+
+    def test_production_readback_rejects_wrong_track_version_status_or_notes(self):
+        release = {
+            "status": "completed",
+            "versionCodes": ["10300"],
+            "releaseNotes": [{"language": "en-US", "text": "Release notes\n"}],
+        }
+        tracks = [
+            {"track": "beta", "releases": [release]},
+            {"track": "production", "releases": [{**release, "versionCodes": ["10202"]}]},
+            {"track": "production", "releases": [{**release, "status": "draft"}]},
+            {"track": "production", "releases": [{**release, "releaseNotes": [
+                {"language": "en-US", "text": "Wrong notes"}
+            ]}]},
+            {"track": "production", "releases": [{**release, "releaseNotes": [
+                {"language": "fr-FR", "text": "Release notes\n"}
+            ]}]},
+            {"track": "production", "releases": [
+                {**release, "releaseNotes": [{"language": "en-US", "text": "Wrong notes"}]},
+                {**release, "versionCodes": ["10202"]},
+            ]},
+            {"track": "production", "releases": []},
+        ]
+        for track in tracks:
+            with self.subTest(track=track):
+                session = self.session(track=track)
+                with self.assertRaisesRegex(RuntimeError, "production.*readback"):
+                    publish_listing(
+                        session, {"shortDescription": "Short", "fullDescription": "Full"},
+                        expected_production_version_code=10300, expected_play_notes="Release notes\n",
+                    )
+                self.assertEqual(session.request.call_args.args, ("DELETE", f"{API}/verify"))
+
+    def test_production_readback_requires_version_and_notes_together(self):
+        for kwargs in (
+            {"expected_production_version_code": 10300},
+            {"expected_play_notes": "Release notes"},
+        ):
+            with self.subTest(kwargs=kwargs):
+                session = Mock()
+                with self.assertRaises(ValueError):
+                    publish_listing(session, {}, **kwargs)
+                session.request.assert_not_called()
 
     def test_failed_listing_update_discards_edit_and_does_not_commit(self):
         session = self.session()
@@ -74,3 +136,5 @@ class PlayListingTests(unittest.TestCase):
         self.assertIn("python3 tools/publish_play_listing.py", workflow)
         self.assertIn("if: inputs.track == 'production'", workflow)
         self.assertIn("--credentials signing/google-play-service-account.json", workflow)
+        self.assertIn("--expected-production-version-code", workflow)
+        self.assertIn("--expected-play-notes", workflow)

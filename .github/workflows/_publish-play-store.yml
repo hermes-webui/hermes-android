@@ -149,10 +149,15 @@ jobs:
           releaseName: Hermes WebUI Android v${{ inputs.version_name }}
           whatsNewDirectory: build/release/play-whatsnew
 
-      - name: Publish and verify production listing descriptions
+      - name: Publish listing and verify production track
         if: inputs.track == 'production'
         shell: bash
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
         run: |
           python3 -m pip install -r tools/requirements-play-listing.txt
+          version_code="$(python3 -c 'import sys; from tools.bump_version import version_code; print(version_code(sys.argv[1]))' "$VERSION_NAME")"
           python3 tools/publish_play_listing.py \
-            --credentials signing/google-play-service-account.json
+            --credentials signing/google-play-service-account.json \
+            --expected-production-version-code "$version_code" \
+            --expected-play-notes build/release/play-whatsnew/whatsnew-en-US

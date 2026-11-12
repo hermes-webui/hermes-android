@@ -1032,7 +1032,7 @@ class MainActivity : ComponentActivity() {
                         activeMainFrameOAuthFlow == null &&
                         parseTrustedOAuthStart(target) == null &&
                         request.isRedirect &&
-                        matchesConfiguredWebUiRoute(view?.url)
+                        isConfiguredRouteOrNoCommittedPage(view?.url)
                     ) {
                         val origin = ProxyAuthNavigation.mainFrameRedirectConsentOrigin(serverUrl, lastMainFrameHopUrl, target)
                         if (origin != null) {
@@ -1420,7 +1420,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleMainWebViewPageStarted(url: String?) {
-        recordMainFrameHop(url?.takeIf { it.isNotBlank() })
+        // The server-switch about:blank placeholder can report its start after the new server's
+        // redirect opened proxy consent; it is not a navigation away, so it must not void that consent.
+        if (url != "about:blank") recordMainFrameHop(url?.takeIf { it.isNotBlank() })
         if (!url.isNullOrBlank() && !completeMainFrameOAuthIfCallback(url)) {
             parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
         }
@@ -2174,6 +2176,12 @@ class MainActivity : ComponentActivity() {
 
     private fun matchesConfiguredWebUiRoute(url: String?): Boolean {
         return currentWebTrustPolicy().isConfiguredWebUiRoute(url)
+    }
+
+    // A server switch commits about:blank before loading the new server, so its first redirect
+    // can arrive before any server page commits; the exact-origin hop check still attributes it.
+    private fun isConfiguredRouteOrNoCommittedPage(url: String?): Boolean {
+        return url == null || url == "about:blank" || matchesConfiguredWebUiRoute(url)
     }
 
     private fun detectLoadedServerType(view: WebView?) {

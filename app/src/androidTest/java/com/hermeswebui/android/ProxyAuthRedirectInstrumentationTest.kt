@@ -1063,13 +1063,15 @@ class ProxyAuthRedirectInstrumentationTest {
             "Login document and sign-in button ready; ${webViewSummary(scenario)}\n" +
                 DiagnosticsLogger.recentText(context).takeLast(3_000)
         }) {
+            // The document can be replaced mid-call during navigation, dropping the callback; keep polling.
             evaluateWebView(
                 scenario,
                 """
                 document.readyState === 'complete' &&
                   location.origin === ${JSONObject.quote(server.loginOrigin)} &&
                   document.getElementById('signin') !== null
-                """.trimIndent()
+                """.trimIndent(),
+                requireCallback = false
             ) == "true"
         }
     }
@@ -1084,7 +1086,11 @@ class ProxyAuthRedirectInstrumentationTest {
         assertThat(result).contains("approved=$approved")
     }
 
-    private fun evaluateWebView(scenario: ActivityScenario<MainActivity>, script: String): String? {
+    private fun evaluateWebView(
+        scenario: ActivityScenario<MainActivity>,
+        script: String,
+        requireCallback: Boolean = true
+    ): String? {
         val completed = CountDownLatch(1)
         var result: String? = null
         scenario.onActivity { activity ->
@@ -1094,7 +1100,8 @@ class ProxyAuthRedirectInstrumentationTest {
                     completed.countDown()
                 }
         }
-        check(completed.await(5, TimeUnit.SECONDS)) { "WebView JavaScript callback timed out" }
+        val called = completed.await(5, TimeUnit.SECONDS)
+        check(called || !requireCallback) { "WebView JavaScript callback timed out" }
         return result
     }
 

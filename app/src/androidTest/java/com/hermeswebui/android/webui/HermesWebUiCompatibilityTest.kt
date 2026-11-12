@@ -127,6 +127,163 @@ class HermesWebUiCompatibilityTest {
         assertThat(evaluate("getComputedStyle(document.querySelector('.sidebar')).minHeight")).isEqualTo("\"17px\"")
     }
 
+    // ---- Issue #190: the Hermes Agent Dashboard configured as the server URL ----
+
+    // Reduction of the Dashboard shell (hermes-agent web/src/App.tsx): the root is
+    // `flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden` and Android WebView computes dvh
+    // as 0px, which the explicit zero heights stand in for. Only the fixed mobile header escapes
+    // the clip, matching the "only the Hermes Agent header shows" report.
+    private fun dashboardShellFixture(pageHeightPx: Int) = """
+        <style>html, body { margin: 0; }</style>
+        <div id="reactRoot">
+          <div id="appRoot" style="display:flex; flex-direction:column; height:0; max-height:0; min-height:0; overflow:hidden">
+            <div aria-hidden="true" style="position:fixed; inset:0; pointer-events:none"></div>
+            <header style="position:fixed; top:0; left:0; right:0; height:56px; z-index:40; background:#eee">Hermes Agent</header>
+            <div style="height:56px; flex-shrink:0"></div>
+            <div id="contentWrapper" style="display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; overflow:hidden">
+              <div style="display:flex; flex:1; min-height:0">
+                <div style="flex:1; min-width:0">
+                  <div id="pageBody" style="position:relative; height:${pageHeightPx}px">
+                    <button id="pageAction" style="position:absolute; left:16px; top:16px; height:44px"
+                      onclick="window.__pageClicks = (window.__pageClicks || 0) + 1">Sessions</button>
+                    <button id="bottomAction" style="position:absolute; left:16px; top:120px; height:44px"
+                      onclick="window.__bottomClicks = (window.__bottomClicks || 0) + 1">Bottom</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+    """.trimIndent()
+
+    private fun isHittable(id: String) =
+        "(function(e){var r=e.getBoundingClientRect();" +
+            "return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === e;})($id)"
+
+    @Test
+    fun dashboardShell_collapsedRootIsRestoredInASingleRepairPass() {
+        loadFixture(dashboardShellFixture(pageHeightPx = 600))
+        // Control: the fixture reproduces the report before any repair.
+        assertThat(evaluate("appRoot.getBoundingClientRect().height")).isEqualTo("0")
+        assertThat(evaluate(isHittable("pageAction"))).isEqualTo("false")
+
+        // Install and run exactly one scan synchronously, measuring before any
+        // MutationObserver-triggered rescan can mask a partial first pass.
+        val metrics = org.json.JSONObject(
+            org.json.JSONTokener(
+                evaluate(
+                    HermesWebUiScripts.viewportFixScript + "\n" +
+                        "window.__hermesAndroidApplyViewportFix();\n" +
+                        "JSON.stringify({ root: appRoot.getBoundingClientRect().height, " +
+                        "inner: innerHeight, hit: ${isHittable("pageAction")} });"
+                )
+            ).nextValue() as String
+        )
+        assertWithMessage(metrics.toString()).that(metrics.getBoolean("hit")).isTrue()
+        assertWithMessage(metrics.toString())
+            .that(metrics.getDouble("root")).isWithin(1.0).of(metrics.getDouble("inner"))
+
+        tapElement("#pageAction")
+        assertThat(awaitBoolean("window.__pageClicks === 1", expected = true)).isTrue()
+    }
+
+    @Test
+    fun dashboardShell_tallContentIsNotClippedAtThePanelCap() {
+        loadFixture(dashboardShellFixture(pageHeightPx = 3000))
+        // The document may load before WebView has a nonzero viewport.
+        assertThat(awaitBoolean("window.innerHeight > 0", expected = true)).isTrue()
+        evaluate("bottomAction.style.top = (window.innerHeight - 56 - 60) + 'px'; 0")
+        installShim()
+        // Let observer-driven rescans settle; the repaired root must stay at the full viewport.
+        rescan()
+
+        assertThat(evaluateBoolean(
+            "Math.abs(appRoot.getBoundingClientRect().height - innerHeight) <= 1"
+        )).isTrue()
+        val metrics = org.json.JSONObject(
+            org.json.JSONTokener(evaluate("""
+                (function() {
+                  var rect = bottomAction.getBoundingClientRect();
+                  var y = rect.top + rect.height / 2;
+                  var hit = document.elementFromPoint(rect.left + rect.width / 2, y);
+                  return JSON.stringify({
+                    centerY: y, innerHeight: innerHeight,
+                    hit: hit && (hit.id || hit.tagName), hittable: hit === bottomAction
+                  });
+                })()
+            """.trimIndent())).nextValue() as String
+        )
+        assertWithMessage(metrics.toString()).that(metrics.getDouble("centerY"))
+            .isGreaterThan(metrics.getDouble("innerHeight") * 0.82)
+        assertWithMessage(metrics.toString()).that(metrics.getDouble("centerY"))
+            .isLessThan(metrics.getDouble("innerHeight"))
+        assertWithMessage(metrics.toString()).that(metrics.getBoolean("hittable")).isTrue()
+        tapElement("#bottomAction")
+        assertThat(awaitBoolean("window.__bottomClicks === 1", expected = true)).isTrue()
+    }
+
+    @Test
+    fun dashboardShell_repairLeavesAFixedLayerPortalAlone() {
+        // A zero-height portal that only hosts position:fixed layers clips nothing.
+        loadFixture("""
+            <style>html, body { margin: 0; }</style>
+            <div id="portal" style="overflow:hidden">
+              <div style="position:fixed; inset:0; pointer-events:none">
+                <div style="height:600px"><button>Dialog action</button></div>
+              </div>
+            </div>
+        """.trimIndent())
+        installShim()
+
+        assertThat(evaluate("portal.hasAttribute('data-hermes-android-vh-repaired')")).isEqualTo("false")
+        assertThat(evaluate("portal.getBoundingClientRect().height")).isEqualTo("0")
+    }
+
+    @Test
+    fun dashboardShell_repairNeverTreatsContentBelowAnInFlowHeaderAsThePageShell() {
+        // WebUI-shaped page: an in-flow titlebar occupies the page, so a zero-height clipping
+        // region below it is not the page root and must not be stretched to the viewport.
+        loadFixture("""
+            <style>html, body { margin: 0; }</style>
+            <header style="height:48px">Titlebar</header>
+            <div id="region" style="display:flex; flex-direction:column; height:0; overflow:hidden">
+              <div style="height:40px"><button>Action</button></div>
+            </div>
+        """.trimIndent())
+        installShim()
+
+        assertThat(evaluate("region.hasAttribute('data-hermes-android-vh-repaired')")).isEqualTo("false")
+        assertThat(evaluate("region.getBoundingClientRect().height")).isEqualTo("0")
+    }
+
+    @Test
+    fun dashboardAsServer_getsNoWebUiOnlyEditorOrSidebarShims() {
+        // The Dashboard sets neither WebUI's bundle marker nor the Webapp surface marker.
+        loadFixture(body = """
+            <nav><a id="settings" href="#settings">Settings</a></nav>
+            <textarea id="composer"></textarea>
+        """.trimIndent(), documentStartScripts = listOf(
+            HermesWebUiScripts.enterKeyNewlineScript,
+            HermesWebUiScripts.appSettingsEntryScript
+        ))
+        evaluate("""
+            window.__editorEvents = 0;
+            composer.addEventListener('keydown', function() { window.__editorEvents++; });
+            composer.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Enter', bubbles: true, cancelable: true
+            }));
+            requestAnimationFrame(function() {
+              requestAnimationFrame(function() { window.__sidebarSettled = true; });
+            });
+        """.trimIndent())
+
+        assertThat(awaitBoolean("window.__sidebarSettled === true", expected = true)).isTrue()
+        assertThat(evaluate("window.__editorEvents")).isEqualTo("1")
+        assertThat(evaluate("composer.value")).isEqualTo("\"\"")
+        assertThat(evaluate("document.querySelector('[data-hermes-android-app-settings-entry]') === null"))
+            .isEqualTo("true")
+    }
+
     @After
     fun destroyWebView() {
         if (::webView.isInitialized) {
@@ -259,6 +416,7 @@ class HermesWebUiCompatibilityTest {
     fun clarifyAutofocus_suppressesOnlyAutomaticClarifyFocus() {
         loadFixture(
             """
+            <script>window.__HERMES_WEBUI_BUNDLE_VERSION__ = 'fixture';</script>
             <div class="clarify-card visible">
               <div id="clarifyQuestion">First question</div>
               <div id="clarifyChoices">
@@ -620,6 +778,7 @@ class HermesWebUiCompatibilityTest {
     // not by checking that the script text contains a string. ---
 
     private val composerFixture = """
+        <script>window.__HERMES_WEBUI_BUNDLE_VERSION__ = 'fixture';</script>
         <textarea id="composer"></textarea>
         <script>
           window.__submits = 0;
@@ -945,6 +1104,7 @@ class HermesWebUiCompatibilityTest {
     }
 
     private val sidebarFixture = """
+        <script>window.__HERMES_WEBUI_BUNDLE_VERSION__ = 'fixture';</script>
         <nav class="rail" style="display:flex;flex-direction:column;width:200px">
           <button class="rail-btn nav-tab" data-panel="chat" aria-label="Chat">Chat</button>
           <button class="rail-btn nav-tab" id="settingsBtn" data-panel="settings" aria-label="Settings">Settings</button>
@@ -1001,10 +1161,11 @@ class HermesWebUiCompatibilityTest {
     @Test
     fun appSettingsEntry_movesFromTheHelpFallbackOnceSettingsAppears() {
         // Older or changed markup may only have Help; Settings is the real anchor when it shows up.
+        // This fixture also carries no bundle marker, so it covers the legacy .layout/main.main detection.
         loadFixture(
-            """<nav class="rail" style="display:flex;flex-direction:column;width:200px">
+            """<div class="layout"><nav class="rail" style="display:flex;flex-direction:column;width:200px">
                  <button class="rail-btn nav-tab" id="helpBtn" aria-label="Help">Help</button>
-               </nav>""",
+               </nav><main class="main"></main></div>""",
             documentStartScripts = listOf(HermesWebUiScripts.appSettingsEntryScript)
         )
         assertThat(awaitBoolean("document.querySelectorAll('$entrySelector').length === 1", expected = true)).isTrue()

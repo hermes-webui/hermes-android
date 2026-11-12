@@ -22,7 +22,9 @@
   Pocket ID passkey sign-in on v1.2.2; Pocket ID may reject Android-app
   WebAuthn origins even with an association
   ([pocket-id/pocket-id#1845](https://github.com/pocket-id/pocket-id/issues/1845)).
-  No live Pocket ID flow has been verified.
+  No live Pocket ID flow has been verified. Issue #190 addresses an
+  Android-side viewport collapse that can blank a Dashboard used as the
+  server URL; the reporter's setup is still to be confirmed.
 - [~] Issue #184 follow-up: proxy-gateway OAuth and optional **Sign in with
   Chrome**. A sign-in gateway approved through proxy consent (for example
   TinyAuth) may start OIDC whose callback returns to that exact gateway origin;
@@ -239,6 +241,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-061 | 2026-11-12 | WebView | Fixed Issue #190: a Hermes Agent Dashboard configured as the server URL rendered only its header because Android WebView evaluates its `h-dvh overflow-hidden` root as 0px and the viewport repair restored only an inner wrapper on the first pass, then capped the root at 82%. The repair now recognizes a collapsed page shell and restores it to the full viewport height in one pass, and the WebUI-only Enter, sidebar, Clarify and route-recovery shims now require a positive WebUI marker so the Dashboard no longer receives them. Emulator fixtures reproduce the Dashboard layout; a real device against a live Dashboard remains unverified pending the reporter's confirmation in #184. |
 | BUG-060 | 2026-11-12 | Authentication | Issue #184 follow-up: keep OIDC started by an approved proxy sign-in gateway in the app when its callback returns to that exact gateway origin, and add opt-in Sign in with Chrome (Auth Tab with verified callback return and in-app fallback). Also stop a server switch's `about:blank` placeholder from externalizing the new server's sign-in redirect or voiding its consent with a false "Server changed" (RED on an API 36 Fold emulator with Chrome in 4/4 and 4/5 runs per guard, GREEN 32/32 there and on API 35). API 35 loopback gateway tests were RED with the gateway trust removed and GREEN locally; real Auth Tab, live TinyAuth/Pocket ID, and reporter acceptance remain open. |
 | BUG-059 | 2026-11-12 | Authentication | Issue #184 follow-up: mask native HTTP Basic passwords and allow an initial proxy redirect after consent when WebView has no committed URL, while rejecting consent after a later navigation. API 35 loopback regressions were RED on base and GREEN locally; live reporter acceptance and passkey sign-in remain open. |
 | BUG-058 | 2026-11-11 | Authentication | Fixed Issue #185: proxy-level HTTP Basic challenges from the configured server now show a native username/password dialog in main and popup WebViews. Credentials are never saved, and challenges from other hosts are canceled. JVM policy/source-contract tests pass; the API 36 loopback regression test compiles but was not run locally because no emulator/device is attached. |

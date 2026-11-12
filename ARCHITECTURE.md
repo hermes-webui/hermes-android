@@ -46,7 +46,8 @@ from `store/google-play/en-US/` through the Publisher API, preserving title/vide
 A fresh-edit readback verifies the descriptions and the production track's exact
 version code, completed status and English release notes. F-Droid's `fastlane`
 text remains separate; API verification is not proof of public storefront
-propagation.
+propagation. Retries use the publishing workflow's verifier while retaining the
+reviewed release commit's listing text.
 
 Recent cleanup keeps `MainActivity` as the Android boundary while moving clustered responsibilities into small helpers:
 

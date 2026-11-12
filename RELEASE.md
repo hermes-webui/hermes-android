@@ -56,6 +56,8 @@ That workflow:
    if the AAB has already been submitted; inspect Play before retrying.
    To retry only the listing with authorized service-account credentials, run
    `python tools/publish_play_listing.py --credentials <credential-file>`.
+   Target-specific retries use the publishing workflow's verifier, even for an
+   older release commit, and validate the reviewed listing text before upload.
 
 F-Droid descriptions remain separate under `fastlane/metadata/android/en-US/`
 because their privacy/channel wording differs from Play. Update both when

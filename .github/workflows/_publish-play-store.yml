@@ -45,6 +45,14 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha }}
 
+      - name: Check out publication workflow tools
+        if: inputs.track == 'production'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .publish-workflow
+
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
@@ -128,6 +136,19 @@ jobs:
             exit 1
           }
 
+      - name: Prepare production verification
+        if: inputs.track == 'production'
+        id: production_verifier
+        shell: bash
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          python3 -m pip install -r .publish-workflow/tools/requirements-play-listing.txt
+          version_code="$(cd .publish-workflow && python3 -c 'import sys; from tools.bump_version import version_code; print(version_code(sys.argv[1]))' "$VERSION_NAME")"
+          python3 .publish-workflow/tools/publish_play_listing.py --help >/dev/null
+          python3 -c 'from pathlib import Path; import sys; sys.path.insert(0, ".publish-workflow"); from tools.publish_play_listing import read_descriptions; read_descriptions(Path("store/google-play/en-US"))'
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+
       - name: Decode Google Play service account
         shell: bash
         run: |
@@ -153,11 +174,10 @@ jobs:
         if: inputs.track == 'production'
         shell: bash
         env:
-          VERSION_NAME: ${{ inputs.version_name }}
+          EXPECTED_VERSION_CODE: ${{ steps.production_verifier.outputs.version_code }}
         run: |
-          python3 -m pip install -r tools/requirements-play-listing.txt
-          version_code="$(python3 -c 'import sys; from tools.bump_version import version_code; print(version_code(sys.argv[1]))' "$VERSION_NAME")"
-          python3 tools/publish_play_listing.py \
+          python3 .publish-workflow/tools/publish_play_listing.py \
             --credentials signing/google-play-service-account.json \
-            --expected-production-version-code "$version_code" \
+            --metadata store/google-play/en-US \
+            --expected-production-version-code "$EXPECTED_VERSION_CODE" \
             --expected-play-notes build/release/play-whatsnew/whatsnew-en-US

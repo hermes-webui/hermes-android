@@ -1,9 +1,10 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
-from tools.publish_play_listing import API, publish_listing, read_descriptions
+from tools.publish_play_listing import API, main, publish_listing, read_descriptions
 from tools.tests.test_workflow_contracts import ROOT, read_workflow
 
 
@@ -105,6 +106,39 @@ class PlayListingTests(unittest.TestCase):
                     publish_listing(session, {}, **kwargs)
                 session.request.assert_not_called()
 
+    def test_cli_rejects_mismatched_production_version(self):
+        track = {
+            "track": "production",
+            "releases": [{
+                "status": "completed",
+                "versionCodes": ["10202"],
+                "releaseNotes": [{"language": "en-US", "text": "Release notes\n"}],
+            }],
+        }
+        session = self.session(track=track)
+        authorized_session = MagicMock()
+        authorized_session.__enter__.return_value = session
+        modules = {
+            "google.auth.transport.requests": Mock(AuthorizedSession=Mock(return_value=authorized_session)),
+            "google.oauth2.service_account": Mock(Credentials=Mock()),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "short_description.txt").write_text("Short", encoding="utf-8")
+            (path / "full_description.txt").write_text("Full", encoding="utf-8")
+            notes = path / "notes.txt"
+            notes.write_text("Release notes\n", encoding="utf-8")
+            args = [
+                "publish_play_listing.py", "--credentials", str(path / "credentials.json"),
+                "--metadata", str(path), "--expected-production-version-code", "10300",
+                "--expected-play-notes", str(notes),
+            ]
+            with patch.dict(sys.modules, modules), patch.object(sys, "argv", args):
+                with self.assertRaisesRegex(RuntimeError, "production.*readback"):
+                    main()
+        self.assertEqual(session.request.call_args_list[6].args, ("GET", f"{API}/verify/tracks/production"))
+        self.assertEqual(session.request.call_args.args, ("DELETE", f"{API}/verify"))
+
     def test_failed_listing_update_discards_edit_and_does_not_commit(self):
         session = self.session()
         failure = Mock()
@@ -133,8 +167,13 @@ class PlayListingTests(unittest.TestCase):
     def test_production_publish_uses_exact_reviewed_commit_and_existing_credentials(self):
         workflow = read_workflow("_publish-play-store.yml")
         self.assertIn("ref: ${{ inputs.commit_sha }}", workflow)
-        self.assertIn("python3 tools/publish_play_listing.py", workflow)
+        self.assertIn("repository: ${{ job.workflow_repository }}", workflow)
+        self.assertIn("ref: ${{ job.workflow_sha }}", workflow)
+        self.assertIn("path: .publish-workflow", workflow)
+        self.assertIn("python3 .publish-workflow/tools/publish_play_listing.py", workflow)
+        self.assertLess(workflow.index("Prepare production verification"), workflow.index("Upload AAB to Google Play"))
         self.assertIn("if: inputs.track == 'production'", workflow)
         self.assertIn("--credentials signing/google-play-service-account.json", workflow)
+        self.assertIn("--metadata store/google-play/en-US", workflow)
         self.assertIn("--expected-production-version-code", workflow)
         self.assertIn("--expected-play-notes", workflow)

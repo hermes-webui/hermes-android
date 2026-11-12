@@ -146,7 +146,7 @@ class HermesWebUiCompatibilityTest {
                   <div id="pageBody" style="position:relative; height:${pageHeightPx}px">
                     <button id="pageAction" style="position:absolute; left:16px; top:16px; height:44px"
                       onclick="window.__pageClicks = (window.__pageClicks || 0) + 1">Sessions</button>
-                    <button id="bottomAction" style="position:absolute; left:16px; height:44px"
+                    <button id="bottomAction" style="position:absolute; left:16px; top:120px; height:44px"
                       onclick="window.__bottomClicks = (window.__bottomClicks || 0) + 1">Bottom</button>
                   </div>
                 </div>
@@ -154,7 +154,6 @@ class HermesWebUiCompatibilityTest {
             </div>
           </div>
         </div>
-        <script>bottomAction.style.top = (innerHeight - 56 - 60) + 'px';</script>
     """.trimIndent()
 
     private fun isHittable(id: String) =
@@ -191,6 +190,9 @@ class HermesWebUiCompatibilityTest {
     @Test
     fun dashboardShell_tallContentIsNotClippedAtThePanelCap() {
         loadFixture(dashboardShellFixture(pageHeightPx = 3000))
+        // The document may load before WebView has a nonzero viewport.
+        assertThat(awaitBoolean("window.innerHeight > 0", expected = true)).isTrue()
+        evaluate("bottomAction.style.top = (window.innerHeight - 56 - 60) + 'px'; 0")
         installShim()
         // Let observer-driven rescans settle; the repaired root must stay at the full viewport.
         rescan()
@@ -198,7 +200,24 @@ class HermesWebUiCompatibilityTest {
         assertThat(evaluateBoolean(
             "Math.abs(appRoot.getBoundingClientRect().height - innerHeight) <= 1"
         )).isTrue()
-        assertThat(evaluate(isHittable("bottomAction"))).isEqualTo("true")
+        val metrics = org.json.JSONObject(
+            org.json.JSONTokener(evaluate("""
+                (function() {
+                  var rect = bottomAction.getBoundingClientRect();
+                  var y = rect.top + rect.height / 2;
+                  var hit = document.elementFromPoint(rect.left + rect.width / 2, y);
+                  return JSON.stringify({
+                    centerY: y, innerHeight: innerHeight,
+                    hit: hit && (hit.id || hit.tagName), hittable: hit === bottomAction
+                  });
+                })()
+            """.trimIndent())).nextValue() as String
+        )
+        assertWithMessage(metrics.toString()).that(metrics.getDouble("centerY"))
+            .isGreaterThan(metrics.getDouble("innerHeight") * 0.82)
+        assertWithMessage(metrics.toString()).that(metrics.getDouble("centerY"))
+            .isLessThan(metrics.getDouble("innerHeight"))
+        assertWithMessage(metrics.toString()).that(metrics.getBoolean("hittable")).isTrue()
         tapElement("#bottomAction")
         assertThat(awaitBoolean("window.__bottomClicks === 1", expected = true)).isTrue()
     }

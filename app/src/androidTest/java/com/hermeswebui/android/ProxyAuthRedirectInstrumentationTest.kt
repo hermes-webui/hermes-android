@@ -5,6 +5,7 @@ import android.app.Instrumentation
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import android.text.method.PasswordTransformationMethod
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +24,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.filters.SdkSuppress
 import android.webkit.CookieManager
@@ -94,6 +96,106 @@ class ProxyAuthRedirectInstrumentationTest {
                     it.path == "/" && it.authorization == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="
                 }).isTrue()
             }
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_masksTheEnteredPassword() {
+        withConfiguredServer(basicAuth = true) { _, _ ->
+            ActivityScenario.launch(MainActivity::class.java).use {
+                awaitText("Sign in to 127.0.0.1")
+                instrumentation.runOnMainSync {
+                    val password = WindowInspector.getGlobalWindowViews().asSequence()
+                        .flatMap { root -> descendants(root) }
+                        .filterIsInstance<EditText>()
+                        .single { field -> field.isShown && field.hint == "Password" }
+                    password.setText("test-pass")
+                    assertThat(password.transformationMethod)
+                        .isInstanceOf(PasswordTransformationMethod::class.java)
+                    val displayed = password.transformationMethod
+                        .getTransformation(password.text, password).toString()
+                    assertThat(displayed).hasLength(password.text.length)
+                    assertThat(displayed).doesNotContain("test-pass")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_remembersSignInOnlyWhenOptedIn() {
+        withConfiguredServer(basicAuth = true) { _, repository ->
+            repository.setRememberHttpAuthEnabled(true)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Sign in to 127.0.0.1")
+                assertThat(isTextShown("Remember on this device")).isTrue()
+                enterHttpAuthCredentials("test-user", "test-pass")
+                clickDialogButton("Sign in")
+                awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+            }
+            assertThat(repository.getHttpAuthCredential("127.0.0.1", "Hermes WebUI"))
+                .isEqualTo(com.hermeswebui.android.data.HttpAuthCredential("test-user", "test-pass"))
+            assertThat(repository.getHttpAuthCredential("127.0.0.2", "Hermes WebUI")).isNull()
+            repository.setRememberHttpAuthEnabled(false)
+            assertThat(repository.savedHttpAuthCredentialCount()).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_withoutOptIn_neverOffersOrSavesSignIn() {
+        withConfiguredServer(basicAuth = true) { _, repository ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Sign in to 127.0.0.1")
+                assertThat(isTextShown("Remember on this device")).isFalse()
+                enterHttpAuthCredentials("test-user", "test-pass")
+                clickDialogButton("Sign in")
+                awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+            }
+            assertThat(repository.savedHttpAuthCredentialCount()).isEqualTo(0)
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_usesSavedSignInWithoutPrompting() {
+        withConfiguredServer(basicAuth = true) { server, repository ->
+            repository.setRememberHttpAuthEnabled(true)
+            repository.saveHttpAuthCredential(
+                "127.0.0.1",
+                "Hermes WebUI",
+                com.hermeswebui.android.data.HttpAuthCredential("test-user", "test-pass")
+            )
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
+                }
+                assertThat(isTextShown("Sign in to 127.0.0.1")).isFalse()
+            }
+        }
+    }
+
+    @Test
+    fun httpBasicChallenge_rejectedSavedSignInFallsBackToPromptAndIsReplaced() {
+        withConfiguredServer(basicAuth = true) { _, repository ->
+            repository.setRememberHttpAuthEnabled(true)
+            repository.saveHttpAuthCredential(
+                "127.0.0.1",
+                "Hermes WebUI",
+                com.hermeswebui.android.data.HttpAuthCredential("test-user", "stale-pass")
+            )
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("The saved sign-in was not accepted")
+                instrumentation.runOnMainSync {
+                    val username = WindowInspector.getGlobalWindowViews().asSequence()
+                        .flatMap { root -> descendants(root) }
+                        .filterIsInstance<EditText>()
+                        .single { field -> field.isShown && field.hint == "Username" }
+                    assertThat(username.text.toString()).isEqualTo("test-user")
+                }
+                enterHttpAuthCredentials("test-user", "test-pass")
+                clickDialogButton("Sign in")
+                awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+            }
+            assertThat(repository.getHttpAuthCredential("127.0.0.1", "Hermes WebUI")?.password)
+                .isEqualTo("test-pass")
         }
     }
 
@@ -276,6 +378,94 @@ class ProxyAuthRedirectInstrumentationTest {
                 clickDialogButton("Continue")
                 awaitLoginForm(scenario, server)
                 assertThat(repository.getLastLoadedUrl()).isEqualTo("${server.baseUrl}/session/issue132")
+            }
+        }
+    }
+
+    @Test
+    fun initialMainFrameRedirect_continuesToProxySignInAfterConsent() {
+        withConfiguredServer(publicStatus = true) { server, repository ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("${server.baseUrl} redirected to ${server.loginOrigin}.")
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
+                clickDialogButton("Continue")
+                awaitLoginForm(scenario, server)
+                assertThat(repository.getLastLoadedUrl()).doesNotContain("login")
+                evaluateWebView(scenario, "document.getElementById('signin').click();")
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in"
+                }
+            }
+        }
+    }
+
+    @Test
+    fun editingCurrentServer_continuesToProxySignInAfterConsent() {
+        withConfiguredServer(officialWebapp = true) { original, repository ->
+            ProxyServer(publicStatus = true).use { target ->
+                repository.addProfile("Primary", original.baseUrl)
+                instrumentation.runOnMainSync {
+                    CookieManager.getInstance().setCookie(original.baseUrl, "proxy_auth=ok; Path=/")
+                }
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitWebView(scenario) {
+                        it.url == "${original.baseUrl}/" && it.title == "Hermes signed in"
+                    }
+                    scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                    compose.onNodeWithText("Primary").performTouchInput { longClick() }
+                    compose.onNodeWithText("Server URL").performTextReplacement(target.baseUrl)
+                    compose.onNodeWithText("Save").performClick()
+
+                    awaitText("${target.baseUrl} redirected to ${target.loginOrigin}.")
+                    assertThat(target.requests.none { it.host.startsWith("localhost:") }).isTrue()
+                    clickDialogButton("Continue")
+                    awaitLoginForm(scenario, target)
+                    evaluateWebView(scenario, "document.getElementById('signin').click();")
+                    awaitWebView(scenario) {
+                        it.url == "${target.baseUrl}/session/issue132" && it.title == "Hermes signed in"
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun mainFrameConsent_isRejectedAfterAnotherPageLoads() {
+        withConfiguredServer(publicStatus = true) { server, _ ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("${server.baseUrl} redirected to ${server.loginOrigin}.")
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                        .loadUrl("${server.baseUrl}/api/status")
+                }
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/api/status" && it.progress == 100
+                }
+                clickDialogButton("Continue")
+                assertProxyApproval(server, approved = false)
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
+            }
+        }
+    }
+
+    @Test
+    fun mainFrameConsent_isRejectedAfterTheSameUrlIsReloaded() {
+        withConfiguredServer(publicStatus = true, officialWebapp = true) { server, _ ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("${server.baseUrl} redirected to ${server.loginOrigin}.")
+                instrumentation.runOnMainSync {
+                    CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+                }
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                        .loadUrl(server.baseUrl)
+                }
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/" && it.title == "Hermes signed in"
+                }
+                clickDialogButton("Continue")
+                assertProxyApproval(server, approved = false)
+                assertThat(server.requests.none { it.host.startsWith("localhost:") }).isTrue()
             }
         }
     }
@@ -513,6 +703,70 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
+    /**
+     * Issue #184: a proxy sign-in gateway (TinyAuth-like) starts its own OIDC flow whose callback
+     * returns to the gateway. The provider must stay in the app so the gateway's state cookie is
+     * present at the callback; externalizing it produced "OAuth session cookie missing".
+     */
+    @Test
+    fun proxyGatewayOidc_keepsProviderInAppSoTheGatewayCallbackHasItsCookie() {
+        withConfiguredServer(gatewayOidc = true) { server, repository ->
+            assertGatewayOidcSignInStaysInApp(server, repository)
+        }
+    }
+
+    /**
+     * With Sign in with Chrome on, a callback Chrome cannot return (Auth Tab requires https) must
+     * not swallow the flow: the gateway sign-in still completes in the app.
+     */
+    @Test
+    fun proxyGatewayOidc_withSignInWithChromeAndHttpCallback_continuesInApp() {
+        withConfiguredServer(gatewayOidc = true) { server, repository ->
+            repository.setBrowserSignInEnabled(true)
+            assertGatewayOidcSignInStaysInApp(server, repository)
+        }
+    }
+
+    private fun assertGatewayOidcSignInStaysInApp(server: ProxyServer, repository: SettingsRepository) {
+        val externalized = CopyOnWriteArrayList<String>()
+        val monitor = recordExternalViews(externalized)
+        instrumentation.addMonitor(monitor)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Continue to server sign-in?")
+                clickDialogButton("Continue")
+                awaitDomControl(scenario, server.loginOrigin, "provider")
+                evaluateWebView(scenario, "document.getElementById('provider').click();")
+
+                awaitDomControl(scenario, server.providerOrigin, "approve")
+                assertThat(repository.getLastLoadedUrl()).doesNotContain("authorize")
+                evaluateWebView(scenario, "document.getElementById('approve').click();")
+
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/session/issue132" && it.title == "Hermes signed in"
+                }
+                eventually("Final Hermes route persisted") {
+                    repository.getLastLoadedUrl() == "${server.baseUrl}/session/issue132"
+                }
+                assertThat(externalized).isEmpty()
+
+                // The finished sign-in must end the in-app OAuth flow: a later non-allowlisted link
+                // from Hermes is externalized instead of loading in the URL-bar-less WebView.
+                evaluateWebView(scenario, "location.href = ${JSONObject.quote("${server.providerOrigin}/after-sign-in")};")
+                eventually("Post-sign-in external link externalized") {
+                    externalized.any { it.contains("/after-sign-in") }
+                }
+                assertThat(server.requests.none { it.path == "/after-sign-in" }).isTrue()
+            }
+            val callback = server.requests.single { it.path == "/gw/callback" }
+            assertThat(callback.cookie).contains("gateway_oauth_state=gw1")
+            assertThat(externalized.none { it.contains("authorize") || it.contains("gw/callback") }).isTrue()
+            assertThat(repository.getLastLoadedUrl()).doesNotContain("gw/callback")
+        } finally {
+            instrumentation.removeMonitor(monitor)
+        }
+    }
+
     /** Issue #8: a saved but wrong/dead server URL must land in Settings, not a permanent error screen. */
     @Test
     fun deadSavedServerUrl_opensSettingsWithEditableUrlInsteadOfTrappingTheUser() {
@@ -708,13 +962,21 @@ class ProxyAuthRedirectInstrumentationTest {
         officialWebapp: Boolean = false,
         oidc: Boolean = false,
         basicAuth: Boolean = false,
+        publicStatus: Boolean = false,
+        gatewayOidc: Boolean = false,
         block: (ProxyServer, SettingsRepository) -> Unit
     ) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
         val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
         val loggingWasEnabled = SettingsRepository(context).isDebugLoggingEnabled()
-        ProxyServer(officialWebapp = officialWebapp, oidc = oidc, basicAuth = basicAuth).use { server ->
+        ProxyServer(
+            officialWebapp = officialWebapp,
+            oidc = oidc,
+            basicAuth = basicAuth,
+            publicStatus = publicStatus,
+            gatewayOidc = gatewayOidc
+        ).use { server ->
             try {
                 val repository = SettingsRepository(context)
                 repository.getProfiles().forEach { repository.deleteProfile(it.id) }
@@ -728,6 +990,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 if (!loggingWasEnabled) HermesDebugLoggingService.stop(context)
                 instrumentation.runOnMainSync {
                     CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=; Max-Age=0; Path=/")
+                    CookieManager.getInstance().setCookie(server.loginOrigin, "gateway_oauth_state=; Max-Age=0; Path=/")
                 }
                 val editor = preferences.edit().clear()
                 original.forEach { (key, value) ->
@@ -796,19 +1059,38 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     private fun awaitLoginForm(scenario: ActivityScenario<MainActivity>, server: ProxyServer) {
-        eventually("Login document and sign-in button ready") {
+        eventually({
+            "Login document and sign-in button ready; ${webViewSummary(scenario)}\n" +
+                DiagnosticsLogger.recentText(context).takeLast(3_000)
+        }) {
+            // The document can be replaced mid-call during navigation, dropping the callback; keep polling.
             evaluateWebView(
                 scenario,
                 """
                 document.readyState === 'complete' &&
                   location.origin === ${JSONObject.quote(server.loginOrigin)} &&
                   document.getElementById('signin') !== null
-                """.trimIndent()
+                """.trimIndent(),
+                requireCallback = false
             ) == "true"
         }
     }
 
-    private fun evaluateWebView(scenario: ActivityScenario<MainActivity>, script: String): String? {
+    private fun assertProxyApproval(server: ProxyServer, approved: Boolean) {
+        var result: String? = null
+        eventually("Proxy sign-in decision recorded") {
+            result = DiagnosticsLogger.recentText(context).lineSequence()
+                .lastOrNull { it.contains("proxy_sign_in_approval") && it.contains("origin=${server.baseUrl}") }
+            result != null
+        }
+        assertThat(result).contains("approved=$approved")
+    }
+
+    private fun evaluateWebView(
+        scenario: ActivityScenario<MainActivity>,
+        script: String,
+        requireCallback: Boolean = true
+    ): String? {
         val completed = CountDownLatch(1)
         var result: String? = null
         scenario.onActivity { activity ->
@@ -818,7 +1100,8 @@ class ProxyAuthRedirectInstrumentationTest {
                     completed.countDown()
                 }
         }
-        check(completed.await(5, TimeUnit.SECONDS)) { "WebView JavaScript callback timed out" }
+        val called = completed.await(5, TimeUnit.SECONDS)
+        check(called || !requireCallback) { "WebView JavaScript callback timed out" }
         return result
     }
 
@@ -856,18 +1139,26 @@ class ProxyAuthRedirectInstrumentationTest {
         private val officialWebapp: Boolean = false,
         private val oidc: Boolean = false,
         private val basicAuth: Boolean = false,
+        private val publicStatus: Boolean = false,
+        private val gatewayOidc: Boolean = false,
         port: Int = 0
     ) : AutoCloseable {
         data class Request(val path: String, val host: String, val cookie: String, val authorization: String)
         private val socket = ServerSocket(port, 20, InetAddress.getByName("127.0.0.1"))
+        // Issue #184: a separate origin for an OIDC provider used by the proxy's own sign-in gateway.
+        private val providerSocket = if (gatewayOidc) ServerSocket(0, 20, InetAddress.getByName("127.0.0.1")) else null
         private val running = AtomicBoolean(true)
         val baseUrl = "http://127.0.0.1:${socket.localPort}"
         val loginOrigin = "http://localhost:${socket.localPort}"
+        val providerOrigin = providerSocket?.let { "http://localhost:${it.localPort}" }.orEmpty()
         val requests = CopyOnWriteArrayList<Request>()
         val rejectSession = AtomicBoolean(false)
-        private val worker = thread(name = "proxy-auth-fixture") {
+        private val worker = thread(name = "proxy-auth-fixture") { serve(socket) }
+        private val providerWorker = providerSocket?.let { listener -> thread(name = "proxy-auth-provider") { serve(listener) } }
+
+        private fun serve(listener: ServerSocket) {
             while (running.get()) {
-                val client = try { socket.accept() } catch (exception: SocketException) {
+                val client = try { listener.accept() } catch (exception: SocketException) {
                     if (running.get()) throw exception
                     break
                 }
@@ -940,9 +1231,28 @@ class ProxyAuthRedirectInstrumentationTest {
                                 <script>window.__HERMES_WEBUI_BUNDLE_VERSION__="fixture";</script>
                                 <div class="layout"><main class="main">Authenticated</main></div>
                             """.trimIndent())
-                        path == "/api/status" && authenticated -> Triple("200 OK", "", """{"version":"test","initialized":true}""")
+                        path == "/api/status" && (authenticated || publicStatus) ->
+                            Triple("200 OK", "", """{"version":"test","initialized":true}""")
                         path == "/api/status" || (path == "/" && !authenticated) ->
                             Triple("$redirectCode Redirect", "Location: ${(locationOverride ?: "$loginOrigin/login?rd=synthetic-secret").replace("{port}", socket.localPort.toString())}\r\n", "")
+                        // Issue #184 gateway fixture (TinyAuth-like): the gateway sets its own OAuth state
+                        // cookie, sends the user to a provider on another origin, and rejects a callback
+                        // that arrives without that cookie.
+                        gatewayOidc && path == "/login" -> Triple("200 OK",
+                            "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\n", """
+                            <title>Gateway sign-in</title>
+                            <button id="provider" onclick="location.href='$providerOrigin/gw/authorize?response_type=code&client_id=gateway&redirect_uri=${java.net.URLEncoder.encode("$loginOrigin/gw/callback", "UTF-8")}&state=gw1'">Sign in with provider</button>
+                        """.trimIndent())
+                        gatewayOidc && path == "/gw/authorize" -> Triple("200 OK", "", """
+                            <title>Provider sign-in</title>
+                            <button id="approve" onclick="location.href='$loginOrigin/gw/callback?code=abc&state=gw1'">Approve</button>
+                        """.trimIndent())
+                        gatewayOidc && path == "/gw/callback" ->
+                            if (cookie.contains(GATEWAY_COOKIE) && query.contains("code=abc")) {
+                                Triple("302 Found", "Location: $baseUrl/auth/return?ticket=synthetic\r\n", "")
+                            } else {
+                                Triple("400 Bad Request", "", "OAuth session cookie missing")
+                            }
                         path == "/login" -> Triple("200 OK", "", """
                             <title>Proxy sign-in</title>
                             $FILE_INPUT
@@ -991,13 +1301,16 @@ class ProxyAuthRedirectInstrumentationTest {
         override fun close() {
             running.set(false)
             socket.close()
+            providerSocket?.close()
             worker.join(6_000)
-            check(!worker.isAlive)
+            providerWorker?.join(6_000)
+            check(!worker.isAlive && providerWorker?.isAlive != true)
         }
 
         private companion object {
             // Full-viewport so a real centre tap provides the user activation file choosers need.
             const val PKCE_COOKIE = "hermes_oidc_pkce=verifier123"
+            const val GATEWAY_COOKIE = "gateway_oauth_state=gw1"
             const val FILE_INPUT = """<input type="file" id="picker" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;opacity:0.01;z-index:10" onclick="window.pickerClicks=(window.pickerClicks||0)+1" onchange="window.pickedCount=this.files.length">"""
         }
     }

@@ -13,6 +13,34 @@ class ProxyAuthNavigationTest {
     private val navigation = ProxyAuthNavigation { now }
 
     @Test
+    fun `gateway oauth callbacks stay in app only from and back to the approved gateway while active`() {
+        val provider = "https://id.example.test/authorize?response_type=code"
+        val callback = "$login/api/oauth/callback/pocketid"
+        assertThat(navigation.allowsGatewayOAuthCallback(server, "$login/login", callback)).isFalse()
+
+        navigation.begin(server, login)
+        assertThat(navigation.allowsGatewayOAuthCallback(server, "$login/login?rd=x", callback)).isTrue()
+        // Only the approved gateway page may start it, and only for a callback to that exact origin.
+        assertThat(navigation.allowsGatewayOAuthCallback(server, "$server/", callback)).isFalse()
+        assertThat(navigation.allowsGatewayOAuthCallback(server, provider, callback)).isFalse()
+        assertThat(navigation.allowsGatewayOAuthCallback(server, null, callback)).isFalse()
+        for (other in listOf(
+            "https://attacker.example/cb",
+            "http://login.example.test/cb",
+            "https://login.example.test:8443/cb",
+            "https://user:pw@login.example.test/cb",
+            "$server/cb"
+        )) {
+            assertThat(navigation.allowsGatewayOAuthCallback(server, "$login/login", other)).isFalse()
+        }
+        // Another configured server cannot reuse this consent.
+        assertThat(navigation.allowsGatewayOAuthCallback("https://other.example.test", "$login/login", callback)).isFalse()
+
+        now += ProxyAuthNavigation.TIMEOUT_MS
+        assertThat(navigation.allowsGatewayOAuthCallback(server, "$login/login", callback)).isFalse()
+    }
+
+    @Test
     fun `all web redirect statuses resolve relative and absolute locations`() {
         for (status in listOf(301, 302, 303, 307, 308)) {
             assertThat(ProxyAuthNavigation.safeRedirectOrigin("$server/api/status", status, "/login?token=secret"))

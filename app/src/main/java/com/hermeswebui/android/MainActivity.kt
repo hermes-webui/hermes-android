@@ -38,6 +38,7 @@ import android.webkit.ServiceWorkerController
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebBackForwardList
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -440,7 +441,10 @@ class MainActivity : ComponentActivity() {
             serverUrlValidator = serverUrlValidator,
             onOpenInExternalBrowser = ::openInExternalBrowser,
             onPerformServerProfileSwitch = ::performServerProfileSwitch,
-            onRefreshConfiguredHermes = ::loadServerUrlWithVpnGuard,
+            onRefreshConfiguredHermes = { url ->
+                installHermesWebUiDocumentStartFixes(webView, url)
+                loadServerUrlWithVpnGuard(url)
+            },
             onApproveProxySignIn = proxyAuthNavigation::begin
         )
         foregroundServiceCoordinator = HermesForegroundServiceCoordinator(
@@ -726,7 +730,9 @@ class MainActivity : ComponentActivity() {
                             },
                             onOpenExternal = onOpenExternal,
                             onOpenSettings = { viewModel.openSettings() },
-                            onBack = if (webView.canGoBack()) {{ goBackInMainWebView() }} else null
+                            onBack = if (previousHistoryOffset(webView.copyBackForwardList()) != null) {
+                                { goBackInMainWebView() }
+                            } else null
                         )
                         SnackbarHost(hostState = snackbarHostState)
 
@@ -2116,12 +2122,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun currentRouteRecoveryUrl(): String {
-        val lastUrl = settingsRepository.getLastLoadedUrl().orEmpty()
-        val settings = viewModel.uiState.value.settings
-        if (lastUrl.isBlank() || !UrlOrigins.hasSameOrigin(lastUrl, settings.serverUrl)) return ""
-
-        val normalizedLastPath = UrlOrigins.normalizedPath(lastUrl)
-        return if (normalizedLastPath.isBlank()) "" else lastUrl
+        return SelectedServerNavigation.routeRecoveryUrl(
+            settingsRepository.getLastLoadedUrl(),
+            viewModel.uiState.value.settings.serverUrl
+        )
     }
 
     private fun buildHermesWebUiNotificationBridgeScript(): String {
@@ -2217,9 +2221,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleWebUiBackNavigation(onRequestExit: () -> Unit) {
-        if (webView.canGoBack()) {
+        if (goBackInMainWebView()) {
             backPressExitStage = 0
-            goBackInMainWebView()
             return
         }
         val currentTime = System.currentTimeMillis()
@@ -2240,11 +2243,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun goBackInMainWebView() {
+    private fun previousHistoryOffset(history: WebBackForwardList): Int? {
+        return SelectedServerNavigation.previousHistoryOffset(
+            history = List(history.size) { history.getItemAtIndex(it)?.url },
+            currentIndex = history.currentIndex,
+            selectedServerUrl = viewModel.uiState.value.settings.serverUrl
+        )
+    }
+
+    private fun goBackInMainWebView(): Boolean {
         // History navigation skips shouldOverrideUrlLoading, so record the entry being restored.
         val history = webView.copyBackForwardList()
-        recordMainFrameHop(history.getItemAtIndex(history.currentIndex - 1)?.url)
-        webView.goBack()
+        val offset = previousHistoryOffset(history) ?: return false
+        recordMainFrameHop(history.getItemAtIndex(history.currentIndex + offset)?.url)
+        webView.goBackOrForward(offset)
+        return true
     }
 
     private fun handleNewWindowUrl(url: String) {

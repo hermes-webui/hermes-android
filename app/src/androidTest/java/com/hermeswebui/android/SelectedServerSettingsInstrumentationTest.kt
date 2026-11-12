@@ -73,6 +73,65 @@ class SelectedServerSettingsInstrumentationTest {
     }
 
     @Test
+    fun changingConfiguredCredentialsRemovesAnIncompatibleRememberedRoute() {
+        val configured = "https://User:Pass@a.example.test/hermes"
+        val oldRoute = "$configured/session/old"
+        repository.saveAppUrls(configured, DASHBOARD)
+        repository.saveLastLoadedUrl(oldRoute)
+        assertThat(SettingsRepository(context).getLastLoadedUrl()).isEqualTo(oldRoute)
+
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        assertThat(SettingsRepository(context).getLastLoadedUrl()).isNull()
+    }
+
+    @Test
+    fun changingServerPathPreservesCompatibleRememberedRoutes() {
+        val configured = "https://User:Pass@a.example.test/hermes"
+        val remembered = "$configured/session/current"
+        repository.saveAppUrls(configured, DASHBOARD)
+        repository.saveLastLoadedUrl(remembered)
+        repository.saveAppUrls("https://User:Pass@a.example.test/other", DASHBOARD)
+        assertThat(SettingsRepository(context).getLastLoadedUrl()).isEqualTo(remembered)
+
+        val withoutCredentials = "$SERVER_A/session/current"
+        repository.saveLastLoadedUrl(withoutCredentials)
+        repository.saveAppUrls(SERVER_A, DASHBOARD)
+        assertThat(SettingsRepository(context).getLastLoadedUrl()).isEqualTo(withoutCredentials)
+    }
+
+    @Test
+    fun lateVisitedUrlCannotRestoreRemovedOrChangedCredentials() {
+        val configured = "https://User:Pass@a.example.test/hermes"
+        val oldRoute = "$configured/session/old"
+        repository.saveAppUrls(configured, DASHBOARD)
+        repository.saveLastLoadedUrl(oldRoute)
+        val lateWriter = SettingsRepository(context)
+
+        for (updated in listOf(SERVER_A, "https://user:Pass@a.example.test/hermes")) {
+            repository.saveAppUrls(updated, DASHBOARD)
+            val safeRoute = "$SERVER_A/session/safe"
+            repository.saveLastLoadedUrl(safeRoute)
+            lateWriter.saveLastLoadedUrl(oldRoute)
+            assertThat(SettingsRepository(context).getLastLoadedUrl()).isEqualTo(safeRoute)
+            lateWriter.saveLastLoadedUrl("https://User:Pass@extra@a.example.test/session/invalid")
+            assertThat(SettingsRepository(context).getLastLoadedUrl()).isEqualTo(safeRoute)
+        }
+    }
+
+    @Test
+    fun credentialCaseChangeDoesNotReselectTheOldProfile() {
+        val previous = "https://User:Pass@a.example.test/hermes"
+        val changed = "https://user:Pass@a.example.test/hermes"
+        repository.saveAppUrls(previous, DASHBOARD)
+        repository.addProfile("Original", previous)
+        repository.saveAppUrls(changed, DASHBOARD)
+
+        val reopened = SettingsRepository(context)
+        assertThat(reopened.getSettings(DEFAULT_SERVER, "").serverUrl).isEqualTo(changed)
+        assertThat(reopened.getActiveProfile()).isNull()
+    }
+
+    @Test
     fun serverTypeRoundTripsWithoutChangingSelectionAndSurvivesLegacyEdits() {
         repository.saveAppUrls(SERVER_A, DASHBOARD)
         val agent = repository.addProfile("Agent", SERVER_A, ServerType.AGENT)

@@ -65,8 +65,9 @@ over stale `server_url` state. Adding a row for the configured URL makes it
 Current when nothing else is active. Current-profile edits update settings:
 cosmetic URL changes and renames do not reload, same-origin mount changes load
 the edited URL without clearing session data, and origin/port changes perform
-the full session-clearing switch. Manual URL saves also refresh the Settings
-profile markers.
+the full session-clearing switch. URL credentials are case-sensitive when
+matching profiles or deciding whether an edit needs a reload. Manual URL saves
+also refresh the Settings profile markers.
 
 Server profiles persist a manual `serverType` override and a separate
 `detectedServerType`. Missing/unknown overrides mean Automatic. Additive migrations
@@ -197,8 +198,19 @@ remains unused until the user explicitly chooses **Settings → Connection →
 Forget saved sign-ins**. WebView may reuse a manually entered sign-in in memory
 for the same origin, including after clearing WebView data. Credentials embedded
 in a saved server URL remain part of that URL and may be sent automatically;
-the user must edit the URL to remove them. Forgetting the legacy sign-ins does
-not alter server URLs or clear WebView's in-memory authentication cache.
+the user must edit the URL to remove them. A server created without a name
+uses the full URL as its name, so that name may also need editing. Forgetting
+the legacy sign-ins does not alter server URLs or names or clear WebView's
+in-memory authentication cache.
+The app rejects outdated URL userinfo when restoring a saved route on startup,
+reconnecting, opening a notification or repairing the WebUI workspace, and
+skips incompatible same-origin Back history entries. A URL without userinfo or
+with the exact configured userinfo remains usable. Changing the configured URL
+removes an incompatible remembered route; late page callbacks are checked
+against the current URL before saving. Legacy incompatible routes may remain
+encrypted until replaced, and Back history itself is not erased. Same-origin
+profile edits reinstall document-start scripts before loading the new URL so
+their recovery target cannot retain the former credentials.
 Challenges from other hosts are canceled. This does not broaden the proxy
 redirect grant or the app's notification, microphone, download, or navigation trust.
 

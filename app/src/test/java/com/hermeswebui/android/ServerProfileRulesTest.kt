@@ -42,6 +42,17 @@ class ServerProfileRulesTest {
     }
 
     @Test
+    fun duplicateUrlDoesNotFoldTheCaseOfCredentials() {
+        val profile = firstProfile.copy(url = "https://User:Pass@hermes.example.com")
+        assertThat(ServerProfileRules.findConflict(
+            listOf(profile), "Different", "HTTPS://User:Pass@HERMES.EXAMPLE.COM/"
+        )).isEqualTo(ServerProfileConflict.URL)
+        assertThat(ServerProfileRules.findConflict(
+            listOf(profile), "Different", "https://user:Pass@hermes.example.com"
+        )).isNull()
+    }
+
+    @Test
     fun editingProfileExcludesItsCurrentValues() {
         assertThat(
             ServerProfileRules.findConflict(

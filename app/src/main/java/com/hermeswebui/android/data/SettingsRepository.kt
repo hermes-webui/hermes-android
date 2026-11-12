@@ -218,11 +218,17 @@ class SettingsRepository(context: Context) : SettingsStore {
         val hosts = setOf(serverUrl, normalizedDashboardUrl)
             .mapNotNull(UrlOrigins::hostFrom)
             .toSet()
-        sharedPreferences.edit {
-            putString(KEY_SERVER_URL, serverUrl)
-            putString(KEY_DASHBOARD_URL, normalizedDashboardUrl)
-            putString(KEY_ALLOWED_HOSTS, hosts.joinToString(","))
-            putBoolean(KEY_IS_CONFIGURED, true)
+        synchronized(serverUrlPersistenceLock) {
+            val lastUrl = sharedPreferences.getString(KEY_LAST_URL, null)
+            sharedPreferences.edit {
+                putString(KEY_SERVER_URL, serverUrl)
+                putString(KEY_DASHBOARD_URL, normalizedDashboardUrl)
+                putString(KEY_ALLOWED_HOSTS, hosts.joinToString(","))
+                putBoolean(KEY_IS_CONFIGURED, true)
+                if (lastUrl != null && !UrlOrigins.hasCompatibleUserInfo(lastUrl, serverUrl)) {
+                    remove(KEY_LAST_URL)
+                }
+            }
         }
         // Keep the Current profile in step with a manually saved server URL.
         val profiles = getProfiles()
@@ -424,19 +430,18 @@ class SettingsRepository(context: Context) : SettingsStore {
         }
     }
 
-    // Navigation callbacks persist the same final URL more than once per load. Each write is an
-    // AES-SIV key + AES-GCM value encryption, so skip writes that cannot change the stored value.
-    // Reads stay uncached because another repository instance (debug logging service) may read it.
-    @Volatile private var lastSavedUrl: String? = null
-
     override fun saveLastLoadedUrl(url: String) {
-        val known = lastSavedUrl ?: sharedPreferences.getString(KEY_LAST_URL, null)
-        if (known == url) {
-            lastSavedUrl = url
-            return
+        synchronized(serverUrlPersistenceLock) {
+            val configuredUrl = sharedPreferences.getString(KEY_SERVER_URL, "").orEmpty()
+            if (!UrlOrigins.hasCompatibleUserInfo(url, configuredUrl)) {
+                android.util.Log.w("HermesSettings", "Ignoring a visited URL with outdated credentials")
+                return
+            }
+            // Navigation callbacks can report the same URL repeatedly; avoid redundant writes.
+            if (sharedPreferences.getString(KEY_LAST_URL, null) != url) {
+                sharedPreferences.edit { putString(KEY_LAST_URL, url) }
+            }
         }
-        sharedPreferences.edit { putString(KEY_LAST_URL, url) }
-        lastSavedUrl = url
     }
 
     fun getLastLoadedUrl(): String? = sharedPreferences.getString(KEY_LAST_URL, null)
@@ -450,7 +455,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         // does not make the original appear to disappear.
         if (profiles.isEmpty()) {
             val currentUrl = sharedPreferences.getString(KEY_SERVER_URL, null)?.trim().orEmpty()
-            if (currentUrl.isNotBlank() && normalizeProfileUrl(currentUrl) != normalizeProfileUrl(url)) {
+            if (currentUrl.isNotBlank() && !ServerProfileRules.urlsMatch(currentUrl, url)) {
                 val currentProfile = ServerProfile(
                     name = "Current server",
                     url = currentUrl,
@@ -463,7 +468,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
         val currentUrl = sharedPreferences.getString(KEY_SERVER_URL, null).orEmpty()
         val isCurrent = profiles.none { it.isActive } &&
-            normalizeProfileUrl(currentUrl) == normalizeProfileUrl(url)
+            ServerProfileRules.urlsMatch(currentUrl, url)
         val profile = ServerProfile(name = name, url = url, isActive = isCurrent, serverType = serverType)
         profiles.add(profile)
         saveProfiles(profiles)
@@ -573,6 +578,7 @@ class SettingsRepository(context: Context) : SettingsStore {
     }
 
     companion object {
+        private val serverUrlPersistenceLock = Any()
         private const val FILE_NAME = "hermes_secure_prefs"
         private const val KEY_SERVER_URL = "server_url"
         // Preserve the original encrypted preference key so existing installs keep their saved URL.

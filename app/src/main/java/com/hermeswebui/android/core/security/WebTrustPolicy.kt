@@ -44,7 +44,8 @@ class WebTrustPolicy(
     }
 
     fun isTrustedNotificationTarget(url: String?): Boolean {
-        return !url.isNullOrBlank() && urlPolicy.isAllowed(url) && isConfiguredWebUiRoute(url)
+        return !url.isNullOrBlank() && urlPolicy.isAllowed(url) && isConfiguredWebUiRoute(url) &&
+            UrlOrigins.hasCompatibleUserInfo(url, configuredWebUiUrl)
     }
 
     fun isTrustedNotificationBridgeSource(

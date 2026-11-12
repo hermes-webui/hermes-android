@@ -725,7 +725,7 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Previously remembered sign-ins are inactive; credentials in server URLs are unaffected.",
+                                    text = "Previously remembered sign-ins are inactive; server URLs and names are unaffected.",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.weight(1f)

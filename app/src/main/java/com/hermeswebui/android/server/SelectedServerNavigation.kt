@@ -37,13 +37,12 @@ object SelectedServerNavigation {
 
     /** The profile a manually saved server URL corresponds to, so the selection stays in sync. */
     fun activeProfileIdFor(serverUrl: String, profiles: List<ServerProfile>): String? {
-        val target = ServerProfileRules.normalizeUrl(serverUrl)
-        return profiles.firstOrNull { ServerProfileRules.normalizeUrl(it.url) == target }?.id
+        return profiles.firstOrNull { ServerProfileRules.urlsMatch(it.url, serverUrl) }?.id
     }
 
     fun profileEditAction(previous: ServerProfile?, newUrl: String): ServerProfileEditAction {
         if (previous == null) return ServerProfileEditAction.NONE
-        if (ServerProfileRules.normalizeUrl(previous.url) == ServerProfileRules.normalizeUrl(newUrl) &&
+        if (ServerProfileRules.urlsMatch(previous.url, newUrl) &&
             UrlOrigins.normalizedPath(previous.url) == UrlOrigins.normalizedPath(newUrl)
         ) {
             return ServerProfileEditAction.NONE
@@ -72,7 +71,29 @@ object SelectedServerNavigation {
     fun switchTargetUrl(profile: ServerProfile): String = profile.url.trim()
 
     fun reconnectUrl(currentUrl: String, selectedServerUrl: String, trustPolicy: WebTrustPolicy): String {
-        return currentUrl.takeIf(trustPolicy::isConfiguredWebUiRoute) ?: selectedServerUrl
+        return currentUrl.takeIf {
+            trustPolicy.isConfiguredWebUiRoute(it) && UrlOrigins.hasCompatibleUserInfo(it, selectedServerUrl)
+        } ?: selectedServerUrl
+    }
+
+    fun routeRecoveryUrl(lastLoadedUrl: String?, selectedServerUrl: String): String {
+        if (lastLoadedUrl.isNullOrBlank() ||
+            !UrlOrigins.hasSameOrigin(lastLoadedUrl, selectedServerUrl) ||
+            !UrlOrigins.hasCompatibleUserInfo(lastLoadedUrl, selectedServerUrl) ||
+            UrlOrigins.normalizedPath(lastLoadedUrl).isBlank()
+        ) return ""
+        return lastLoadedUrl
+    }
+
+    fun previousHistoryOffset(history: List<String?>, currentIndex: Int, selectedServerUrl: String): Int? {
+        if (currentIndex !in history.indices) return null
+        for (index in currentIndex - 1 downTo 0) {
+            val url = history[index] ?: continue
+            if (!UrlOrigins.hasSameOrigin(url, selectedServerUrl) ||
+                UrlOrigins.hasCompatibleUserInfo(url, selectedServerUrl)
+            ) return index - currentIndex
+        }
+        return null
     }
 
     /** Restore only routes on the selected server; anything else falls back to its root. */
@@ -82,8 +103,11 @@ object SelectedServerNavigation {
         notificationUrl: String?,
         trustPolicy: WebTrustPolicy
     ): String {
-        return notificationUrl?.takeIf(trustPolicy::isConfiguredWebUiRoute)
-            ?: lastLoadedUrl?.takeIf(trustPolicy::isConfiguredWebUiRoute)
+        fun canRestore(url: String): Boolean = trustPolicy.isConfiguredWebUiRoute(url) &&
+            UrlOrigins.hasCompatibleUserInfo(url, selectedServerUrl)
+
+        return notificationUrl?.takeIf(::canRestore)
+            ?: lastLoadedUrl?.takeIf(::canRestore)
             ?: selectedServerUrl
     }
 

@@ -225,10 +225,15 @@ until replaced. When history contains incompatible credentials for the previous
 server host, it is cleared before the new page loads and again when that page
 commits. Local-network permission recovery does not automatically reload a
 previous HTTP origin after the user selects HTTPS, except for the exact URL
-of an explicitly allowed navigation in the active, unexpired OAuth flow. A
-late page-start callback does not authorize that exception. A server selection
-change also revokes the old page's recovery handler,
-reinstalls document-start scripts, and fences pending permission and VPN work.
+of an explicitly allowed navigation in the active, unexpired OAuth flow.
+Permission completions and any queued VPN retry retain that navigation's
+generation and recheck it before probing or loading; selection changes end
+the old main-frame OAuth flow. A late page-start callback or Back history
+entry does not authorize that exception. Only GET failures are replayed;
+failed form submissions and older HTTP sign-in pages reached with Back can
+require a manual retry after permission is granted (#184). A server selection
+change also revokes the old page's recovery handler, reinstalls document-start
+scripts, and fences pending permission and VPN work.
 Challenges from other hosts are canceled. This does not broaden the proxy
 redirect grant or the app's notification, microphone, download, or navigation trust.
 

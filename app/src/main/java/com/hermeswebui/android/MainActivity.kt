@@ -229,6 +229,7 @@ class MainActivity : ComponentActivity() {
     private var suppressClarifyAutofocusScriptHandler: ScriptHandler? = null
     private var lastVpnLaunchAttemptElapsedMs: Long = 0L
     private var pendingVpnGuardUrl: String? = null
+    private var pendingVpnOAuthRecoveryGeneration: Long? = null
     private var vpnReconnectWaitJob: Job? = null
     private var tailscaleLaunchFallbackJob: Job? = null
     private var serverSelectionGeneration = 0L
@@ -259,6 +260,7 @@ class MainActivity : ComponentActivity() {
     private var activeOAuthFlow: OAuthPopupFlow? = null
     private var activeMainFrameOAuthFlow: OAuthPopupFlow? = null
     private var allowedOAuthRecoveryUrl: String? = null
+    private var oauthRecoveryNavigationGeneration = 0L
     private val proxyAuthNavigation = ProxyAuthNavigation()
     // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
     // configured server when this hop is exactly that origin (Issue #134).
@@ -1127,7 +1129,7 @@ class MainActivity : ComponentActivity() {
                     if (request?.isForMainFrame != true) return
                     val failedUrl = request.url?.toString().orEmpty()
                     if (discardOutdatedCredentialCallback(failedUrl)) return
-                    if (recoverFromLocalNetworkPermissionError(failedUrl, error?.description)) return
+                    if (recoverFromLocalNetworkPermissionError(failedUrl, error?.description, request.method)) return
                     val offline = isOfflineError(error?.errorCode)
                     val message = error?.description?.toString() ?: "Failed to load page"
                     DiagnosticsLogger.record(
@@ -1447,7 +1449,9 @@ class MainActivity : ComponentActivity() {
         // redirect opened proxy consent; it is not a navigation away, so it must not void that consent.
         if (url != "about:blank") recordMainFrameHop(url?.takeIf { it.isNotBlank() })
         if (!url.isNullOrBlank() && !completeMainFrameOAuthIfCallback(url)) {
-            parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
+            parseTrustedOAuthStart(url)?.let { flow ->
+                if (activeMainFrameOAuthFlow != flow) rememberActiveMainFrameOAuth(flow)
+            }
         }
         updateOAuthInFlowHost(url)
         webView.settings.mediaPlaybackRequiresUserGesture =
@@ -1648,25 +1652,35 @@ class MainActivity : ComponentActivity() {
         return LocalNetworkPolicy.isLikelyLocalNetworkHost(host)
     }
 
-    private fun recoverFromLocalNetworkPermissionError(failedUrl: String, description: CharSequence?): Boolean {
+    private fun recoverFromLocalNetworkPermissionError(
+        failedUrl: String,
+        description: CharSequence?,
+        method: String?
+    ): Boolean {
         if (description?.contains("ERR_LOCAL_NETWORK_PERMISSION_MISSING", ignoreCase = true) != true ||
             failedUrl.isBlank() || hasLocalNetworkPermission()
         ) return false
         if (discardOutdatedCredentialCallback(failedUrl)) return true
+        if (!method.equals("GET", ignoreCase = true)) {
+            DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "non_get_request"))
+            return false
+        }
         val fence = serverSelectionFence
         val failedOrigin = UrlOrigins.pageOrigin(failedUrl)
+        val oauthGeneration = oauthRecoveryNavigationGeneration.takeIf {
+            isCurrentOAuthRecovery(failedUrl, it)
+        }
         if (failedOrigin != null && failedOrigin in fence?.previousOrigins.orEmpty() &&
             failedOrigin.startsWith("http://") &&
             fence?.selectedUrl?.let(UrlOrigins::pageOrigin)?.startsWith("https://") == true &&
-            !(activeMainFrameOAuthFlow != null && System.currentTimeMillis() <= oauthFlowTimeoutMs &&
-                failedUrl == allowedOAuthRecoveryUrl)
+            oauthGeneration == null
         ) {
             DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "https_downgrade"))
             return false
         }
         requestLocalNetworkPermissionIfNeeded(
             url = failedUrl,
-            onGranted = { loadServerUrlWithVpnGuard(failedUrl) }
+            onGranted = { loadServerUrlWithVpnGuard(failedUrl, oauthGeneration) }
         )
         return true
     }
@@ -2181,7 +2195,8 @@ class MainActivity : ComponentActivity() {
 
     private fun prepareForServerSelectionChange(previousServerUrl: String, selectedServerUrl: String) {
         serverSelectionGeneration++
-        allowedOAuthRecoveryUrl = null
+        clearActiveMainFrameOAuth()
+        oauthReturnNavigation.clear()
         val previousFence = serverSelectionFence
         serverSelectionFence = ServerSelectionFence(
             selectedUrl = selectedServerUrl,
@@ -2189,6 +2204,7 @@ class MainActivity : ComponentActivity() {
             previousOrigins = previousFence?.previousOrigins.orEmpty() + listOfNotNull(UrlOrigins.pageOrigin(previousServerUrl))
         )
         pendingVpnGuardUrl = null
+        pendingVpnOAuthRecoveryGeneration = null
         stopVpnReconnectWaitLoop()
 
         val origin = UrlOrigins.pageOrigin(previousServerUrl)
@@ -2320,10 +2336,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recordAllowedOAuthRecoveryUrl(url: String) {
+        oauthRecoveryNavigationGeneration++
         allowedOAuthRecoveryUrl = url.takeIf {
             activeMainFrameOAuthFlow != null && System.currentTimeMillis() <= oauthFlowTimeoutMs &&
                 isHttpOrHttpsUrl(it)
         }
+        cancelInvalidPendingOAuthVpnRecovery()
+    }
+
+    private fun isCurrentOAuthRecovery(url: String, generation: Long): Boolean {
+        return generation == oauthRecoveryNavigationGeneration &&
+            activeMainFrameOAuthFlow != null && System.currentTimeMillis() <= oauthFlowTimeoutMs &&
+            url == allowedOAuthRecoveryUrl
     }
 
     private fun loadInMainWebView(url: String) {
@@ -2391,6 +2415,8 @@ class MainActivity : ComponentActivity() {
         val history = webView.copyBackForwardList()
         val offset = previousHistoryOffset(history) ?: return false
         allowedOAuthRecoveryUrl = null
+        oauthRecoveryNavigationGeneration++
+        cancelInvalidPendingOAuthVpnRecovery()
         recordMainFrameHop(history.getItemAtIndex(history.currentIndex + offset)?.url)
         webView.goBackOrForward(offset)
         return true
@@ -2854,9 +2880,14 @@ class MainActivity : ComponentActivity() {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    private fun loadServerUrlWithVpnGuard(url: String) {
+    private fun loadServerUrlWithVpnGuard(url: String, oauthRecoveryGeneration: Long? = null) {
+        if (oauthRecoveryGeneration != null && !isCurrentOAuthRecovery(url, oauthRecoveryGeneration)) {
+            DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "oauth_flow_changed"))
+            return
+        }
         if (!shouldRequireVpnForServerUrl(url) || isVpnTransportActive()) {
             pendingVpnGuardUrl = null
+            pendingVpnOAuthRecoveryGeneration = null
             stopVpnReconnectWaitLoop()
             restrictMediaPlaybackBeforeNavigation(url)
             loadInMainWebView(url)
@@ -2865,7 +2896,8 @@ class MainActivity : ComponentActivity() {
 
         queueVpnGuardedLoad(
             serverUrl = url,
-            details = "Trying to connect Tailscale automatically. Hermes retries every second while waiting for VPN."
+            details = "Trying to connect Tailscale automatically. Hermes retries every second while waiting for VPN.",
+            oauthRecoveryGeneration = oauthRecoveryGeneration
         )
     }
 
@@ -2956,7 +2988,9 @@ class MainActivity : ComponentActivity() {
         tailscaleLaunchFallbackJob?.cancel()
         tailscaleLaunchFallbackJob = lifecycleScope.launch {
             delay(TailscaleAutoConnectFallbackMs)
-            if (pendingVpnGuardUrl != serverUrl || isVpnTransportActive()) return@launch
+            if (pendingVpnGuardUrl != serverUrl || cancelInvalidPendingOAuthVpnRecovery() ||
+                isVpnTransportActive()
+            ) return@launch
 
             val launchedVpnApp = launchVpnApp(TailscaleAndroidPackage) ||
                 launchVpnApp(preferredVpnPackage)
@@ -3012,7 +3046,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun rememberActiveMainFrameOAuth(flow: OAuthPopupFlow) {
-        if (activeMainFrameOAuthFlow != flow) allowedOAuthRecoveryUrl = null
+        if (activeMainFrameOAuthFlow != flow) {
+            allowedOAuthRecoveryUrl = null
+            oauthRecoveryNavigationGeneration++
+            cancelInvalidPendingOAuthVpnRecovery()
+        }
         activeMainFrameOAuthFlow = flow
         setOAuthThirdPartyCookiesEnabled(true)
         refreshActiveOAuthTimeout()
@@ -3021,6 +3059,8 @@ class MainActivity : ComponentActivity() {
     private fun clearActiveMainFrameOAuth() {
         activeMainFrameOAuthFlow = null
         allowedOAuthRecoveryUrl = null
+        oauthRecoveryNavigationGeneration++
+        cancelInvalidPendingOAuthVpnRecovery()
         viewModel.setOAuthInFlowHost(null)
         if (activeOAuthPopup == null) {
             oauthFlowTimeoutMs = 0L
@@ -3089,8 +3129,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun queueVpnGuardedLoad(serverUrl: String, details: String) {
+    private fun queueVpnGuardedLoad(
+        serverUrl: String,
+        details: String,
+        oauthRecoveryGeneration: Long? = null
+    ) {
         pendingVpnGuardUrl = serverUrl
+        pendingVpnOAuthRecoveryGeneration = oauthRecoveryGeneration
         maybeLaunchVpnForServer(serverUrl, showPrompt = true)
         startVpnReconnectWaitLoopIfNeeded()
         viewModel.openSettingsWithServerValidation(
@@ -3101,9 +3146,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startVpnReconnectWaitLoopIfNeeded() {
+        if (cancelInvalidPendingOAuthVpnRecovery()) return
         val targetUrl = pendingVpnGuardUrl ?: return
         if (!shouldRequireVpnForServerUrl(targetUrl)) {
             pendingVpnGuardUrl = null
+            pendingVpnOAuthRecoveryGeneration = null
             return
         }
         if (vpnReconnectWaitJob?.isActive == true) return
@@ -3111,9 +3158,12 @@ class MainActivity : ComponentActivity() {
             while (isActive) {
                 val probeStartedAt = SystemClock.elapsedRealtime()
                 val pendingUrl = pendingVpnGuardUrl ?: return@launch
+                val oauthGeneration = pendingVpnOAuthRecoveryGeneration
                 val selectionGeneration = serverSelectionGeneration
+                if (cancelInvalidPendingOAuthVpnRecovery()) return@launch
                 if (!shouldRequireVpnForServerUrl(pendingUrl)) {
                     pendingVpnGuardUrl = null
+                    pendingVpnOAuthRecoveryGeneration = null
                     return@launch
                 }
                 val reachable = isVpnTransportActive() &&
@@ -3121,13 +3171,17 @@ class MainActivity : ComponentActivity() {
                         baseUrl = pendingUrl,
                         timeoutMs = VpnReconnectPollIntervalMs.toInt() - 100
                     )
-                if (selectionGeneration != serverSelectionGeneration || pendingVpnGuardUrl != pendingUrl) {
+                if (selectionGeneration != serverSelectionGeneration || pendingVpnGuardUrl != pendingUrl ||
+                    pendingVpnOAuthRecoveryGeneration != oauthGeneration
+                ) {
                     continue
                 }
+                if (cancelInvalidPendingOAuthVpnRecovery()) return@launch
                 if (reachable) {
                     pendingVpnGuardUrl = null
+                    pendingVpnOAuthRecoveryGeneration = null
                     viewModel.closeSettings()
-                    loadServerUrlWithVpnGuard(pendingUrl)
+                    loadServerUrlWithVpnGuard(pendingUrl, oauthGeneration)
                     notifyVpnRecoveryReadyIfBackgrounded()
                     return@launch
                 }
@@ -3135,6 +3189,17 @@ class MainActivity : ComponentActivity() {
                 delay((VpnReconnectPollIntervalMs - elapsedMs).coerceAtLeast(0L))
             }
         }
+    }
+
+    private fun cancelInvalidPendingOAuthVpnRecovery(): Boolean {
+        val generation = pendingVpnOAuthRecoveryGeneration ?: return false
+        val url = pendingVpnGuardUrl
+        if (url != null && isCurrentOAuthRecovery(url, generation)) return false
+        pendingVpnGuardUrl = null
+        pendingVpnOAuthRecoveryGeneration = null
+        stopVpnReconnectWaitLoop()
+        DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "oauth_flow_changed"))
+        return true
     }
 
     private fun stopVpnReconnectWaitLoop() {

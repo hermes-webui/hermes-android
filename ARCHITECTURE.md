@@ -234,7 +234,10 @@ local-network permission error requests access without relying on the startup
 hostname heuristic. Only eligible GET failures are replayed; failed form
 submissions request permission without replay and require a manual retry.
 Unhandled permission errors stay visible and do not start or resume automatic
-retries, and queued reloads are fenced across errors and new navigations.
+retries; manual Retry and Open in browser start again at the configured server
+rather than the failed form target. Queued reloads and resumed retries are
+fenced when navigation is requested, including while a VPN-gated load waits,
+as well as across errors and page starts.
 Older sign-in pages reached with Back can also require a manual retry (#184).
 A server selection
 change also revokes the old page's recovery handler, reinstalls document-start

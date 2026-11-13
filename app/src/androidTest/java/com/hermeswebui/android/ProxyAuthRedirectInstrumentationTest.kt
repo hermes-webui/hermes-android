@@ -512,13 +512,14 @@ class ProxyAuthRedirectInstrumentationTest {
                     val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
                     webView.webViewClient.onPageStarted(webView, "$oldUrl/session/old", null)
                     MainActivity::class.java.getDeclaredMethod(
-                        "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                        "recoverFromLocalNetworkPermissionError",
+                        String::class.java, CharSequence::class.java, String::class.java
                     ).apply {
                         isAccessible = true
-                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET")
                         assertThat(launches.get()).isEqualTo(1)
                         assertThat(pendingField.get(activity)).isSameInstanceAs(newServerCallback)
-                        invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                        invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET")
                     }
                     assertThat(launches.get()).isEqualTo(2)
                     assertThat(pendingField.get(activity)).isNotSameInstanceAs(newServerCallback)
@@ -553,14 +554,15 @@ class ProxyAuthRedirectInstrumentationTest {
                         .apply { isAccessible = true }
                     val newServerCallback = pendingField.get(activity)
                     val recovery = MainActivity::class.java.getDeclaredMethod(
-                        "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                        "recoverFromLocalNetworkPermissionError",
+                        String::class.java, CharSequence::class.java, String::class.java
                     ).apply { isAccessible = true }
                     assertThat(
-                        recovery.invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                        recovery.invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET")
                     ).isEqualTo(false)
                     assertThat(launches.get()).isEqualTo(1)
                     assertThat(pendingField.get(activity)).isSameInstanceAs(newServerCallback)
-                    recovery.invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                    recovery.invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET")
                     assertThat(launches.get()).isEqualTo(2)
                 }
             }
@@ -594,31 +596,166 @@ class ProxyAuthRedirectInstrumentationTest {
                     val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
                     assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(providerUrl))).isFalse()
                     val recovery = MainActivity::class.java.getDeclaredMethod(
-                        "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                        "recoverFromLocalNetworkPermissionError",
+                        String::class.java, CharSequence::class.java, String::class.java
                     ).apply { isAccessible = true }
                     val error = "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING"
-                    assertThat(recovery.invoke(activity, providerUrl, error)).isEqualTo(true)
+                    assertThat(recovery.invoke(activity, providerUrl, error, "GET")).isEqualTo(true)
                     assertThat(launches.get()).isEqualTo(2)
                     val pendingField = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
                         .apply { isAccessible = true }
-                    val providerCallback = pendingField.get(activity)
+                    val providerCallback = checkNotNull(pendingField.get(activity) as? Function0<*>)
                     webView.webViewClient.onPageStarted(webView, "$oldUrl/session/old", null)
-                    assertThat(recovery.invoke(activity, "$oldUrl/session/old", error)).isEqualTo(false)
+                    assertThat(recovery.invoke(activity, "$oldUrl/session/old", error, "GET")).isEqualTo(false)
                     assertThat(pendingField.get(activity)).isSameInstanceAs(providerCallback)
                     assertThat(launches.get()).isEqualTo(2)
                     val timeout = MainActivity::class.java.getDeclaredField("oauthFlowTimeoutMs")
                         .apply { isAccessible = true }
+                    val navigationGeneration = MainActivity::class.java.getDeclaredField("mainFrameNavigationGeneration")
+                        .apply { isAccessible = true }
                     val originalTimeout = timeout.getLong(activity)
                     timeout.setLong(activity, 0)
-                    assertThat(recovery.invoke(activity, providerUrl, error)).isEqualTo(false)
+                    assertThat(recovery.invoke(activity, providerUrl, error, "GET")).isEqualTo(false)
                     assertThat(pendingField.get(activity)).isSameInstanceAs(providerCallback)
+                    val beforeExpiredGrant = navigationGeneration.getLong(activity)
+                    providerCallback.invoke()
+                    assertThat(navigationGeneration.getLong(activity)).isEqualTo(beforeExpiredGrant)
+                    webView.webViewClient.onPageStarted(webView, providerUrl, null)
+                    val afterLatePageStart = navigationGeneration.getLong(activity)
+                    providerCallback.invoke()
+                    assertThat(navigationGeneration.getLong(activity)).isEqualTo(afterLatePageStart)
                     timeout.setLong(activity, originalTimeout)
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(
+                        webView, mainFrameRequest("$oldUrl/session/provider-next")
+                    )).isFalse()
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(providerUrl))).isFalse()
+                    val beforeReplacedGrant = navigationGeneration.getLong(activity)
+                    providerCallback.invoke()
+                    assertThat(navigationGeneration.getLong(activity)).isEqualTo(beforeReplacedGrant)
+                    assertThat(recovery.invoke(activity, providerUrl, error, "GET")).isEqualTo(true)
+                    val currentCallback = checkNotNull(pendingField.get(activity) as? Function0<*>)
+                    currentCallback.invoke()
+                    assertThat(navigationGeneration.getLong(activity)).isGreaterThan(beforeReplacedGrant)
                     MainActivity::class.java.getDeclaredMethod("clearActiveMainFrameOAuth").apply {
                         isAccessible = true
                         invoke(activity)
                     }
-                    assertThat(recovery.invoke(activity, providerUrl, error)).isEqualTo(false)
-                    assertThat(pendingField.get(activity)).isSameInstanceAs(providerCallback)
+                    assertThat(recovery.invoke(activity, providerUrl, error, "GET")).isEqualTo(false)
+                    assertThat(pendingField.get(activity)).isSameInstanceAs(currentCallback)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun editingCurrentServerUrlEndsThePreviousOAuthFlow() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
+            val oldUrl = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            repository.saveAppUrls(oldUrl, "")
+            repository.saveLastLoadedUrl("$oldUrl/session/old")
+            repository.addProfile("Primary", oldUrl)
+            val next = repository.addProfile("HTTPS", oldUrl.replace("http://", "https://"))
+            repository.setBrowserSignInEnabled(false)
+            val providerUrl = "$oldUrl/authorize?response_type=code&client_id=fixture" +
+                "&redirect_uri=${Uri.encode("${next.url}/callback")}"
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                scenario.onActivity { activity ->
+                    delayLocalNetworkPermission(activity) {}
+                    MainActivity::class.java.getDeclaredMethod(
+                        "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, next)
+                    }
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(providerUrl))).isFalse()
+                    val activeFlow = MainActivity::class.java.getDeclaredField("activeMainFrameOAuthFlow")
+                        .apply { isAccessible = true }
+                    assertThat(activeFlow.get(activity)).isNotNull()
+                    val coordinator = MainActivity::class.java.getDeclaredField("serverProfileCoordinator")
+                        .apply { isAccessible = true }.get(activity)
+                    coordinator.javaClass.getDeclaredMethod(
+                        "updateProfileAndFollowCurrent", String::class.java, String::class.java,
+                        String::class.java, ServerType::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(coordinator, next.id, next.name, "${next.url}/edited", ServerType.UNSPECIFIED)
+                    }
+                    assertThat(activeFlow.get(activity)).isNull()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun replacedOrExpiredOAuthRecoveryCancelsQueuedVpnRetry() {
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                scenario.onActivity { activity ->
+                    val viewModel = MainActivity::class.java.getDeclaredField("viewModel")
+                        .apply { isAccessible = true }.get(activity) as MainViewModel
+                    viewModel.setRequireVpnForTailscaleEnabled(true)
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    val provider = "http://100.64.0.1/authorize?response_type=code&client_id=fixture" +
+                        "&redirect_uri=${Uri.encode("${server.baseUrl}/callback")}"
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(provider))).isFalse()
+                    val generation = MainActivity::class.java.getDeclaredField("oauthRecoveryNavigationGeneration")
+                        .apply { isAccessible = true }
+                    val pendingUrl = MainActivity::class.java.getDeclaredField("pendingVpnGuardUrl")
+                        .apply { isAccessible = true }
+                    val pendingGeneration = MainActivity::class.java.getDeclaredField("pendingVpnOAuthRecoveryGeneration")
+                        .apply { isAccessible = true }
+                    fun queueCurrentNavigation() {
+                        pendingUrl.set(activity, provider)
+                        pendingGeneration.set(activity, generation.getLong(activity))
+                    }
+                    queueCurrentNavigation()
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(provider))).isFalse()
+                    assertThat(pendingUrl.get(activity)).isNull()
+                    queueCurrentNavigation()
+                    MainActivity::class.java.getDeclaredField("oauthFlowTimeoutMs").apply {
+                        isAccessible = true
+                        setLong(activity, 0)
+                    }
+                    MainActivity::class.java.getDeclaredMethod("startVpnReconnectWaitLoopIfNeeded").apply {
+                        isAccessible = true
+                        invoke(activity)
+                    }
+                    assertThat(pendingUrl.get(activity)).isNull()
+                    assertThat(pendingGeneration.get(activity)).isNull()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun localNetworkPermissionErrorDoesNotReplayPostAsGet() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                scenario.onActivity { activity ->
+                    val launches = AtomicInteger()
+                    delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                    val recovery = MainActivity::class.java.getDeclaredMethod(
+                        "recoverFromLocalNetworkPermissionError",
+                        String::class.java, CharSequence::class.java, String::class.java
+                    ).apply {
+                        isAccessible = true
+                    }
+                    assertThat(recovery.invoke(
+                        activity, "${server.baseUrl}/submit", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "POST"
+                    )).isEqualTo(false)
+                    assertThat(launches.get()).isEqualTo(0)
                 }
             }
         }
@@ -652,10 +789,11 @@ class ProxyAuthRedirectInstrumentationTest {
                     }
                     assertThat(launches.get()).isEqualTo(1)
                     MainActivity::class.java.getDeclaredMethod(
-                        "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                        "recoverFromLocalNetworkPermissionError",
+                        String::class.java, CharSequence::class.java, String::class.java
                     ).apply {
                         isAccessible = true
-                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET")
                     }
                     assertThat(launches.get()).isEqualTo(1)
                 }
@@ -834,10 +972,11 @@ class ProxyAuthRedirectInstrumentationTest {
                             val launches = AtomicInteger()
                             delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
                             MainActivity::class.java.getDeclaredMethod(
-                                "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                                "recoverFromLocalNetworkPermissionError",
+                                String::class.java, CharSequence::class.java, String::class.java
                             ).apply {
                                 isAccessible = true
-                                invoke(activity, provider, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                                invoke(activity, provider, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET")
                             }
                             assertThat(launches.get()).isEqualTo(1)
                         }
@@ -2286,13 +2425,16 @@ class ProxyAuthRedirectInstrumentationTest {
                     val reader = it.getInputStream().bufferedReader()
                     // Chromium opens idle speculative sockets; a read timeout there must not kill the accept loop.
                     val first = try { reader.readLine() } catch (_: java.io.IOException) { null } ?: return@use
+                    // HTTPS validation can send a TLS handshake to this HTTP-only fixture.
+                    val requestLine = first.split(" ", limit = 3)
+                    if (requestLine.size != 3 || !requestLine[2].startsWith("HTTP/")) return@use
                     val headers = mutableListOf<String>()
                     while (true) {
                         val line = try { reader.readLine() } catch (_: java.io.IOException) { null } ?: break
                         if (line.isEmpty()) break
                         headers.add(line)
                     }
-                    val path = first.split(" ")[1].substringBefore('?')
+                    val path = requestLine[1].substringBefore('?')
                     fun header(name: String) = headers.firstOrNull { h -> h.startsWith("$name:", true) }
                         ?.substringAfter(':')?.trim().orEmpty()
                     val cookie = header("Cookie")
@@ -2302,7 +2444,7 @@ class ProxyAuthRedirectInstrumentationTest {
                         "Basic ${android.util.Base64.encodeToString(basicCredentials.toByteArray(), android.util.Base64.NO_WRAP)}"
                     val authenticated = (cookie.contains("proxy_auth=ok") || basicAuthenticated) &&
                         !rejectSession.get()
-                    val query = first.split(" ")[1].substringAfter('?', "")
+                    val query = requestLine[1].substringAfter('?', "")
                     val (status, extra, body) = when {
                         basicAuth && publicStatus && path == "/api/status" ->
                             Triple("200 OK", "", """{"version":"test","initialized":true}""")

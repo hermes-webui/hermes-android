@@ -82,6 +82,7 @@ import com.hermeswebui.android.R
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.launcher.LauncherIcon
+import com.hermeswebui.android.server.ServerProfileRules
 import com.hermeswebui.android.ui.ServerValidationUiState
 import kotlin.math.roundToInt
 
@@ -389,9 +390,8 @@ fun SettingsScreen(
                 // ── Servers ───────────────────────────────────────────────
                 SectionHeader("Servers")
 
-                val activeProfile = serverProfiles.firstOrNull { profile ->
-                    profile.url.trimEnd('/').equals(initialServerUrl.trimEnd('/'), ignoreCase = true)
-                } ?: serverProfiles.firstOrNull { it.isActive }
+                val activeProfile = serverProfiles.firstOrNull { it.isActive }
+                    ?: serverProfiles.firstOrNull { ServerProfileRules.urlsMatch(it.url, initialServerUrl) }
                 val sortedProfiles = listOfNotNull(activeProfile) +
                     serverProfiles.filter { it.id != activeProfile?.id }
 
@@ -1454,11 +1454,10 @@ internal fun AddServerProfileDialog(
     var type by remember { mutableStateOf(ServerType.UNSPECIFIED) }
     val trimmedName = profileName.trim()
     val trimmedUrl = profileUrl.trim()
-    val normalizedUrl = trimmedUrl.trimEnd('/').lowercase()
     val isValidUrl = trimmedUrl.isNotBlank() &&
         (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://"))
     val isDuplicateUrl = existingProfiles.any {
-        it.url.trim().trimEnd('/').lowercase() == normalizedUrl
+        ServerProfileRules.urlsMatch(it.url, trimmedUrl)
     }
     val isDuplicateName = trimmedName.isNotBlank() &&
         existingProfiles.any { it.name.trim().equals(trimmedName, ignoreCase = true) }

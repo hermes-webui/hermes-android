@@ -89,11 +89,18 @@ object SelectedServerNavigation {
         if (currentIndex !in history.indices) return null
         for (index in currentIndex - 1 downTo 0) {
             val url = history[index] ?: continue
-            if (!UrlOrigins.hasSameOrigin(url, selectedServerUrl) ||
-                UrlOrigins.hasCompatibleUserInfo(url, selectedServerUrl)
-            ) return index - currentIndex
+            if (!hasOutdatedServerCredentials(url, selectedServerUrl, selectedServerUrl)) {
+                return index - currentIndex
+            }
         }
         return null
+    }
+
+    fun hasOutdatedServerCredentials(url: String?, previousServerUrl: String, selectedServerUrl: String): Boolean {
+        if (url.isNullOrBlank()) return false
+        val previousHost = UrlOrigins.hostFrom(previousServerUrl) ?: return false
+        return UrlOrigins.hostFrom(url) == previousHost &&
+            !UrlOrigins.hasCompatibleUserInfo(url, selectedServerUrl)
     }
 
     /** Restore only routes on the selected server; anything else falls back to its root. */

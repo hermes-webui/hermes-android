@@ -204,13 +204,15 @@ the legacy sign-ins does not alter server URLs or names or clear WebView's
 in-memory authentication cache.
 The app rejects outdated URL userinfo when restoring a saved route on startup,
 reconnecting, opening a notification or repairing the WebUI workspace, and
-skips incompatible same-origin Back history entries. A URL without userinfo or
-with the exact configured userinfo remains usable. Changing the configured URL
-removes an incompatible remembered route; late page callbacks are checked
-against the current URL before saving. Legacy incompatible routes may remain
-encrypted until replaced, and Back history itself is not erased. Same-origin
-profile edits reinstall document-start scripts before loading the new URL so
-their recovery target cannot retain the former credentials.
+skips incompatible Back entries on the server host, including other ports. A
+URL without userinfo or with browser-normalized, case-sensitive userinfo matching
+the configured URL remains usable. Changing the configured URL removes an
+incompatible remembered route; late page callbacks are checked against the
+current URL before saving. Legacy incompatible routes may remain encrypted
+until replaced. When history contains incompatible credentials for the previous
+server host, it is cleared before the new page loads and again when that page
+commits. A server selection change also revokes the old page's recovery handler,
+reinstalls document-start scripts, and fences pending permission and VPN work.
 Challenges from other hosts are canceled. This does not broaden the proxy
 redirect grant or the app's notification, microphone, download, or navigation trust.
 

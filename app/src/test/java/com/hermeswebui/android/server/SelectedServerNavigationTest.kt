@@ -307,6 +307,13 @@ class SelectedServerNavigationTest {
                 listOf("https://provider.example.com/login", current), 1, production
             )
         ).isEqualTo(-1)
+        assertThat(
+            SelectedServerNavigation.previousHistoryOffset(
+                listOf("https://User:Pass@hermes.example.com:8443/session/old", current),
+                1,
+                production
+            )
+        ).isNull()
         assertThat(SelectedServerNavigation.previousHistoryOffset(listOf(current), 1, production)).isNull()
     }
 

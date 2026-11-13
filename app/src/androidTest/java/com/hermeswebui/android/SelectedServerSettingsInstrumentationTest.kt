@@ -14,6 +14,11 @@ import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.server.SelectedServerNavigation
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -116,6 +121,48 @@ class SelectedServerSettingsInstrumentationTest {
             lateWriter.saveLastLoadedUrl("https://User:Pass@extra@a.example.test/session/invalid")
             assertThat(SettingsRepository(context).getLastLoadedUrl()).isEqualTo(safeRoute)
         }
+    }
+
+    @Test
+    fun concurrentRepositoriesCannotWriteTheOldRouteAfterCredentialsChange() {
+        val configured = "https://User:Pass@a.example.test/hermes"
+        val oldRoute = "$configured/session/old"
+        repository.saveAppUrls(configured, DASHBOARD)
+        val lateWriter = SettingsRepository(context)
+        val readStarted = CountDownLatch(1)
+        val resumeRead = CountDownLatch(1)
+        val changeStarted = CountDownLatch(1)
+        val changeCompleted = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>()
+        context.pauseNextStringRead("late-url-writer", readStarted, resumeRead)
+        val writer = thread(name = "late-url-writer") {
+            runCatching { lateWriter.saveLastLoadedUrl(oldRoute) }
+                .onFailure { failure.compareAndSet(null, it) }
+        }
+        var changer: Thread? = null
+        try {
+            assertThat(readStarted.await(10, TimeUnit.SECONDS)).isTrue()
+            changer = thread(name = "server-url-changer") {
+                changeStarted.countDown()
+                try {
+                    repository.saveAppUrls(SERVER_A, DASHBOARD)
+                } catch (error: Throwable) {
+                    failure.compareAndSet(null, error)
+                } finally {
+                    changeCompleted.countDown()
+                }
+            }
+            assertThat(changeStarted.await(10, TimeUnit.SECONDS)).isTrue()
+            assertThat(changeCompleted.await(2, TimeUnit.SECONDS)).isFalse()
+        } finally {
+            resumeRead.countDown()
+            writer.join(10_000)
+            changer?.join(10_000)
+        }
+        assertThat(writer.isAlive).isFalse()
+        assertThat(changer.isAlive).isFalse()
+        assertThat(failure.get()).isNull()
+        assertThat(SettingsRepository(context).getLastLoadedUrl()).isNull()
     }
 
     @Test
@@ -281,6 +328,17 @@ class SelectedServerSettingsInstrumentationTest {
     private class IsolatedPreferencesContext(base: Context) : ContextWrapper(base) {
         private val prefix = "selected_server_test_${UUID.randomUUID()}_"
         private val preferenceNames = mutableSetOf<String>()
+        private val pauseRead = AtomicBoolean(false)
+        private var pausedThread: String? = null
+        private var readStarted: CountDownLatch? = null
+        private var resumeRead: CountDownLatch? = null
+
+        fun pauseNextStringRead(threadName: String, started: CountDownLatch, resume: CountDownLatch) {
+            pausedThread = threadName
+            readStarted = started
+            resumeRead = resume
+            pauseRead.set(true)
+        }
 
         // AndroidX's encrypted keyset storage obtains the application context.
         override fun getApplicationContext(): Context = this
@@ -288,7 +346,17 @@ class SelectedServerSettingsInstrumentationTest {
         override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
             val isolatedName = prefix + name
             preferenceNames.add(isolatedName)
-            return baseContext.getSharedPreferences(isolatedName, mode)
+            val delegate = baseContext.getSharedPreferences(isolatedName, mode)
+            return object : SharedPreferences by delegate {
+                override fun getString(key: String?, defValue: String?): String? {
+                    val result = delegate.getString(key, defValue)
+                    if (Thread.currentThread().name == pausedThread && pauseRead.compareAndSet(true, false)) {
+                        readStarted?.countDown()
+                        check(resumeRead?.await(10, TimeUnit.SECONDS) == true)
+                    }
+                    return result
+                }
+            }
         }
 
         fun deleteTestPreferences() {

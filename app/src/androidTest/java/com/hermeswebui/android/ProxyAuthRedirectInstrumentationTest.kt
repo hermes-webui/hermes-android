@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Instrumentation
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.text.method.PasswordTransformationMethod
 import android.view.MotionEvent
@@ -13,6 +14,10 @@ import android.view.inspector.WindowInspector
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.FileProvider
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -49,10 +54,14 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 import org.json.JSONObject
 
@@ -205,8 +214,8 @@ class ProxyAuthRedirectInstrumentationTest {
                 scenario.onActivity { activity ->
                     val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
                     val history = webView.copyBackForwardList()
-                    assertThat(history.getItemAtIndex(history.currentIndex - 1)?.url)
-                        .isEqualTo("$credentialed/session/old")
+                    assertThat((0 until history.size).map { history.getItemAtIndex(it)?.url })
+                        .doesNotContain("$credentialed/session/old")
                     activity.onBackPressedDispatcher.onBackPressed()
                 }
                 compose.waitUntil(10_000) {
@@ -224,6 +233,233 @@ class ProxyAuthRedirectInstrumentationTest {
                 }
                 assertThat(server.requests.count { it.path == "/session/old" }).isEqualTo(oldRequests)
                 assertThat(restoredUrl).isEqualTo("${server.baseUrl}/")
+            }
+        }
+    }
+
+    @Test
+    fun editingCurrentCredentials_pageHistoryBackDoesNotRestoreTheOldRoute() {
+        withConfiguredServer(basicAuth = true) { server, repository ->
+            val credentialed = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            repository.saveAppUrls(credentialed, "")
+            repository.addProfile("Primary", credentialed)
+            repository.saveLastLoadedUrl("$credentialed/session/old")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                sendDeepLink(scenario, "hermes://app/settings")
+                compose.onNodeWithText("Primary").performTouchInput { longClick() }
+                compose.onNodeWithText("Server URL").performTextReplacement(server.baseUrl)
+                compose.onNodeWithText("Save").performClick()
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
+                }
+                val oldRequests = server.requests.count { it.path == "/session/old" }
+                evaluateWebView(
+                    scenario,
+                    "window.setTimeout(function(){window.__historyCheck=true;}, 600); window.history.back();",
+                    requireCallback = false
+                )
+                var restoredUrl: String? = null
+                eventually("Page history traversal completed or old route was restored") {
+                    scenario.onActivity { activity ->
+                        restoredUrl = findWebView(activity.findViewById(android.R.id.content))?.url
+                    }
+                    restoredUrl?.contains("/session/old") == true ||
+                        evaluateWebView(scenario, "window.__historyCheck === true", false) == "true"
+                }
+                assertThat(restoredUrl).isEqualTo("${server.baseUrl}/")
+                assertThat(server.requests.count { it.path == "/session/old" }).isEqualTo(oldRequests)
+            }
+        }
+    }
+
+    @Test
+    fun editingCurrentCredentials_delayedReplacementCannotUseOldRecoveryClosure() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
+            val credentialed = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            repository.saveAppUrls(credentialed, "")
+            repository.saveLastLoadedUrl("$credentialed/session/old")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                        .loadUrl("${server.baseUrl}/session/current")
+                }
+                awaitWebView(scenario) {
+                    it.url == "${server.baseUrl}/session/current" && it.title == "Hermes session current"
+                }
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content))).clearHistory()
+                }
+                val oldRequests = server.requests.count { it.path == "/session/old" }
+                val permissionRequested = CountDownLatch(1)
+                scenario.onActivity { activity ->
+                    delayLocalNetworkPermission(activity) { permissionRequested.countDown() }
+                    MainActivity::class.java.getDeclaredMethod("saveSettings", String::class.java).apply {
+                        isAccessible = true
+                        invoke(activity, server.baseUrl)
+                    }
+                }
+                eventually("Current server URL updated") {
+                    repository.getSettings(server.baseUrl, "").serverUrl == server.baseUrl
+                }
+                assertThat(permissionRequested.await(10, TimeUnit.SECONDS)).isTrue()
+                fun blockedNavigations(): Int = DiagnosticsLogger.recentText(context)
+                    .lineSequence().count { it.contains("stale_credential_navigation_blocked") }
+                val blockedBefore = blockedNavigations()
+                evaluateWebView(scenario, """
+                    (function() {
+                      var button = document.createElement('button');
+                      button.id = 'btnWorkspacePanelToggle';
+                      document.body.appendChild(button);
+                      window.setTimeout(function() { window.__recoveryCheck = true; }, 600);
+                      button.click();
+                    })();
+                """.trimIndent(), requireCallback = false)
+                eventually("Workspace recovery completed or the old route was requested") {
+                    server.requests.count { it.path == "/session/old" } > oldRequests ||
+                        evaluateWebView(scenario, "window.__recoveryCheck === true", false) == "true"
+                }
+                assertThat(server.requests.count { it.path == "/session/old" }).isEqualTo(oldRequests)
+                assertThat(evaluateWebView(scenario, "location.href"))
+                    .isEqualTo("\"${server.baseUrl}/session/current\"")
+                assertThat(blockedNavigations()).isEqualTo(blockedBefore)
+
+                evaluateWebView(
+                    scenario,
+                    "window.location.href = ${JSONObject.quote("$credentialed/session/old")};",
+                    requireCallback = false
+                )
+                eventually("Stale credential-bearing page navigation was rejected") {
+                    blockedNavigations() > blockedBefore ||
+                        server.requests.count { it.path == "/session/old" } > oldRequests
+                }
+                assertThat(blockedNavigations()).isGreaterThan(blockedBefore)
+                assertThat(server.requests.count { it.path == "/session/old" }).isEqualTo(oldRequests)
+            }
+        }
+    }
+
+    @Test
+    fun switchingProfilesCancelsPendingVpnWorkBeforeChangingTheSelectedServer() {
+        withConfiguredServer(officialWebapp = true) { server, repository ->
+            repository.addProfile("Primary", server.baseUrl)
+            val next = repository.addProfile("Next", "${server.baseUrl}/other")
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                val pending = Job()
+                val configuredWhenCancelled = AtomicReference<String?>()
+                pending.invokeOnCompletion {
+                    configuredWhenCancelled.set(repository.getSettings(server.baseUrl, "").serverUrl)
+                }
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredField("pendingVpnGuardUrl").apply {
+                        isAccessible = true
+                        set(activity, "http://old:secret@100.64.0.1")
+                    }
+                    MainActivity::class.java.getDeclaredField("vpnReconnectWaitJob").apply {
+                        isAccessible = true
+                        set(activity, pending)
+                    }
+                    MainActivity::class.java.getDeclaredMethod(
+                        "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, next)
+                    }
+                }
+                assertThat(pending.isCancelled).isTrue()
+                assertThat(configuredWhenCancelled.get()).isEqualTo(server.baseUrl)
+                assertThat(repository.getSettings(server.baseUrl, "").serverUrl).isEqualTo(next.url)
+            }
+        }
+    }
+
+    @Test
+    fun switchingProfilesRejectsAnOldLocalNetworkPermissionCompletion() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(officialWebapp = true) { server, repository ->
+            repository.addProfile("Primary", server.baseUrl)
+            val next = repository.addProfile("Next", "${server.baseUrl}/other")
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                val oldActionCalled = AtomicBoolean(false)
+                scenario.onActivity { activity ->
+                    delayLocalNetworkPermission(activity) {}
+                    val action: () -> Unit = { oldActionCalled.set(true) }
+                    MainActivity::class.java.getDeclaredMethod(
+                        "requestLocalNetworkPermissionIfNeeded",
+                        String::class.java,
+                        Function0::class.java,
+                        Function0::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, server.baseUrl, action, action)
+                    }
+                    val callback = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
+                        .apply { isAccessible = true }
+                        .get(activity) as? Function0<*>
+                    checkNotNull(callback) { "The fixture requires a pending permission request" }
+                    MainActivity::class.java.getDeclaredMethod(
+                        "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, next)
+                    }
+                    callback.invoke()
+                }
+                assertThat(oldActionCalled.get()).isFalse()
+                assertThat(repository.getSettings(server.baseUrl, "").serverUrl).isEqualTo(next.url)
+            }
+        }
+    }
+
+    @Test
+    fun switchingProfilesIgnoresAnOldLocalNetworkErrorAfterTheSelectionChanges() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
+            val oldUrl = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            repository.saveAppUrls(oldUrl, "")
+            repository.saveLastLoadedUrl("$oldUrl/session/old")
+            repository.addProfile("Primary", oldUrl)
+            val next = repository.addProfile("Next", server.baseUrl.replace("127.0.0.1", "localhost"))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                val launches = AtomicInteger()
+                scenario.onActivity { activity ->
+                    delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                    MainActivity::class.java.getDeclaredMethod(
+                        "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, next)
+                    }
+                    assertThat(launches.get()).isEqualTo(1)
+                    val pendingField = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
+                        .apply { isAccessible = true }
+                    val newServerCallback = pendingField.get(activity)
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    webView.webViewClient.onPageStarted(webView, "$oldUrl/session/old", null)
+                    MainActivity::class.java.getDeclaredMethod(
+                        "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                        assertThat(launches.get()).isEqualTo(1)
+                        assertThat(pendingField.get(activity)).isSameInstanceAs(newServerCallback)
+                        invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                    }
+                    assertThat(launches.get()).isEqualTo(2)
+                    assertThat(pendingField.get(activity)).isNotSameInstanceAs(newServerCallback)
+                }
+                assertThat(repository.getSettings(server.baseUrl, "").serverUrl).isEqualTo(next.url)
             }
         }
     }
@@ -1315,6 +1551,25 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
+    private fun assumeLocalNetworkPermissionIsPending() {
+        assumeTrue(
+            "The delayed-permission fixture requires local-network permission to be ungranted",
+            context.checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") != PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    private fun delayLocalNetworkPermission(activity: MainActivity, onLaunch: () -> Unit) {
+        val delayedPermission = object : ActivityResultLauncher<String>() {
+            override fun launch(input: String, options: ActivityOptionsCompat?) = onLaunch()
+            override fun unregister() = Unit
+            override val contract: ActivityResultContract<String, *> = ActivityResultContracts.RequestPermission()
+        }
+        MainActivity::class.java.getDeclaredField("localNetworkPermissionLauncher").apply {
+            isAccessible = true
+            set(activity, delayedPermission)
+        }
+    }
+
     private fun awaitText(text: String) {
         eventually({ "$text\n${DiagnosticsLogger.recentText(context).takeLast(3_000)}" }) { isTextShown(text) }
     }
@@ -1490,6 +1745,8 @@ class ProxyAuthRedirectInstrumentationTest {
                         !rejectSession.get()
                     val query = first.split(" ")[1].substringAfter('?', "")
                     val (status, extra, body) = when {
+                        basicAuth && publicStatus && path == "/api/status" ->
+                            Triple("200 OK", "", """{"version":"test","initialized":true}""")
                         basicAuth && !basicAuthenticated ->
                             Triple("401 Unauthorized", "WWW-Authenticate: Basic realm=\"Hermes WebUI\"\r\n", "401 Unauthorized")
                         basicAuth && path == "/api/status" ->

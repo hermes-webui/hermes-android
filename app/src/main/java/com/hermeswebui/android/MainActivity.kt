@@ -231,6 +231,9 @@ class MainActivity : ComponentActivity() {
     private var pendingVpnGuardUrl: String? = null
     private var vpnReconnectWaitJob: Job? = null
     private var tailscaleLaunchFallbackJob: Job? = null
+    private var serverSelectionGeneration = 0L
+    private val previouslySelectedServerHosts = mutableSetOf<String>()
+    private var clearHistoryOnNextConfiguredPage = false
     private var activityVisible = false
     private lateinit var appUpdateCoordinator: HermesAppUpdateCoordinator
     private lateinit var notificationBridgeCoordinator: HermesNotificationBridgeCoordinator
@@ -442,6 +445,7 @@ class MainActivity : ComponentActivity() {
             onOpenInExternalBrowser = ::openInExternalBrowser,
             onPerformServerProfileSwitch = ::performServerProfileSwitch,
             onRefreshConfiguredHermes = { url ->
+                prepareForServerSelectionChange(url, url)
                 installHermesWebUiDocumentStartFixes(webView, url)
                 loadServerUrlWithVpnGuard(url)
             },
@@ -1025,6 +1029,16 @@ class MainActivity : ComponentActivity() {
                     val target = request?.url?.toString() ?: return true
                     val serverUrl = viewModel.uiState.value.settings.serverUrl
                     if (request.isForMainFrame &&
+                        SelectedServerNavigation.hasOutdatedServerCredentials(target, serverUrl, serverUrl)
+                    ) {
+                        DiagnosticsLogger.record(
+                            this@MainActivity,
+                            "stale_credential_navigation_blocked",
+                            mapOf("reason" to "server_credentials_changed")
+                        )
+                        return true
+                    }
+                    if (request.isForMainFrame &&
                         !proxyAuthNavigation.allows(serverUrl, target) &&
                         !urlPolicy.isAllowed(target) &&
                         activeMainFrameOAuthFlow == null &&
@@ -1061,12 +1075,14 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
                     super.onPageCommitVisible(view, url)
+                    clearStaleHistoryAfterNavigation(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
                     viewModel.onPageCommitVisible(url)
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    clearStaleHistoryAfterNavigation(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
                     detectLoadedServerType(view)
                     viewModel.onPageFinished(
@@ -1104,19 +1120,7 @@ class MainActivity : ComponentActivity() {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame != true) return
                     val failedUrl = request.url?.toString().orEmpty()
-                    if (
-                        isLocalNetworkPermissionError(error) &&
-                            failedUrl.isNotBlank() &&
-                            !hasLocalNetworkPermission()
-                    ) {
-                        requestLocalNetworkPermissionIfNeeded(
-                            url = failedUrl,
-                            onGranted = {
-                                loadServerUrlWithVpnGuard(failedUrl)
-                            }
-                        )
-                        return
-                    }
+                    if (recoverFromLocalNetworkPermissionError(failedUrl, error?.description)) return
                     val offline = isOfflineError(error?.errorCode)
                     val message = error?.description?.toString() ?: "Failed to load page"
                     DiagnosticsLogger.record(
@@ -1595,8 +1599,18 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        pendingLocalNetworkPermissionAction = onGranted
-        pendingLocalNetworkPermissionDeniedAction = onDenied
+        val selectionGeneration = serverSelectionGeneration
+        fun ifSelectionStillCurrent(action: () -> Unit) {
+            if (serverSelectionGeneration == selectionGeneration) {
+                action()
+            } else {
+                DiagnosticsLogger.record(this, "server_navigation_discarded", mapOf("reason" to "server_changed"))
+            }
+        }
+        pendingLocalNetworkPermissionAction = { ifSelectionStillCurrent(onGranted) }
+        pendingLocalNetworkPermissionDeniedAction = onDenied?.let { action ->
+            { ifSelectionStillCurrent(action) }
+        }
         localNetworkPermissionLauncher.launch("android.permission.ACCESS_LOCAL_NETWORK")
     }
 
@@ -1613,11 +1627,23 @@ class MainActivity : ComponentActivity() {
         return LocalNetworkPolicy.isLikelyLocalNetworkHost(host)
     }
 
-    private fun isLocalNetworkPermissionError(error: WebResourceError?): Boolean {
-        return error?.description?.contains(
-            "ERR_LOCAL_NETWORK_PERMISSION_MISSING",
-            ignoreCase = true
-        ) == true
+    private fun recoverFromLocalNetworkPermissionError(failedUrl: String, description: CharSequence?): Boolean {
+        if (description?.contains("ERR_LOCAL_NETWORK_PERMISSION_MISSING", ignoreCase = true) != true ||
+            failedUrl.isBlank() || hasLocalNetworkPermission()
+        ) return false
+        val serverUrl = viewModel.uiState.value.settings.serverUrl
+        val failedHost = UrlOrigins.hostFrom(failedUrl)
+        val wasServerHost = failedHost != null &&
+            (failedHost == UrlOrigins.hostFrom(serverUrl) || failedHost in previouslySelectedServerHosts)
+        if (wasServerHost && !UrlOrigins.hasCompatibleUserInfo(failedUrl, serverUrl)) {
+            DiagnosticsLogger.record(this, "server_navigation_discarded", mapOf("reason" to "server_credentials_changed"))
+            return true
+        }
+        requestLocalNetworkPermissionIfNeeded(
+            url = failedUrl,
+            onGranted = { loadServerUrlWithVpnGuard(failedUrl) }
+        )
+        return true
     }
 
     private fun installHermesNotificationWebMessageBridge(view: WebView) {
@@ -2128,6 +2154,45 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun prepareForServerSelectionChange(previousServerUrl: String, selectedServerUrl: String) {
+        serverSelectionGeneration++
+        UrlOrigins.hostFrom(previousServerUrl)?.let(previouslySelectedServerHosts::add)
+        pendingVpnGuardUrl = null
+        stopVpnReconnectWaitLoop()
+
+        val origin = UrlOrigins.pageOrigin(previousServerUrl)
+        if (origin != null && UrlOrigins.hasSameOrigin(webView.url, previousServerUrl)) {
+            webView.evaluateJavascript(
+                HermesWebUiScripts.buildOriginGuardedRuntimeScript(
+                    origin,
+                    "window.dispatchEvent(new Event('hermes-android-reset-route-recovery'));"
+                ),
+                null
+            )
+        }
+        val history = webView.copyBackForwardList()
+        val hasStaleCredentials = (0 until history.size).any { index ->
+            SelectedServerNavigation.hasOutdatedServerCredentials(
+                history.getItemAtIndex(index)?.url, previousServerUrl, selectedServerUrl
+            )
+        }
+        if (hasStaleCredentials) {
+            webView.stopLoading()
+            loadInMainWebView("about:blank")
+            webView.clearHistory()
+            clearHistoryOnNextConfiguredPage = true
+        }
+    }
+
+    private fun clearStaleHistoryAfterNavigation(view: WebView?, url: String?) {
+        if (!clearHistoryOnNextConfiguredPage || view == null || url.isNullOrBlank() ||
+            view.url != url || !matchesConfiguredWebUiRoute(url) ||
+            !UrlOrigins.hasCompatibleUserInfo(url, viewModel.uiState.value.settings.serverUrl)
+        ) return
+        view.clearHistory()
+        clearHistoryOnNextConfiguredPage = false
+    }
+
     private fun buildHermesWebUiNotificationBridgeScript(): String {
         return HermesWebUiScripts.buildNotificationBridgeScript(
             bridgeName = HermesNotificationBridgeName,
@@ -2436,6 +2501,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         val persist = {
+            prepareForServerSelectionChange(viewModel.uiState.value.settings.serverUrl, serverUrl)
             viewModel.saveAppUrls(serverUrl, dashboardUrl)
             if (profileName != null && serverType != null) {
                 viewModel.addServerProfile(profileName, serverUrl, serverType)
@@ -2477,6 +2543,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun preflightConfiguredStartupServer(serverUrl: String) {
+        val selectionGeneration = serverSelectionGeneration
         val lastLoadedUrl = settingsRepository.getLastLoadedUrl()
         // A cold-start session deep link (#170) shares the notification-tap override slot, so
         // startupUrl still requires a trusted configured WebUI route before honoring it.
@@ -2501,7 +2568,11 @@ class MainActivity : ComponentActivity() {
         serverProfileCoordinator.preflightConfiguredStartupServer(
             serverUrl = serverUrl,
             startUrl = startUrl,
-            onContinueToWebView = { targetUrl ->
+            onContinueToWebView = continueToWebView@{ targetUrl ->
+                if (selectionGeneration != serverSelectionGeneration) {
+                    DiagnosticsLogger.record(this, "server_navigation_discarded", mapOf("reason" to "server_changed"))
+                    return@continueToWebView
+                }
                 requestLocalNetworkPermissionIfNeeded(
                     url = targetUrl,
                     onGranted = {
@@ -2586,6 +2657,7 @@ class MainActivity : ComponentActivity() {
             "server_switch_confirmed",
             mapOf("origin" to DiagnosticsLogger.originOnly(profile.url), "profile_id" to profile.id)
         )
+        prepareForServerSelectionChange(viewModel.uiState.value.settings.serverUrl, profile.url)
         clearWebViewStateForServerSwitch()
 
         viewModel.switchServerProfile(profile.id)
@@ -2965,17 +3037,20 @@ class MainActivity : ComponentActivity() {
             while (isActive) {
                 val probeStartedAt = SystemClock.elapsedRealtime()
                 val pendingUrl = pendingVpnGuardUrl ?: return@launch
+                val selectionGeneration = serverSelectionGeneration
                 if (!shouldRequireVpnForServerUrl(pendingUrl)) {
                     pendingVpnGuardUrl = null
                     return@launch
                 }
-                if (
-                    isVpnTransportActive() &&
+                val reachable = isVpnTransportActive() &&
                     HermesApiClient.isServerReachable(
                         baseUrl = pendingUrl,
                         timeoutMs = VpnReconnectPollIntervalMs.toInt() - 100
                     )
-                ) {
+                if (selectionGeneration != serverSelectionGeneration || pendingVpnGuardUrl != pendingUrl) {
+                    continue
+                }
+                if (reachable) {
                     pendingVpnGuardUrl = null
                     viewModel.closeSettings()
                     loadServerUrlWithVpnGuard(pendingUrl)

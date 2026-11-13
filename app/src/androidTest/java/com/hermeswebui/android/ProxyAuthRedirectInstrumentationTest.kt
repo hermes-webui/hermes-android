@@ -65,8 +65,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assume.assumeTrue
@@ -272,7 +274,11 @@ class ProxyAuthRedirectInstrumentationTest {
                 compose.onNodeWithText("Server URL").performTextReplacement(server.baseUrl)
                 compose.onNodeWithText("Save").performClick()
                 awaitWebView(scenario) {
-                    it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
+                    val history = it.copyBackForwardList()
+                    it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated" &&
+                        (0 until history.size).none { index ->
+                            history.getItemAtIndex(index)?.url == "$credentialed/session/old"
+                        }
                 }
                 val oldRequests = server.requests.count { it.path == "/session/old" }
                 scenario.onActivity { activity ->
@@ -697,6 +703,7 @@ class ProxyAuthRedirectInstrumentationTest {
             }
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 awaitWebView(scenario) { it.title == "Hermes signed in" }
+                val probes = AtomicInteger()
                 scenario.onActivity { activity ->
                     val viewModel = MainActivity::class.java.getDeclaredField("viewModel")
                         .apply { isAccessible = true }.get(activity) as MainViewModel
@@ -729,6 +736,117 @@ class ProxyAuthRedirectInstrumentationTest {
                     }
                     assertThat(pendingUrl.get(activity)).isNull()
                     assertThat(pendingGeneration.get(activity)).isNull()
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(provider))).isFalse()
+                    queueCurrentNavigation()
+                    val probe: suspend (String) -> Boolean = {
+                        probes.incrementAndGet()
+                        false
+                    }
+                    MainActivity::class.java.getDeclaredField("vpnReconnectProbe").apply {
+                        isAccessible = true
+                        set(activity, probe)
+                    }
+                    MainActivity::class.java.getDeclaredMethod("startVpnReconnectWaitLoopIfNeeded").apply {
+                        isAccessible = true
+                        invoke(activity)
+                    }
+                    assertThat(probes.get()).isEqualTo(1)
+                    MainActivity::class.java.getDeclaredField("oauthFlowTimeoutMs").apply {
+                        isAccessible = true
+                        setLong(activity, 0)
+                    }
+                }
+                eventually("Expired OAuth retry is canceled before the next VPN probe") {
+                    var pending: Any? = null
+                    scenario.onActivity { activity ->
+                        pending = MainActivity::class.java.getDeclaredField("pendingVpnGuardUrl")
+                            .apply { isAccessible = true }.get(activity)
+                    }
+                    pending == null
+                }
+                assertThat(probes.get()).isEqualTo(1)
+            }
+        }
+    }
+
+    @Test
+    fun oauthExpiryDuringVpnProbeDoesNotResumeOrDismissSettings() {
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                eventually("WebView document finished before the VPN probe") {
+                    evaluateWebView(scenario, "document.readyState === 'complete'") == "true"
+                }
+                val probeStarted = CountDownLatch(1)
+                val finishProbe = CountDownLatch(1)
+                var beforeProbe = 0L
+                try {
+                    scenario.onActivity { activity ->
+                        val viewModel = MainActivity::class.java.getDeclaredField("viewModel")
+                            .apply { isAccessible = true }.get(activity) as MainViewModel
+                        viewModel.setRequireVpnForTailscaleEnabled(true)
+                        viewModel.openSettings()
+                        val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                        val provider = "http://100.64.0.1/authorize?response_type=code&client_id=fixture" +
+                            "&redirect_uri=${Uri.encode("${server.baseUrl}/callback")}"
+                        assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(provider))).isFalse()
+                        val generation = MainActivity::class.java.getDeclaredField("oauthRecoveryNavigationGeneration")
+                            .apply { isAccessible = true }.getLong(activity)
+                        MainActivity::class.java.getDeclaredField("pendingVpnGuardUrl").apply {
+                            isAccessible = true
+                            set(activity, provider)
+                        }
+                        MainActivity::class.java.getDeclaredField("pendingVpnOAuthRecoveryGeneration").apply {
+                            isAccessible = true
+                            set(activity, generation)
+                        }
+                        val probe: suspend (String) -> Boolean = {
+                            probeStarted.countDown()
+                            withContext(Dispatchers.IO) {
+                                check(finishProbe.await(10, TimeUnit.SECONDS)) { "VPN probe was not released" }
+                            }
+                            true
+                        }
+                        MainActivity::class.java.getDeclaredField("vpnReconnectProbe").apply {
+                            isAccessible = true
+                            set(activity, probe)
+                        }
+                        beforeProbe = MainActivity::class.java.getDeclaredField("mainFrameNavigationGeneration")
+                            .apply { isAccessible = true }.getLong(activity)
+                        MainActivity::class.java.getDeclaredMethod("startVpnReconnectWaitLoopIfNeeded").apply {
+                            isAccessible = true
+                            invoke(activity)
+                        }
+                    }
+                    assertThat(probeStarted.await(10, TimeUnit.SECONDS)).isTrue()
+                    scenario.onActivity { activity ->
+                        MainActivity::class.java.getDeclaredField("oauthFlowTimeoutMs").apply {
+                            isAccessible = true
+                            setLong(activity, 0)
+                        }
+                    }
+                    finishProbe.countDown()
+                    eventually("Expired in-flight OAuth retry is canceled") {
+                        var pending: Any? = null
+                        scenario.onActivity { activity ->
+                            pending = MainActivity::class.java.getDeclaredField("pendingVpnGuardUrl")
+                                .apply { isAccessible = true }.get(activity)
+                        }
+                        pending == null
+                    }
+                    scenario.onActivity { activity ->
+                        val viewModel = MainActivity::class.java.getDeclaredField("viewModel")
+                            .apply { isAccessible = true }.get(activity) as MainViewModel
+                        val afterProbe = MainActivity::class.java.getDeclaredField("mainFrameNavigationGeneration")
+                            .apply { isAccessible = true }.getLong(activity)
+                        assertThat(viewModel.uiState.value.isSettingsVisible).isTrue()
+                        assertThat(afterProbe).isEqualTo(beforeProbe)
+                    }
+                } finally {
+                    finishProbe.countDown()
                 }
             }
         }
@@ -752,8 +870,51 @@ class ProxyAuthRedirectInstrumentationTest {
                     ).apply {
                         isAccessible = true
                     }
+                    val navigationGeneration = MainActivity::class.java.getDeclaredField("mainFrameNavigationGeneration")
+                        .apply { isAccessible = true }
+                    val beforeGrant = navigationGeneration.getLong(activity)
                     assertThat(recovery.invoke(
                         activity, "${server.baseUrl}/submit", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "POST"
+                    )).isEqualTo(false)
+                    assertThat(launches.get()).isEqualTo(1)
+                    val callback = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
+                        .apply { isAccessible = true }.get(activity) as Function0<*>
+                    callback.invoke()
+                    assertThat(navigationGeneration.getLong(activity)).isEqualTo(beforeGrant)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun oauthBackPermissionErrorDoesNotScheduleAnUnfencedRetry() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(officialWebapp = true) { server, repository ->
+            repository.setBrowserSignInEnabled(false)
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                pushHistoryFromTouch(scenario, "#history-entry")
+                scenario.onActivity { activity ->
+                    val launches = AtomicInteger()
+                    delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    val provider = server.baseUrl.replace("127.0.0.1", "localhost") +
+                        "/authorize?response_type=code&client_id=fixture" +
+                        "&redirect_uri=${Uri.encode("${server.baseUrl}/callback")}"
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, mainFrameRequest(provider))).isFalse()
+                    MainActivity::class.java.getDeclaredMethod("goBackInMainWebView").apply {
+                        isAccessible = true
+                        assertThat(invoke(activity)).isEqualTo(true)
+                    }
+                    val recovery = MainActivity::class.java.getDeclaredMethod(
+                        "recoverFromLocalNetworkPermissionError",
+                        String::class.java, CharSequence::class.java, String::class.java
+                    ).apply { isAccessible = true }
+                    assertThat(recovery.invoke(
+                        activity, provider, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET"
                     )).isEqualTo(false)
                     assertThat(launches.get()).isEqualTo(0)
                 }

@@ -258,6 +258,7 @@ class MainActivity : ComponentActivity() {
     private var activeOAuthPopup: WebView? = null
     private var activeOAuthFlow: OAuthPopupFlow? = null
     private var activeMainFrameOAuthFlow: OAuthPopupFlow? = null
+    private var allowedOAuthRecoveryUrl: String? = null
     private val proxyAuthNavigation = ProxyAuthNavigation()
     // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
     // configured server when this hop is exactly that origin (Issue #134).
@@ -1058,23 +1059,14 @@ class MainActivity : ComponentActivity() {
                     }
                     if (!handled && request.isForMainFrame) {
                         recordMainFrameHop(target)
+                        recordAllowedOAuthRecoveryUrl(target)
                         restrictMediaPlaybackBeforeNavigation(target)
                     }
                     return handled
                 }
 
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                    if (request?.isForMainFrame == true &&
-                        blockOutdatedServerCredentials(request.url.toString())
-                    ) {
-                        return WebResourceResponse(
-                            "text/plain", "utf-8", 403, "Navigation blocked",
-                            mapOf("Cache-Control" to "no-store"),
-                            "Navigation blocked because the saved server sign-in changed. Open Application Settings."
-                                .byteInputStream()
-                        )
-                    }
-                    return super.shouldInterceptRequest(view, request)
+                    return interceptOutdatedServerCredentials(request) ?: super.shouldInterceptRequest(view, request)
                 }
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
@@ -1288,6 +1280,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                return interceptOutdatedServerCredentials(request) ?: super.shouldInterceptRequest(view, request)
+            }
+
             override fun onReceivedHttpAuthRequest(
                 view: WebView?,
                 handler: HttpAuthHandler?,
@@ -1304,6 +1300,7 @@ class MainActivity : ComponentActivity() {
         popup: WebView,
         target: String
     ): Boolean {
+        if (rejectOutdatedPopupNavigation(popup, target)) return true
         if (handleAppSettingsNavigation(target)) {
             destroyPopup(popup)
             return true
@@ -1343,6 +1340,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handlePopupPageStarted(popup: WebView, url: String) {
+        if (rejectOutdatedPopupNavigation(popup, url)) return
         val callbackFlow = activeOAuthFlow.takeIf { activeOAuthPopup === popup }
         if (callbackFlow?.isVerifiedCallbackUrl(url) == true) {
             clearActiveOAuthPopup()
@@ -1373,6 +1371,13 @@ class MainActivity : ComponentActivity() {
         clearActiveOAuthPopup()
         handleNewWindowUrl(url)
         destroyPopup(popup)
+    }
+
+    private fun rejectOutdatedPopupNavigation(popup: WebView, url: String): Boolean {
+        if (!blockOutdatedServerCredentials(url)) return false
+        if (activeOAuthPopup === popup) clearActiveOAuthPopup()
+        destroyPopup(popup)
+        return true
     }
 
     private fun handleMainWebViewNavigation(target: String): Boolean {
@@ -1652,7 +1657,9 @@ class MainActivity : ComponentActivity() {
         val failedOrigin = UrlOrigins.pageOrigin(failedUrl)
         if (failedOrigin != null && failedOrigin in fence?.previousOrigins.orEmpty() &&
             failedOrigin.startsWith("http://") &&
-            fence?.selectedUrl?.let(UrlOrigins::pageOrigin)?.startsWith("https://") == true
+            fence?.selectedUrl?.let(UrlOrigins::pageOrigin)?.startsWith("https://") == true &&
+            !(activeMainFrameOAuthFlow != null && System.currentTimeMillis() <= oauthFlowTimeoutMs &&
+                failedUrl == allowedOAuthRecoveryUrl)
         ) {
             DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "https_downgrade"))
             return false
@@ -2174,6 +2181,7 @@ class MainActivity : ComponentActivity() {
 
     private fun prepareForServerSelectionChange(previousServerUrl: String, selectedServerUrl: String) {
         serverSelectionGeneration++
+        allowedOAuthRecoveryUrl = null
         val previousFence = serverSelectionFence
         serverSelectionFence = ServerSelectionFence(
             selectedUrl = selectedServerUrl,
@@ -2219,6 +2227,16 @@ class MainActivity : ComponentActivity() {
         if (!hasOutdatedServerCredentials(url)) return false
         DiagnosticsLogger.record(this, "stale_credential_navigation_blocked", mapOf("reason" to "server_credentials_changed"))
         return true
+    }
+
+    private fun interceptOutdatedServerCredentials(request: WebResourceRequest?): WebResourceResponse? {
+        if (request?.isForMainFrame != true || !blockOutdatedServerCredentials(request.url.toString())) return null
+        return WebResourceResponse(
+            "text/plain", "utf-8", 403, "Navigation blocked",
+            mapOf("Cache-Control" to "no-store"),
+            "Navigation blocked because the saved server sign-in changed. Open Application Settings."
+                .byteInputStream()
+        )
     }
 
     private fun discardOutdatedCredentialCallback(url: String?): Boolean {
@@ -2301,9 +2319,17 @@ class MainActivity : ComponentActivity() {
         mainFrameNavigationGeneration++
     }
 
+    private fun recordAllowedOAuthRecoveryUrl(url: String) {
+        allowedOAuthRecoveryUrl = url.takeIf {
+            activeMainFrameOAuthFlow != null && System.currentTimeMillis() <= oauthFlowTimeoutMs &&
+                isHttpOrHttpsUrl(it)
+        }
+    }
+
     private fun loadInMainWebView(url: String) {
         if (blockOutdatedServerCredentials(url)) return
         recordMainFrameHop(url)
+        recordAllowedOAuthRecoveryUrl(url)
         webView.loadUrl(url)
     }
 
@@ -2364,6 +2390,7 @@ class MainActivity : ComponentActivity() {
         // History navigation skips shouldOverrideUrlLoading, so record the entry being restored.
         val history = webView.copyBackForwardList()
         val offset = previousHistoryOffset(history) ?: return false
+        allowedOAuthRecoveryUrl = null
         recordMainFrameHop(history.getItemAtIndex(history.currentIndex + offset)?.url)
         webView.goBackOrForward(offset)
         return true
@@ -2985,6 +3012,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun rememberActiveMainFrameOAuth(flow: OAuthPopupFlow) {
+        if (activeMainFrameOAuthFlow != flow) allowedOAuthRecoveryUrl = null
         activeMainFrameOAuthFlow = flow
         setOAuthThirdPartyCookiesEnabled(true)
         refreshActiveOAuthTimeout()
@@ -2992,6 +3020,7 @@ class MainActivity : ComponentActivity() {
 
     private fun clearActiveMainFrameOAuth() {
         activeMainFrameOAuthFlow = null
+        allowedOAuthRecoveryUrl = null
         viewModel.setOAuthInFlowHost(null)
         if (activeOAuthPopup == null) {
             oauthFlowTimeoutMs = 0L

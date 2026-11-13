@@ -69,6 +69,34 @@ class UrlPolicyTest {
     }
 
     @Test
+    fun `equivalent userinfo encodings match without folding credential bytes`() {
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://User:p%3b%61%2bss@hermes.example.com",
+                "https://User:p%3Ba+ss@hermes.example.com/session"
+            )
+        ).isTrue()
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://User:p%253bss@hermes.example.com",
+                "https://User:p%253Bss@hermes.example.com"
+            )
+        ).isFalse()
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://User:%ff@hermes.example.com",
+                "https://User:%fe@hermes.example.com"
+            )
+        ).isFalse()
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://user%3Apass@hermes.example.com",
+                "https://user:pass@hermes.example.com"
+            )
+        ).isFalse()
+    }
+
+    @Test
     fun `allows allowlisted host over https`() {
         assertThat(policy.isAllowed("https://hermes.example.com")).isTrue()
     }

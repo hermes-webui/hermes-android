@@ -205,13 +205,14 @@ in-memory authentication cache.
 The app rejects outdated URL userinfo when restoring a saved route on startup,
 reconnecting, opening a notification or repairing the WebUI workspace, and
 skips incompatible Back entries on the server host, including other ports. A
-URL without userinfo or with browser-normalized, case-sensitive userinfo matching
-the configured URL remains usable. Changing the configured URL removes an
+URL without userinfo or with matching case-sensitive, percent-decoded username
+and password bytes remains usable. Changing the configured URL removes an
 incompatible remembered route; late page callbacks are checked against the
 current URL before saving. Main-frame requests whose exposed URL carries
 outdated credentials for a selected or previously selected server in the current
-activity are blocked, including POST requests and popup handoffs. The request
-interceptor reads an immutable selection snapshot because it runs off the UI
+activity are blocked, including POST requests and popup OAuth handoffs. Both
+WebViews intercept stale credentialed main-frame requests before network
+delivery. The request interceptor reads an immutable selection snapshot because it runs off the UI
 thread; Current-profile edits update that snapshot before persisting the new
 URL. Late page, history and error callbacks from a superseded server are
 discarded when their URLs expose outdated credentials. WebView does not expose
@@ -223,8 +224,10 @@ those callbacks; navigation can still discard page state. Legacy incompatible ro
 until replaced. When history contains incompatible credentials for the previous
 server host, it is cleared before the new page loads and again when that page
 commits. Local-network permission recovery does not automatically reload a
-previous HTTP origin after the user selects HTTPS; it shows the normal page error
-instead. A server selection change also revokes the old page's recovery handler,
+previous HTTP origin after the user selects HTTPS, except for the exact URL
+of an explicitly allowed navigation in the active, unexpired OAuth flow. A
+late page-start callback does not authorize that exception. A server selection
+change also revokes the old page's recovery handler,
 reinstalls document-start scripts, and fences pending permission and VPN work.
 Challenges from other hosts are canceled. This does not broaden the proxy
 redirect grant or the app's notification, microphone, download, or navigation trust.

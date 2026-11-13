@@ -63,7 +63,8 @@ object UrlOrigins {
     fun hasCompatibleUserInfo(url: String, configuredUrl: String): Boolean {
         val target = url.toUriOrNull() ?: return false
         if (target.rawAuthority?.contains('@') == true && target.rawUserInfo == null) return false
-        val targetUserInfo = target.browserUserInfo()?.takeIf { it.isNotEmpty() } ?: return true
+        val targetUserInfo = target.browserUserInfo() ?: return true
+        if (targetUserInfo.username.isEmpty() && targetUserInfo.password.isEmpty()) return true
         val configured = configuredUrl.toUriOrNull() ?: return false
         return targetUserInfo == configured.browserUserInfo()
     }
@@ -72,17 +73,16 @@ object UrlOrigins {
         return hasCompatibleUserInfo(first, second) && hasCompatibleUserInfo(second, first)
     }
 
-    private fun URI.browserUserInfo(): String? {
+    private data class BrowserUserInfo(val username: String, val password: String)
+
+    private fun URI.browserUserInfo(): BrowserUserInfo? {
         val userInfo = URI(toASCIIString()).rawUserInfo ?: return null
         val separator = userInfo.indexOf(':')
-        fun encodeComponent(value: String) = value
-            .replace(";", "%3B")
-            .replace("=", "%3D")
-            .replace(":", "%3A")
-        if (separator < 0) return encodeComponent(userInfo)
-        val username = encodeComponent(userInfo.substring(0, separator))
-        val password = userInfo.substring(separator + 1)
-        return if (password.isEmpty()) username else "$username:${encodeComponent(password)}"
+        // Compare percent-decoded bytes, preserving literal '+' and invalid UTF-8 byte values.
+        fun decodeComponent(value: String) = URLDecoder.decode(value.replace("+", "%2B"), "ISO-8859-1")
+        val username = if (separator < 0) userInfo else userInfo.substring(0, separator)
+        val password = if (separator < 0) "" else userInfo.substring(separator + 1)
+        return BrowserUserInfo(decodeComponent(username), decodeComponent(password))
     }
 
     fun hasSameOrigin(url: String?, baseUrl: String, ignoreScheme: Boolean = false): Boolean {

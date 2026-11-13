@@ -229,10 +229,14 @@ of an explicitly allowed navigation in the active, unexpired OAuth flow.
 Permission completions and any queued VPN retry retain that navigation's
 generation and recheck it before probing or loading; selection changes end
 the old main-frame OAuth flow. A late page-start callback or Back history
-entry does not authorize that exception. Only GET failures are replayed;
-failed form submissions request permission without replay and require a manual
-retry. Older sign-in pages reached with Back can also require a manual retry
-(#184). A server selection
+entry does not authorize that exception. Eligible recovery of a confirmed
+local-network permission error requests access without relying on the startup
+hostname heuristic. Only eligible GET failures are replayed; failed form
+submissions request permission without replay and require a manual retry.
+Unhandled permission errors stay visible and do not start or resume automatic
+retries, and queued reloads are fenced across errors and new navigations.
+Older sign-in pages reached with Back can also require a manual retry (#184).
+A server selection
 change also revokes the old page's recovery handler, reinstalls document-start
 scripts, and fences pending permission and VPN work.
 Challenges from other hosts are canceled. This does not broaden the proxy

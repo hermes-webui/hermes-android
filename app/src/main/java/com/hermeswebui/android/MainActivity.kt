@@ -692,8 +692,10 @@ class MainActivity : ComponentActivity() {
 
         // Auto-reload when the retry loop detects the server is back.
         LaunchedEffect(Unit) {
-            viewModel.autoReloadEvent.collect {
-                refreshConfiguredHermes()
+            viewModel.autoReloadEvent.collect { generation ->
+                if (viewModel.isCurrentAutoReload(generation)) {
+                    refreshConfiguredHermes()
+                }
             }
         }
 
@@ -1131,28 +1133,9 @@ class MainActivity : ComponentActivity() {
                 ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame != true) return
-                    val failedUrl = request.url?.toString().orEmpty()
-                    if (discardOutdatedCredentialCallback(failedUrl)) return
-                    if (recoverFromLocalNetworkPermissionError(failedUrl, error?.description, request.method)) return
-                    val offline = isOfflineError(error?.errorCode)
-                    val message = if (!request.method.equals("GET", ignoreCase = true) &&
-                        error?.description?.contains("ERR_LOCAL_NETWORK_PERMISSION_MISSING", ignoreCase = true) == true
-                    ) {
-                        "If prompted, allow local network access, then retry your action."
-                    } else {
-                        error?.description?.toString() ?: "Failed to load page"
-                    }
-                    DiagnosticsLogger.record(
-                        this@MainActivity,
-                        "webview_main_frame_error",
-                        mapOf(
-                            "origin" to DiagnosticsLogger.originOnly(request.url?.toString()),
-                            "path" to DiagnosticsLogger.pathOnly(request.url?.toString()),
-                            "error_code" to error?.errorCode?.toString(),
-                            "offline" to offline.toString()
-                        )
+                    handleMainFrameWebViewError(
+                        request.url?.toString().orEmpty(), request.method, error?.description, error?.errorCode
                     )
-                    viewModel.onPageError(message, offline)
                 }
 
                 override fun onReceivedHttpError(
@@ -1623,10 +1606,11 @@ class MainActivity : ComponentActivity() {
     private fun requestLocalNetworkPermissionIfNeeded(
         url: String,
         onGranted: () -> Unit,
-        onDenied: (() -> Unit)? = null
+        onDenied: (() -> Unit)? = null,
+        confirmedPermissionError: Boolean = false
     ) {
         val decision = LocalNetworkPolicy.preflightDecision(
-            isLocalHost = shouldRequestLocalNetworkPermission(url),
+            isLocalHost = confirmedPermissionError || shouldRequestLocalNetworkPermission(url),
             hasPermission = hasLocalNetworkPermission()
         )
         if (decision == LocalNetworkPolicy.PreflightDecision.PROCEED) {
@@ -1662,6 +1646,35 @@ class MainActivity : ComponentActivity() {
         return LocalNetworkPolicy.isLikelyLocalNetworkHost(host)
     }
 
+    private fun handleMainFrameWebViewError(
+        failedUrl: String,
+        method: String?,
+        description: CharSequence?,
+        errorCode: Int?
+    ) {
+        if (discardOutdatedCredentialCallback(failedUrl)) return
+        if (recoverFromLocalNetworkPermissionError(failedUrl, description, method)) return
+        val offline = isOfflineError(errorCode)
+        val localNetworkPermissionError =
+            description?.contains("ERR_LOCAL_NETWORK_PERMISSION_MISSING", ignoreCase = true) == true
+        val message = if (!method.equals("GET", ignoreCase = true) && localNetworkPermissionError) {
+            "If prompted, allow local network access, then retry your action."
+        } else {
+            description?.toString() ?: "Failed to load page"
+        }
+        DiagnosticsLogger.record(
+            this,
+            "webview_main_frame_error",
+            mapOf(
+                "origin" to DiagnosticsLogger.originOnly(failedUrl),
+                "path" to DiagnosticsLogger.pathOnly(failedUrl),
+                "error_code" to errorCode?.toString(),
+                "offline" to offline.toString()
+            )
+        )
+        viewModel.onPageError(message, offline, retryAutomatically = !localNetworkPermissionError)
+    }
+
     private fun recoverFromLocalNetworkPermissionError(
         failedUrl: String,
         description: CharSequence?,
@@ -1673,11 +1686,15 @@ class MainActivity : ComponentActivity() {
         if (discardOutdatedCredentialCallback(failedUrl)) return true
         if (!method.equals("GET", ignoreCase = true)) {
             val navigationGeneration = mainFrameNavigationGeneration
-            requestLocalNetworkPermissionIfNeeded(failedUrl, onGranted = {
-                if (navigationGeneration == mainFrameNavigationGeneration) {
-                    Toast.makeText(this, "Retry your action after allowing local network access.", Toast.LENGTH_LONG).show()
-                }
-            })
+            requestLocalNetworkPermissionIfNeeded(
+                failedUrl,
+                onGranted = {
+                    if (navigationGeneration == mainFrameNavigationGeneration) {
+                        Toast.makeText(this, "Retry your action after allowing local network access.", Toast.LENGTH_LONG).show()
+                    }
+                },
+                confirmedPermissionError = true
+            )
             DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "manual_retry_required"))
             return false
         }
@@ -1700,7 +1717,8 @@ class MainActivity : ComponentActivity() {
         }
         requestLocalNetworkPermissionIfNeeded(
             url = failedUrl,
-            onGranted = { loadServerUrlWithVpnGuard(failedUrl, oauthGeneration) }
+            onGranted = { loadServerUrlWithVpnGuard(failedUrl, oauthGeneration) },
+            confirmedPermissionError = true
         )
         return true
     }

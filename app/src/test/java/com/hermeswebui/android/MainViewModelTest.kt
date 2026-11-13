@@ -212,7 +212,7 @@ class MainViewModelTest {
             probeCount >= 2 // fail first probe, succeed on second
         }
 
-        val autoReloads = mutableListOf<Unit>()
+        val autoReloads = mutableListOf<Long>()
         backgroundScope.launch { viewModel.autoReloadEvent.collect { autoReloads += it } }
 
         viewModel.onPageError("net::ERR_CONNECTION_REFUSED", isOffline = false)
@@ -269,6 +269,33 @@ class MainViewModelTest {
         advanceTimeBy(5_000L)
         runCurrent()
         assertThat(probeCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `manual retry errors stay visible and do not restart on resume`() = runTest(testDispatcher) {
+        var probeCount = 0
+        val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ ->
+            probeCount++
+            true
+        }
+        viewModel.onPageStarted(defaultServerUrl)
+        viewModel.onPageCommitVisible(defaultServerUrl)
+        viewModel.onAppBackgrounded()
+        viewModel.onAppForegrounded()
+        viewModel.onPageError("Retry your action", isOffline = false, retryAutomatically = false)
+        runCurrent()
+        assertThat(viewModel.uiState.value.errorMessage).isEqualTo("Retry your action")
+        assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+        viewModel.resumeAutoRetryIfNeeded()
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertThat(probeCount).isEqualTo(0)
+
+        viewModel.onPageStarted(defaultServerUrl)
+        viewModel.onPageError("Connection refused", isOffline = false)
+        advanceTimeBy(1_001L)
+        runCurrent()
+        assertThat(probeCount).isEqualTo(1)
     }
 
     @Test
@@ -509,7 +536,7 @@ class MainViewModelTest {
         )
         viewModel.setSseTransportEnabled(true)
 
-        val autoReloads = mutableListOf<Unit>()
+        val autoReloads = mutableListOf<Long>()
         backgroundScope.launch { viewModel.autoReloadEvent.collect { autoReloads += it } }
 
         viewModel.onPageError("net::ERR_CONNECTION_RESET", isOffline = false)
@@ -541,7 +568,7 @@ class MainViewModelTest {
         )
         viewModel.setSseTransportEnabled(true)
 
-        val autoReloads = mutableListOf<Unit>()
+        val autoReloads = mutableListOf<Long>()
         backgroundScope.launch { viewModel.autoReloadEvent.collect { autoReloads += it } }
 
         viewModel.onPageError("net::ERR_CONNECTION_RESET", isOffline = false)

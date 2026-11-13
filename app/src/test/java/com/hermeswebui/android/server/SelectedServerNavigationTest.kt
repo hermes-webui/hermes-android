@@ -224,4 +224,105 @@ class SelectedServerNavigationTest {
             )
         ).isEqualTo("$acceptance/session/n1")
     }
+
+    @Test
+    fun `cold start rejects visited and notification URLs with outdated credentials`() {
+        val oldRoute = "https://old:Secret@hermes.example.com/session/old"
+        val safeRoute = "$production/session/safe"
+        for (configured in listOf(production, "https://new:Secret@hermes.example.com")) {
+            val trust = trustFor(configured)
+            assertThat(SelectedServerNavigation.startupUrl(configured, oldRoute, null, trust))
+                .isEqualTo(configured)
+            assertThat(SelectedServerNavigation.startupUrl(configured, safeRoute, oldRoute, trust))
+                .isEqualTo(safeRoute)
+            assertThat(SelectedServerNavigation.startupUrl(configured, null, oldRoute, trust))
+                .isEqualTo(configured)
+        }
+    }
+
+    @Test
+    fun `reconnect rejects a current route with outdated credentials`() {
+        val oldRoute = "https://old:Secret@hermes.example.com/session/old"
+        for (configured in listOf(production, "https://new:Secret@hermes.example.com")) {
+            assertThat(SelectedServerNavigation.reconnectUrl(oldRoute, configured, trustFor(configured)))
+                .isEqualTo(configured)
+        }
+    }
+
+    @Test
+    fun `configured credentials and credential-free routes remain restorable`() {
+        val configured = "https://User:p%40ss@hermes.example.com"
+        val matching = "$configured/session/current"
+        val withoutCredentials = "$production/session/other"
+        val trust = trustFor(configured)
+        assertThat(SelectedServerNavigation.startupUrl(configured, matching, null, trust))
+            .isEqualTo(matching)
+        assertThat(SelectedServerNavigation.startupUrl(configured, null, withoutCredentials, trust))
+            .isEqualTo(withoutCredentials)
+        assertThat(SelectedServerNavigation.reconnectUrl(matching, configured, trust))
+            .isEqualTo(matching)
+        assertThat(SelectedServerNavigation.reconnectUrl(withoutCredentials, configured, trust))
+            .isEqualTo(withoutCredentials)
+        assertThat(
+            SelectedServerNavigation.startupUrl(
+                configured, "https://user:p%40ss@hermes.example.com/session/old", null, trust
+            )
+        ).isEqualTo(configured)
+    }
+
+    @Test
+    fun `workspace recovery requires compatible credentials and a non-root same-origin route`() {
+        val configured = "https://User:p%40ss@hermes.example.com"
+        val matching = "$configured/session/current"
+        val withoutCredentials = "$production/session/other"
+        assertThat(SelectedServerNavigation.routeRecoveryUrl(matching, configured)).isEqualTo(matching)
+        assertThat(SelectedServerNavigation.routeRecoveryUrl(withoutCredentials, configured))
+            .isEqualTo(withoutCredentials)
+        assertThat(SelectedServerNavigation.routeRecoveryUrl(matching, production)).isEmpty()
+        assertThat(SelectedServerNavigation.routeRecoveryUrl(matching, "https://user:p%40ss@hermes.example.com"))
+            .isEmpty()
+        assertThat(SelectedServerNavigation.routeRecoveryUrl(configured, configured)).isEmpty()
+        assertThat(SelectedServerNavigation.routeRecoveryUrl("$acceptance/session/other", configured)).isEmpty()
+        assertThat(SelectedServerNavigation.routeRecoveryUrl(null, configured)).isEmpty()
+    }
+
+    @Test
+    fun `back history skips stale credentials but preserves other entries`() {
+        val stale = "https://User:Pass@hermes.example.com/session/old"
+        val safe = "$production/session/safe"
+        val current = "$production/session/current"
+        assertThat(SelectedServerNavigation.previousHistoryOffset(listOf(safe, stale, current), 2, production))
+            .isEqualTo(-2)
+        assertThat(SelectedServerNavigation.previousHistoryOffset(listOf(stale, current), 1, production))
+            .isNull()
+        assertThat(
+            SelectedServerNavigation.previousHistoryOffset(
+                listOf(stale, current), 1, "https://User:Pass@hermes.example.com"
+            )
+        ).isEqualTo(-1)
+        assertThat(SelectedServerNavigation.previousHistoryOffset(listOf(safe, current), 1, production))
+            .isEqualTo(-1)
+        assertThat(
+            SelectedServerNavigation.previousHistoryOffset(
+                listOf("https://provider.example.com/login", current), 1, production
+            )
+        ).isEqualTo(-1)
+        assertThat(
+            SelectedServerNavigation.previousHistoryOffset(
+                listOf("https://User:Pass@hermes.example.com:8443/session/old", current),
+                1,
+                production
+            )
+        ).isNull()
+        assertThat(SelectedServerNavigation.previousHistoryOffset(listOf(current), 1, production)).isNull()
+    }
+
+    @Test
+    fun `credential case changes refresh the current profile rather than selecting its old URL`() {
+        val previous = productionProfile.copy(url = "https://User:Pass@hermes.example.com")
+        val changed = "https://user:Pass@hermes.example.com"
+        assertThat(SelectedServerNavigation.profileEditAction(previous, changed))
+            .isEqualTo(ServerProfileEditAction.REFRESH)
+        assertThat(SelectedServerNavigation.activeProfileIdFor(changed, listOf(previous))).isNull()
+    }
 }

@@ -24,6 +24,79 @@ class UrlPolicyTest {
     }
 
     @Test
+    fun `an empty URL password remains compatible after browser serialization`() {
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://User:@hermes.example.com",
+                "https://User@hermes.example.com/session"
+            )
+        ).isTrue()
+        assertThat(
+            UrlOrigins.hasCompatibleUserInfo(
+                "https://user@hermes.example.com/session",
+                "https://User:@hermes.example.com"
+            )
+        ).isFalse()
+        assertThat(
+            UrlOrigins.hasCompatibleUserInfo(
+                "https://User:pass@hermes.example.com/session",
+                "https://User:pass:@hermes.example.com"
+            )
+        ).isFalse()
+    }
+
+    @Test
+    fun `non ASCII URL credentials remain compatible after browser serialization`() {
+        assertThat(
+            UrlOrigins.hasCompatibleUserInfo(
+                "https://us%C3%A9r:p%C3%A1ss@hermes.example.com/session",
+                "https://usér:páss@hermes.example.com"
+            )
+        ).isTrue()
+    }
+
+    @Test
+    fun `URL credentials preserve browser-escaped userinfo delimiters`() {
+        val configured = "https://us;er:p=:ss@hermes.example.com"
+        val serialized = "https://us%3Ber:p%3D%3Ass@hermes.example.com/session"
+        assertThat(UrlOrigins.hasSameUserInfo(configured, serialized)).isTrue()
+        assertThat(
+            UrlOrigins.hasCompatibleUserInfo(
+                "https://us%3Ber:P%3D%3Ass@hermes.example.com/session",
+                configured
+            )
+        ).isFalse()
+    }
+
+    @Test
+    fun `equivalent userinfo encodings match without folding credential bytes`() {
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://User:p%3b%61%2bss@hermes.example.com",
+                "https://User:p%3Ba+ss@hermes.example.com/session"
+            )
+        ).isTrue()
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://User:p%253bss@hermes.example.com",
+                "https://User:p%253Bss@hermes.example.com"
+            )
+        ).isFalse()
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://User:%ff@hermes.example.com",
+                "https://User:%fe@hermes.example.com"
+            )
+        ).isFalse()
+        assertThat(
+            UrlOrigins.hasSameUserInfo(
+                "https://user%3Apass@hermes.example.com",
+                "https://user:pass@hermes.example.com"
+            )
+        ).isFalse()
+    }
+
+    @Test
     fun `allows allowlisted host over https`() {
         assertThat(policy.isAllowed("https://hermes.example.com")).isTrue()
     }

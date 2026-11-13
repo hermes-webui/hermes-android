@@ -31,6 +31,7 @@ class HermesServerProfileCoordinator(
     private val viewModel: MainViewModel,
     private val serverUrlValidator: ServerUrlValidator,
     private val onOpenInExternalBrowser: (String) -> Unit,
+    private val onPrepareCurrentProfileChange: (String, String) -> Unit,
     private val onPerformServerProfileSwitch: (ServerProfile) -> Unit,
     private val onRefreshConfiguredHermes: (String) -> Unit,
     private val onApproveProxySignIn: (String, String) -> Unit
@@ -182,9 +183,13 @@ class HermesServerProfileCoordinator(
     /** Editing the Current profile's URL reloads the WebView on the new server. */
     private fun updateProfileAndFollowCurrent(profileId: String, name: String, url: String, serverType: ServerType?) {
         val previous = settingsRepository.getActiveProfile()?.takeIf { it.id == profileId }
+        val action = SelectedServerNavigation.profileEditAction(previous, url)
+        if (previous != null && action != ServerProfileEditAction.NONE) {
+            onPrepareCurrentProfileChange(previous.url, url)
+        }
         viewModel.updateServerProfile(profileId, name, url, serverType)
         if (previous != null) viewModel.refreshSettingsFromRepository()
-        when (SelectedServerNavigation.profileEditAction(previous, url)) {
+        when (action) {
             ServerProfileEditAction.NONE -> Unit
             ServerProfileEditAction.REFRESH -> onRefreshConfiguredHermes(url)
             ServerProfileEditAction.SWITCH -> settingsRepository.getActiveProfile()?.let(onPerformServerProfileSwitch)

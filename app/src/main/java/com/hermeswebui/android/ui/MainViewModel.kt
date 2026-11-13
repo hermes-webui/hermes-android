@@ -70,12 +70,13 @@ class MainViewModel(
     )
     val serverProfiles: StateFlow<List<ServerProfile>> = _serverProfiles.asStateFlow()
 
-    /** Emits a single Unit when the auto-retry loop detects the server is back.
-     *  The UI layer (MainActivity) should call webView.reload() on each emission. */
-    private val _autoReloadEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val autoReloadEvent: SharedFlow<Unit> = _autoReloadEvent.asSharedFlow()
+    /** Emits the retry generation when the server is reachable again. */
+    private val _autoReloadEvent = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+    val autoReloadEvent: SharedFlow<Long> = _autoReloadEvent.asSharedFlow()
 
     private var autoRetryJob: Job? = null
+    private var autoRetryGeneration = 0L
+    private var autoRetryAllowed = true
     private var currentLoadHasMainFrameError = false
     private var deferredPageError: DeferredPageError? = null
     private var appIsBackgrounded = false
@@ -86,6 +87,8 @@ class MainViewModel(
     }
 
     fun onPageStarted(url: String?) {
+        autoRetryGeneration++
+        autoRetryAllowed = true
         cancelAutoRetry(clearDeferredPageError = true)
         currentLoadHasMainFrameError = false
         _uiState.update {
@@ -127,10 +130,12 @@ class MainViewModel(
         _uiState.update { it.copy(isLoading = false, currentUrl = next) }
     }
 
-    fun onPageError(message: String, isOffline: Boolean) {
+    fun onPageError(message: String, isOffline: Boolean, retryAutomatically: Boolean = true) {
+        autoRetryGeneration++
+        autoRetryAllowed = retryAutomatically
         currentLoadHasMainFrameError = true
         val state = _uiState.value
-        val shouldDeferErrorUi = shouldDeferErrorUi(state)
+        val shouldDeferErrorUi = retryAutomatically && shouldDeferErrorUi(state)
         deferredPageError = if (shouldDeferErrorUi) {
             DeferredPageError(
                 message = message,
@@ -149,8 +154,15 @@ class MainViewModel(
                 isReconnecting = shouldDeferErrorUi
             )
         }
-        startAutoRetry()
+        if (retryAutomatically) {
+            startAutoRetry()
+        } else {
+            cancelAutoRetry()
+        }
     }
+
+    fun isCurrentAutoReload(generation: Long): Boolean =
+        autoRetryAllowed && generation == autoRetryGeneration
 
     fun onAppBackgrounded() {
         appIsBackgrounded = true
@@ -178,6 +190,7 @@ class MainViewModel(
         if (serverUrl.isBlank()) return
         val deferredErrorSnapshot = deferredPageError
         val useSseTransport = _uiState.value.sseTransportEnabled
+        val retryGeneration = autoRetryGeneration
 
         autoRetryJob = viewModelScope.launch {
             var elapsedRetryMs = 0L
@@ -221,7 +234,7 @@ class MainViewModel(
                 if (reconnectAvailable) {
                     deferredPageError = null
                     _uiState.update { it.copy(isReconnecting = false) }
-                    _autoReloadEvent.tryEmit(Unit)
+                    _autoReloadEvent.tryEmit(retryGeneration)
                     return@launch
                 }
 
@@ -245,6 +258,7 @@ class MainViewModel(
 
     /** Cancels any active auto-retry loop and clears the reconnecting indicator. */
     fun cancelAutoRetry(clearDeferredPageError: Boolean = false) {
+        autoRetryGeneration++
         autoRetryJob?.cancel()
         autoRetryJob = null
         if (clearDeferredPageError) {
@@ -259,6 +273,7 @@ class MainViewModel(
      */
     fun resumeAutoRetryIfNeeded() {
         val state = _uiState.value
+        if (!autoRetryAllowed) return
         if ((state.errorMessage == null && deferredPageError == null) || state.isLoading) return
         if (autoRetryJob?.isActive == true) return
         startAutoRetry()

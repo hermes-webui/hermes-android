@@ -241,7 +241,7 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Clarify-specific initial-autofocus handling that keeps multiple-choice options visible without blocking editable WebUI dialogs or later validation focus
 - System-bar safe inset handling so Hermes content does not sit under Android status and navigation bars
 - Forced WebView darkening disabled so Hermes controls its own visual presentation
-- Local network permission handling for Android 16+ so LAN-hosted Hermes WebUI instances can load inside the WebView. A failed form submission prompts for access without automatically replaying the form; retry the action after granting permission. An older sign-in page reached with Back may also require a manual retry.
+- Local network permission handling for Android 16+ so LAN-hosted Hermes WebUI instances can load inside the WebView. A confirmed permission error can prompt for access even when the host was not recognized in advance. A failed form submission prompts without automatically replaying the form; retry the action after granting permission. An older sign-in page reached with Back may also require a manual retry.
 - Microphone compatibility handling so trusted Hermes pages can use Android-supported capture paths
 - Spoken replies can play without a fresh tap on the trusted WebUI route. Android denies new microphone requests while not resumed and dispatches a proposed `hermes-app-foreground` host signal; current WebUI does not consume it. Stopping existing capture/playback and requiring explicit re-arm depend on WebUI support (tracked in [#120](https://github.com/hermes-webui/hermes-android/pull/120)).
 - OAuth/OIDC callback handling that keeps trusted sign-in flows in-app until the declared Hermes callback returns

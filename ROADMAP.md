@@ -52,8 +52,8 @@
   is investigated in #184. Navigation can still discard page state.
 - [ ] Local-network recovery follow-up in #184: failed form submissions and
   older HTTP OAuth pages reached through Back may require a manual retry after
-  permission is granted; automatic recovery does not replay a POST as a GET or
-  infer that a history entry belongs to the current OAuth flow.
+  permission is granted; unhandled permission errors do not auto-retry, replay
+  a POST as a GET, or infer that a history entry belongs to the current OAuth flow.
 - [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews prompt for credentials on challenges from the configured server host only. Hermes-Android does not remember prompt credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,

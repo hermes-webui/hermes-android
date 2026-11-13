@@ -67,6 +67,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Rule
@@ -468,10 +469,11 @@ class ProxyAuthRedirectInstrumentationTest {
                         "requestLocalNetworkPermissionIfNeeded",
                         String::class.java,
                         Function0::class.java,
-                        Function0::class.java
+                        Function0::class.java,
+                        Boolean::class.javaPrimitiveType
                     ).apply {
                         isAccessible = true
-                        invoke(activity, server.baseUrl, action, action)
+                        invoke(activity, server.baseUrl, action, action, false)
                     }
                     val callback = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
                         .apply { isAccessible = true }
@@ -853,6 +855,31 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
+    fun localNetworkPermissionErrorPromptsForNonObviousGetHost() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                scenario.onActivity { activity ->
+                    val launches = AtomicInteger()
+                    delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                    val recovery = MainActivity::class.java.getDeclaredMethod(
+                        "recoverFromLocalNetworkPermissionError",
+                        String::class.java, CharSequence::class.java, String::class.java
+                    ).apply { isAccessible = true }
+                    assertThat(recovery.invoke(
+                        activity, "http://100.64.0.1/login", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "GET"
+                    )).isEqualTo(true)
+                    assertThat(launches.get()).isEqualTo(1)
+                }
+            }
+        }
+    }
+
+    @Test
     fun localNetworkPermissionErrorDoesNotReplayPostAsGet() {
         assumeLocalNetworkPermissionIsPending()
         withConfiguredServer(officialWebapp = true) { server, _ ->
@@ -874,7 +901,7 @@ class ProxyAuthRedirectInstrumentationTest {
                         .apply { isAccessible = true }
                     val beforeGrant = navigationGeneration.getLong(activity)
                     assertThat(recovery.invoke(
-                        activity, "${server.baseUrl}/submit", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "POST"
+                        activity, "http://100.64.0.1/submit", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", "POST"
                     )).isEqualTo(false)
                     assertThat(launches.get()).isEqualTo(1)
                     val callback = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
@@ -882,6 +909,90 @@ class ProxyAuthRedirectInstrumentationTest {
                     callback.invoke()
                     assertThat(navigationGeneration.getLong(activity)).isEqualTo(beforeGrant)
                 }
+            }
+        }
+    }
+
+    @Test
+    fun postPermissionErrorDoesNotAutoReloadAsGetOrResumeRetry() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(officialWebapp = true, publicStatus = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                eventually("WebView document finished before the POST error") {
+                    evaluateWebView(scenario, "document.readyState === 'complete'") == "true"
+                }
+                val failedUrl = "${server.baseUrl}/session/failed-post"
+                val beforeRequests = server.requests.count { it.path == "/session/failed-post" }
+                scenario.onActivity { activity ->
+                    val launches = AtomicInteger()
+                    delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    webView.webViewClient.onPageStarted(webView, failedUrl, null)
+                    val viewModel = MainActivity::class.java.getDeclaredField("viewModel")
+                        .apply { isAccessible = true }.get(activity) as MainViewModel
+                    viewModel.setReconnectPollIntervalSeconds(1)
+                    MainActivity::class.java.getDeclaredMethod(
+                        "handleMainFrameWebViewError",
+                        String::class.java, String::class.java, CharSequence::class.java, Int::class.javaObjectType
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, failedUrl, "POST", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING", WebViewClient.ERROR_UNKNOWN)
+                    }
+                    assertThat(launches.get()).isEqualTo(1)
+                    assertThat(viewModel.uiState.value.errorMessage).contains("retry your action")
+                    assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+                    viewModel.resumeAutoRetryIfNeeded()
+                    assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+                }
+                SystemClock.sleep(1_500)
+                assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
+            }
+        }
+    }
+
+    @Test
+    fun queuedAutoReloadDoesNotReplayPostOrAReplacementNavigation() {
+        withConfiguredServer(officialWebapp = true, publicStatus = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                val failedUrl = "${server.baseUrl}/session/failed-post"
+                val beforeRequests = server.requests.count { it.path == "/session/failed-post" }
+                lateinit var viewModel: MainViewModel
+                lateinit var autoReloads: MutableSharedFlow<Long>
+                var previousGeneration = 0L
+                scenario.onActivity { activity ->
+                    viewModel = MainActivity::class.java.getDeclaredField("viewModel")
+                        .apply { isAccessible = true }.get(activity) as MainViewModel
+                    @Suppress("UNCHECKED_CAST")
+                    autoReloads = MainViewModel::class.java.getDeclaredField("_autoReloadEvent")
+                        .apply { isAccessible = true }.get(viewModel) as MutableSharedFlow<Long>
+                }
+                compose.waitUntil(10_000) { autoReloads.subscriptionCount.value > 0 }
+                scenario.onActivity {
+                    viewModel.onPageStarted(failedUrl)
+                    viewModel.onPageError("Connection failed", isOffline = false)
+                    previousGeneration = MainViewModel::class.java.getDeclaredField("autoRetryGeneration")
+                        .apply { isAccessible = true }.getLong(viewModel)
+                    assertThat(autoReloads.tryEmit(previousGeneration)).isTrue()
+                    viewModel.onPageError("Retry your action", isOffline = false, retryAutomatically = false)
+                }
+                compose.waitForIdle()
+                SystemClock.sleep(500)
+                assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
+                scenario.onActivity {
+                    viewModel.onPageStarted(failedUrl)
+                    assertThat(autoReloads.tryEmit(previousGeneration)).isTrue()
+                }
+                compose.waitForIdle()
+                SystemClock.sleep(500)
+                assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
             }
         }
     }

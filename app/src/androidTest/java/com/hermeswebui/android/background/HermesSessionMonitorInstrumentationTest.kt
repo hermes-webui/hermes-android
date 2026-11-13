@@ -139,7 +139,7 @@ class HermesSessionMonitorInstrumentationTest {
             """{"approval_id":"approval-123","description":"Allow synthetic tool?","choices":["once","deny"]}"""
         )
         val approval = awaitNotification("Allow synthetic tool?")
-        assertThat(approval.actions.map { it.title.toString() }).containsExactly("Allow once", "Deny")
+        assertThat(approval.actions.map { it.title.toString() }).containsExactly("Allow once", "Deny", "Settings").inOrder()
         approval.actions.first().actionIntent.send()
         val pending = fixture.awaitRequest("/api/approval/pending")
         val response = fixture.awaitRequest("/api/approval/respond")
@@ -156,12 +156,33 @@ class HermesSessionMonitorInstrumentationTest {
             val current = notification()
             current?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString() ==
                 context.getString(R.string.approval_notification_sent, "Allow once") &&
-                current.actions.isNullOrEmpty()
+                approvalActions(current).isEmpty()
         }
         onMain { coordinator.onActivityResumed() }
         eventually("Resume removes the ongoing notification") { notification() == null }
         assertThat(stream.closed.await(8, TimeUnit.SECONDS)).isTrue()
         assertThat(canceledRetries).isEqualTo(1)
+    }
+
+    @Test
+    fun monitorNotification_settingsActionOpensNativeSettingsRoute() {
+        onMain { coordinator.onActivityStopped(state, activityVisible = false) }
+        fixture.awaitStream(0)
+        val settingsTitle = context.getString(R.string.reconnect_notification_action_settings)
+        awaitNotification().actions.single { it.title.toString() == settingsTitle }.actionIntent.send()
+        var launched: android.app.Activity? = null
+        try {
+            eventually("Settings action opens MainActivity on the recovery route") {
+                onMain {
+                    launched = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                        .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                        .firstOrNull { it is com.hermeswebui.android.MainActivity }
+                }
+                launched?.intent?.data == com.hermeswebui.android.launcher.AppShortcuts.SETTINGS_URI
+            }
+        } finally {
+            onMain { launched?.finish() }
+        }
     }
 
     @Test
@@ -294,7 +315,7 @@ class HermesSessionMonitorInstrumentationTest {
         assertThat(previous.closed.await(8, TimeUnit.SECONDS)).isTrue()
         eventually("New session clears old approval and honors privacy") {
             val current = notification()
-            current != null && current.actions.isNullOrEmpty() &&
+            current != null && approvalActions(current).isEmpty() &&
                 current.visibility == Notification.VISIBILITY_PRIVATE &&
                 current.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() != "Old session approval"
         }
@@ -354,7 +375,7 @@ class HermesSessionMonitorInstrumentationTest {
         SystemClock.sleep(1_000)
         assertThat(notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString())
             .isEqualTo("New session approval remains actionable")
-        assertThat(notification()?.actions?.size).isEqualTo(2)
+        assertThat(approvalActions(notification()).size).isEqualTo(2)
         assertThat(fixture.requests.none { it.target.startsWith("/api/approval/") }).isTrue()
     }
 
@@ -376,7 +397,7 @@ class HermesSessionMonitorInstrumentationTest {
         SystemClock.sleep(1_000)
         assertThat(notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString())
             .isEqualTo("New same-session approval")
-        assertThat(notification()?.actions?.size).isEqualTo(2)
+        assertThat(approvalActions(notification()).size).isEqualTo(2)
         assertThat(fixture.requests.none { it.target.startsWith("/api/approval/") }).isTrue()
     }
 
@@ -403,7 +424,7 @@ class HermesSessionMonitorInstrumentationTest {
             SystemClock.sleep(1_000)
             assertThat(notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString())
                 .isEqualTo("New approval stays actionable")
-            assertThat(notification()?.actions?.size).isEqualTo(2)
+            assertThat(approvalActions(notification()).size).isEqualTo(2)
             assertThat(fixture.requests.none { it.target == "/api/approval/respond" }).isTrue()
         } finally {
             releasePending.countDown()
@@ -419,6 +440,11 @@ class HermesSessionMonitorInstrumentationTest {
 
     private fun notification(): Notification? = notifications.activeNotifications
         .firstOrNull { it.id == NOTIFICATION_ID }?.notification
+
+    private fun approvalActions(notification: Notification?): List<Notification.Action> =
+        notification?.actions.orEmpty().filter {
+            it.title.toString() != context.getString(R.string.reconnect_notification_action_settings)
+        }
 
     private fun awaitNotification(text: String? = null): Notification {
         try {

@@ -92,6 +92,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
+import com.hermeswebui.android.launcher.AppShortcuts
 import com.hermeswebui.android.launcher.LauncherIconManager
 import com.hermeswebui.android.data.ServerType
 import androidx.compose.ui.Modifier
@@ -512,6 +513,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        publishSettingsShortcut()
 
         val settings = viewModel.uiState.value.settings
         // A launcher open is a plain MAIN intent; deep links and shares ask for something specific
@@ -628,6 +630,13 @@ class MainActivity : ComponentActivity() {
      */
     private fun isSettingsDeepLink(data: Uri?): Boolean =
         data != null && data.scheme == "hermes" && data.host == "app" && data.path == "/settings"
+
+    private fun publishSettingsShortcut() {
+        val appContext = applicationContext
+        lifecycleScope.launch(Dispatchers.IO) {
+            AppShortcuts.publish(appContext, LauncherIconManager(appContext).selectedIcon())
+        }
+    }
 
     private fun sessionIdFromDeepLink(data: Uri?): String? =
         if (data != null && data.scheme == "hermes" && data.host == "session") {
@@ -921,6 +930,7 @@ class MainActivity : ComponentActivity() {
                         try {
                             launcherIcons.select(choice)
                             launcherIcon = launcherIcons.selectedIcon()
+                            publishSettingsShortcut()
                         } catch (exception: RuntimeException) {
                             android.util.Log.e("HermesLauncher", "Launcher icon selection failed", exception)
                             launcherIcon = launcherIcons.selectedIcon()
@@ -2414,9 +2424,19 @@ class MainActivity : ComponentActivity() {
                 viewModel.uiState.value.isSettingsVisible
             ) return@evaluateJavascript
             if (result == "true") {
-                // The official workspace owns its tabs/hash routes. Never back into sign-in.
-                backPressExitStage = 0
-                viewModel.openSettings()
+                // The official workspace owns its tabs/hash routes. Never back into sign-in or
+                // out of the mounted document (Issue #194).
+                val history = webView.copyBackForwardList()
+                val offset = SelectedServerNavigation.sameDocumentBackOffset(
+                    history = List(history.size) { history.getItemAtIndex(it)?.url },
+                    currentIndex = history.currentIndex,
+                    selectedServerUrl = serverUrl
+                )
+                if (offset != null && goBackInMainWebView(offset)) {
+                    backPressExitStage = 0
+                } else {
+                    handleExitBackPress(onRequestExit)
+                }
             } else {
                 handleWebUiBackNavigation(onRequestExit)
             }
@@ -2428,21 +2448,19 @@ class MainActivity : ComponentActivity() {
             backPressExitStage = 0
             return
         }
+        handleExitBackPress(onRequestExit)
+    }
+
+    private fun handleExitBackPress(onRequestExit: () -> Unit) {
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastBackPressTime >= BACK_PRESS_TIMEOUT_MS) backPressExitStage = 0
-        when (backPressExitStage) {
-            0 -> {
-                backPressExitStage = 1
-                lastBackPressTime = currentTime
-                Toast.makeText(this, "Press back again for Application Settings", Toast.LENGTH_SHORT).show()
-            }
-            1 -> {
-                backPressExitStage = 2
-                lastBackPressTime = currentTime
-                viewModel.openSettings()
-                Toast.makeText(this, "Press back again to exit", Toast.LENGTH_SHORT).show()
-            }
-            else -> onRequestExit()
+        if (backPressExitStage == 0) {
+            backPressExitStage = 1
+            lastBackPressTime = currentTime
+            Toast.makeText(this, R.string.back_press_again_to_exit, Toast.LENGTH_SHORT).show()
+        } else {
+            backPressExitStage = 0
+            onRequestExit()
         }
     }
 
@@ -2454,10 +2472,13 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun goBackInMainWebView(): Boolean {
+    private fun goBackInMainWebView(): Boolean = goBackInMainWebView(requiredOffset = null)
+
+    private fun goBackInMainWebView(requiredOffset: Int?): Boolean {
         // History navigation skips shouldOverrideUrlLoading, so record the entry being restored.
         val history = webView.copyBackForwardList()
         val offset = previousHistoryOffset(history) ?: return false
+        if (requiredOffset != null && offset != requiredOffset) return false
         allowedOAuthRecoveryUrl = null
         oauthRecoveryNavigationGeneration++
         cancelInvalidPendingOAuthVpnRecovery()

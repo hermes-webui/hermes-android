@@ -318,6 +318,29 @@ class SelectedServerNavigationTest {
     }
 
     @Test
+    fun `official Webapp back stays inside the mounted workspace document`() {
+        val root = "$production/"
+        val tab = "$production/#/settings"
+        assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf(root, tab), 1, production))
+            .isEqualTo(-1)
+        assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf(tab, root), 1, production))
+            .isEqualTo(-1)
+        assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf("$production/login", root), 1, production))
+            .isNull()
+        assertThat(
+            SelectedServerNavigation.sameDocumentBackOffset(
+                listOf("https://auth.example.com/#/login", "https://auth.example.com/#/done", root), 2, production
+            )
+        ).isNull()
+        assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf(root), 0, production)).isNull()
+        assertThat(
+            SelectedServerNavigation.sameDocumentBackOffset(
+                listOf("https://User:Pass@hermes.example.com/#/a", "https://hermes.example.com/#/b"), 1, production
+            )
+        ).isNull()
+    }
+
+    @Test
     fun `credential case changes refresh the current profile rather than selecting its old URL`() {
         val previous = productionProfile.copy(url = "https://User:Pass@hermes.example.com")
         val changed = "https://user:Pass@hermes.example.com"

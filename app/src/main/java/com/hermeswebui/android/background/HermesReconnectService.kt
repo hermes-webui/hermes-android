@@ -15,6 +15,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.hermeswebui.android.MainActivity
 import com.hermeswebui.android.R
+import com.hermeswebui.android.launcher.AppShortcuts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -216,9 +217,17 @@ class HermesReconnectService : Service() {
             .setPublicVersion(publicNotification)
             .apply {
                 addApprovalActions(this, approvalRequest, targetUrl)
+                addAction(0, getString(R.string.reconnect_notification_action_settings), settingsPendingIntent())
             }
             .build()
     }
+
+    private fun settingsPendingIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        SETTINGS_ACTION_REQUEST_CODE,
+        AppShortcuts.settingsIntent(this).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 
     private fun addApprovalActions(
         builder: NotificationCompat.Builder,
@@ -657,6 +666,7 @@ class HermesReconnectService : Service() {
         private const val EXTRA_APPROVAL_CHOICE = "extra.APPROVAL_CHOICE"
         private const val HERMES_NOTIFICATION_CHANNEL_ID = "hermes_webui_notifications"
         private const val RECONNECT_NOTIFICATION_ID = 20_001
+        private const val SETTINGS_ACTION_REQUEST_CODE = 20_002
         private const val DEFAULT_POLL_INTERVAL_SECONDS = 1
         private const val MAX_RESPONDED_APPROVAL_HISTORY = 64
         private const val ACTION_OPEN_NOTIFICATION_URL = "com.hermeswebui.android.OPEN_NOTIFICATION_URL"

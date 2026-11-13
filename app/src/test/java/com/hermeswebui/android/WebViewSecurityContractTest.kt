@@ -37,6 +37,17 @@ class WebViewSecurityContractTest {
     }
 
     @Test
+    fun `the hosted webview is attached match_parent so viewport units are not zero`() {
+        // Issue #184: a null/WRAP_CONTENT layout height makes Chromium lay out the main frame at
+        // zero height, so vh/dvh/svh/lvh and html{height:100%} all resolve to 0.
+        val shell = codeOnly.entries.single { it.key.endsWith("ui/web/WebShell.kt") }.value
+        val factory = shell.substringAfter("AndroidView(").substringBefore("PullRefreshIndicator")
+        assertThat(factory).contains("layoutParams")
+        assertThat(factory).contains("MATCH_PARENT")
+        assertThat(factory).doesNotContain("WRAP_CONTENT")
+    }
+
+    @Test
     fun `ssl errors are always cancelled and never proceeded`() {
         val overrides = codeOnly.flatMap { (path, text) ->
             bodiesOf(text, "override fun onReceivedSslError(").map { path to it }

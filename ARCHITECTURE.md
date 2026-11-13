@@ -214,11 +214,17 @@ activity are blocked, including POST requests and popup handoffs. The request
 interceptor reads an immutable selection snapshot because it runs off the UI
 thread; Current-profile edits update that snapshot before persisting the new
 URL. Late page, history and error callbacks from a superseded server are
-discarded, including permission errors from an old origin with matching credentials.
-Legacy incompatible routes may remain encrypted
+discarded when their URLs expose outdated credentials. WebView does not expose
+a navigation ID, so callbacks with unchanged or absent URL credentials can
+still affect the current page or error state after a server change; this
+pre-existing limitation is tracked in [#184](https://github.com/hermes-webui/hermes-android/issues/184).
+The app retains the mounted WebView rather than resetting it to distinguish
+those callbacks; navigation can still discard page state. Legacy incompatible routes may remain encrypted
 until replaced. When history contains incompatible credentials for the previous
 server host, it is cleared before the new page loads and again when that page
-commits. A server selection change also revokes the old page's recovery handler,
+commits. Local-network permission recovery does not automatically reload a
+previous HTTP origin after the user selects HTTPS; it shows the normal page error
+instead. A server selection change also revokes the old page's recovery handler,
 reinstalls document-start scripts, and fences pending permission and VPN work.
 Challenges from other hosts are canceled. This does not broaden the proxy
 redirect grant or the app's notification, microphone, download, or navigation trust.

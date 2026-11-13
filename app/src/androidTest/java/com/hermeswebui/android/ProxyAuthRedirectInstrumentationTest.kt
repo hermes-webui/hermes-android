@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.net.http.SslCertificate
+import android.net.http.SslError
 import android.os.SystemClock
 import android.text.method.PasswordTransformationMethod
 import android.view.MotionEvent
@@ -55,6 +57,7 @@ import com.hermeswebui.android.ui.MainViewModel
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.SocketException
+import java.util.Date
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -213,6 +216,7 @@ class ProxyAuthRedirectInstrumentationTest {
             repository.saveLastLoadedUrl(oldRoute)
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 awaitWebView(scenario) { it.title == "Hermes session old" }
+                evaluateWebView(scenario, "sessionStorage.setItem('test-draft', 'keep');")
                 sendDeepLink(scenario, "hermes://app/settings")
                 compose.onNodeWithText("Primary").performTouchInput { longClick() }
                 compose.onNodeWithText("Server URL").performTextReplacement(server.baseUrl)
@@ -223,6 +227,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 awaitWebView(scenario) {
                     it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
                 }
+                assertThat(evaluateWebView(scenario, "sessionStorage.getItem('test-draft')")).isEqualTo("\"keep\"")
                 assertWorkspaceRecoveryDoesNotNavigateToOldRoute(scenario, server)
             }
         }
@@ -499,7 +504,7 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
-    fun switchingServerSchemeIgnoresAnOldLocalNetworkErrorWithMatchingCredentials() {
+    fun oldHttpPermissionErrorDoesNotAutomaticallyDowngradeAnHttpsSelection() {
         assumeLocalNetworkPermissionIsPending()
         withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
             val oldUrl = server.baseUrl.replace("http://", "http://test-user:test-pass@")
@@ -522,17 +527,15 @@ class ProxyAuthRedirectInstrumentationTest {
                     val pendingField = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
                         .apply { isAccessible = true }
                     val newServerCallback = pendingField.get(activity)
-                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
-                    webView.webViewClient.onPageStarted(webView, "$oldUrl/session/old", null)
-                    MainActivity::class.java.getDeclaredMethod(
+                    val recovery = MainActivity::class.java.getDeclaredMethod(
                         "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
-                    ).apply {
-                        isAccessible = true
-                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
-                        assertThat(launches.get()).isEqualTo(1)
-                        assertThat(pendingField.get(activity)).isSameInstanceAs(newServerCallback)
-                        invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
-                    }
+                    ).apply { isAccessible = true }
+                    assertThat(
+                        recovery.invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                    ).isEqualTo(false)
+                    assertThat(launches.get()).isEqualTo(1)
+                    assertThat(pendingField.get(activity)).isSameInstanceAs(newServerCallback)
+                    recovery.invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
                     assertThat(launches.get()).isEqualTo(2)
                 }
             }
@@ -580,11 +583,11 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
-    fun oldServerErrorDoesNotReplaceNewServerButCurrentErrorsStillShow() {
+    fun oldCredentialedErrorsDoNotReplaceNewServerButCurrentErrorsStillShow() {
         withConfiguredServer(basicAuth = true, publicStatus = true) { oldServer, repository ->
-            ProxyServer(basicAuth = true, publicStatus = true).use { newServer ->
+            ProxyServer(basicAuth = true, publicStatus = true, basicCredentials = "test-user:new-pass").use { newServer ->
                 val oldUrl = oldServer.baseUrl.replace("http://", "http://test-user:test-pass@")
-                val newUrl = newServer.baseUrl.replace("http://", "http://test-user:test-pass@")
+                val newUrl = newServer.baseUrl.replace("http://", "http://test-user:new-pass@")
                 repository.saveAppUrls(oldUrl, "")
                 repository.saveLastLoadedUrl(oldUrl)
                 repository.addProfile("Primary", oldUrl)
@@ -639,13 +642,26 @@ class ProxyAuthRedirectInstrumentationTest {
                                 override fun getRequestHeaders(): Map<String, String> = emptyMap()
                             }
                             val (oldRequest, error) = checkNotNull(oldError.get())
+                            assertThat(oldRequest.url.userInfo).isNotNull()
                             assertThat(viewModel.uiState.value.errorMessage).isNull()
                             assertThat(viewModel.uiState.value.isReconnecting).isFalse()
                             webView.webViewClient.onPageStarted(webView, "$oldUrl/session/old", null)
                             webView.webViewClient.onReceivedError(webView, oldRequest, error)
-                            assertThat(viewModel.uiState.value.errorMessage).isNull()
-                            assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+                            val oldNetworkRestarted = viewModel.uiState.value.isReconnecting
+                            viewModel.onPageStarted(newUrl)
+                            @Suppress("DEPRECATION")
+                            val certificate = SslCertificate("CN=fixture", "CN=fixture", Date(0), Date(Long.MAX_VALUE))
+                            val sslError = SslError(SslError.SSL_UNTRUSTED, certificate, oldUrl)
+                            webView.webViewClient.onReceivedSslError(webView, null, sslError)
+                            val oldSslRestarted = viewModel.uiState.value.isReconnecting
+                            viewModel.onPageStarted(newUrl)
+                            val currentSslError = SslError(SslError.SSL_UNTRUSTED, certificate, newUrl)
+                            webView.webViewClient.onReceivedSslError(webView, null, currentSslError)
+                            val currentSslRestarted = viewModel.uiState.value.isReconnecting
+                            viewModel.onPageStarted(newUrl)
                             webView.webViewClient.onReceivedError(webView, request(newUrl), error)
+                            assertThat(listOf(oldNetworkRestarted, oldSslRestarted)).containsExactly(false, false).inOrder()
+                            assertThat(currentSslRestarted).isTrue()
                             assertThat(viewModel.uiState.value.isReconnecting).isTrue()
                         }
                     } finally {
@@ -690,6 +706,68 @@ class ProxyAuthRedirectInstrumentationTest {
                     val afterHistory = viewModel.uiState.value.currentUrl
                     assertThat(listOf(afterCommit, afterFinish, afterHistory))
                         .containsExactly(next.url, next.url, next.url).inOrder()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun currentPageCanPostToAPreviouslySelectedServerAsAProvider() {
+        withConfiguredServer(officialWebapp = true, publicStatus = true) { oldServer, repository ->
+            ProxyServer(basicAuth = true, publicStatus = true).use { newServer ->
+                instrumentation.runOnMainSync {
+                    CookieManager.getInstance().setCookie(oldServer.baseUrl, "proxy_auth=ok; Path=/")
+                }
+                repository.addProfile("Primary", oldServer.baseUrl)
+                val newUrl = newServer.baseUrl.replace("http://", "http://test-user:test-pass@")
+                val next = repository.addProfile("Next", newUrl)
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitWebView(scenario) { it.title == "Hermes signed in" }
+                    scenario.onActivity { activity ->
+                        MainActivity::class.java.getDeclaredMethod(
+                            "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                        ).apply {
+                            isAccessible = true
+                            invoke(activity, next)
+                        }
+                    }
+                    awaitWebView(scenario) {
+                        it.title == "Hermes HTTP authenticated" && it.url?.contains(":${Uri.parse(newUrl).port}") == true
+                    }
+                    instrumentation.runOnMainSync {
+                        CookieManager.getInstance().setCookie(oldServer.baseUrl, "proxy_auth=ok; Path=/")
+                    }
+                    val provider = "${oldServer.baseUrl}/session/provider"
+                    evaluateWebView(scenario, """
+                        (function() {
+                          var form = document.createElement('form');
+                          form.method = 'POST';
+                          form.action = ${JSONObject.quote(provider)};
+                          document.body.appendChild(form);
+                          form.submit();
+                        })();
+                    """.trimIndent(), requireCallback = false)
+                    awaitWebView(scenario) { it.title == "Hermes session provider" }
+                    scenario.onActivity { activity ->
+                        val viewModel = MainActivity::class.java.getDeclaredField("viewModel").apply {
+                            isAccessible = true
+                        }.get(activity) as MainViewModel
+                        assertThat(viewModel.uiState.value.currentUrl).isEqualTo(provider)
+                        assertThat(viewModel.uiState.value.isLoading).isFalse()
+                        if (context.checkSelfPermission("android.permission.ACCESS_LOCAL_NETWORK") !=
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            val launches = AtomicInteger()
+                            delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                            MainActivity::class.java.getDeclaredMethod(
+                                "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                            ).apply {
+                                isAccessible = true
+                                invoke(activity, provider, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                            }
+                            assertThat(launches.get()).isEqualTo(1)
+                        }
+                    }
                 }
             }
         }
@@ -780,6 +858,7 @@ class ProxyAuthRedirectInstrumentationTest {
             repository.saveAppUrls(credentialed, "")
             repository.saveLastLoadedUrl("$credentialed/session/old")
             check(encryptedPreferences().edit().putString("server_url", server.baseUrl).commit())
+            assertThat(repository.getLastLoadedUrl()).isEqualTo("$credentialed/session/old")
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 eventually("Basic sign-in prompt or cached credentials") {
                     isTextShown("Sign in to 127.0.0.1") ||
@@ -788,10 +867,6 @@ class ProxyAuthRedirectInstrumentationTest {
                 if (isTextShown("Sign in to 127.0.0.1")) {
                     enterHttpAuthCredentials("test-user", "test-pass")
                     clickDialogButton("Sign in")
-                }
-                scenario.onActivity { activity ->
-                    checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
-                        .loadUrl("${server.baseUrl}/")
                 }
                 awaitWebView(scenario) {
                     it.url == "${server.baseUrl}/" && it.title == "Hermes HTTP authenticated"
@@ -1327,6 +1402,14 @@ class ProxyAuthRedirectInstrumentationTest {
         scenario: ActivityScenario<MainActivity>,
         server: ProxyServer
     ) {
+        eventually("Authenticated WebUI document and workspace recovery are ready") {
+            evaluateWebView(scenario, """
+                document.readyState === 'complete' &&
+                  location.origin === ${JSONObject.quote(server.baseUrl)} &&
+                  window.__HERMES_WEBUI_BUNDLE_VERSION__ === 'fixture' &&
+                  window.__hermesAndroidRouteRecoveryInstalled === true
+            """.trimIndent(), requireCallback = false) == "true"
+        }
         val oldRequests = server.requests.count { it.path == "/session/old" }
         evaluateWebView(scenario, """
             (function() {
@@ -1337,7 +1420,19 @@ class ProxyAuthRedirectInstrumentationTest {
               button.click();
             })();
         """.trimIndent())
-        eventually("Workspace recovery check completed or stale route was requested") {
+        eventually({
+            "Workspace recovery check completed or stale route was requested; ${webViewSummary(scenario)}; " +
+                "document=" + evaluateWebView(scenario, """
+                    JSON.stringify({
+                      ready: document.readyState,
+                      url: location.href,
+                      recoveryInstalled: window.__hermesAndroidRouteRecoveryInstalled,
+                      recoveryCheck: window.__recoveryCheck,
+                      testButton: !!document.getElementById('btnWorkspacePanelToggle')
+                    })
+                """.trimIndent(), requireCallback = false) +
+                "; paths=" + server.requests.map { it.path }
+        }) {
             server.requests.count { it.path == "/session/old" } > oldRequests ||
                 evaluateWebView(scenario, "window.__recoveryCheck === true") == "true"
         }
@@ -2009,6 +2104,7 @@ class ProxyAuthRedirectInstrumentationTest {
         private val officialWebapp: Boolean = false,
         private val oidc: Boolean = false,
         private val basicAuth: Boolean = false,
+        private val basicCredentials: String = "test-user:test-pass",
         private val publicStatus: Boolean = false,
         private val gatewayOidc: Boolean = false,
         port: Int = 0
@@ -2049,7 +2145,8 @@ class ProxyAuthRedirectInstrumentationTest {
                     val cookie = header("Cookie")
                     val authorization = header("Authorization")
                     requests.add(Request(path, header("Host"), cookie, authorization))
-                    val basicAuthenticated = authorization == "Basic dGVzdC11c2VyOnRlc3QtcGFzcw=="
+                    val basicAuthenticated = authorization ==
+                        "Basic ${android.util.Base64.encodeToString(basicCredentials.toByteArray(), android.util.Base64.NO_WRAP)}"
                     val authenticated = (cookie.contains("proxy_auth=ok") || basicAuthenticated) &&
                         !rejectSession.get()
                     val query = first.split(" ")[1].substringAfter('?', "")

@@ -262,7 +262,6 @@ class MainActivity : ComponentActivity() {
     // Last main-frame URL the app loaded, allowed, or committed. A redirect only speaks for the
     // configured server when this hop is exactly that origin (Issue #134).
     private var lastMainFrameHopUrl: String? = null
-    private var lastRequestedMainFrameHopUrl: String? = null
     private var mainFrameNavigationGeneration = 0L
     private var serverTypeDocumentGeneration = 0L
     private var proxySignInDialog: android.app.AlertDialog? = null
@@ -1080,14 +1079,14 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
-                    if (discardSupersededServerCallback(url)) return
+                    if (discardOutdatedCredentialCallback(url)) return
                     serverTypeDocumentGeneration++
                     handleMainWebViewPageStarted(url)
                 }
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
                     super.onPageCommitVisible(view, url)
-                    if (discardSupersededServerCallback(url)) return
+                    if (discardOutdatedCredentialCallback(url)) return
                     clearStaleHistoryAfterNavigation(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
                     viewModel.onPageCommitVisible(url)
@@ -1095,7 +1094,7 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    if (discardSupersededServerCallback(url)) return
+                    if (discardOutdatedCredentialCallback(url)) return
                     clearStaleHistoryAfterNavigation(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
                     detectLoadedServerType(view)
@@ -1116,7 +1115,7 @@ class MainActivity : ComponentActivity() {
                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                     super.doUpdateVisitedHistory(view, url, isReload)
                     val visitedUrl = url?.takeIf { it.isNotBlank() } ?: return
-                    if (discardSupersededServerCallback(visitedUrl)) return
+                    if (discardOutdatedCredentialCallback(visitedUrl)) return
                     // Ignore internal/non-web URLs; persist only trusted Hermes WebUI routes.
                     if (!urlPolicy.isAllowed(visitedUrl)) return
                     if (!matchesConfiguredWebUiRoute(visitedUrl)) return
@@ -1135,7 +1134,7 @@ class MainActivity : ComponentActivity() {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame != true) return
                     val failedUrl = request.url?.toString().orEmpty()
-                    if (discardSupersededServerCallback(failedUrl)) return
+                    if (discardOutdatedCredentialCallback(failedUrl)) return
                     if (recoverFromLocalNetworkPermissionError(failedUrl, error?.description)) return
                     val offline = isOfflineError(error?.errorCode)
                     val message = error?.description?.toString() ?: "Failed to load page"
@@ -1172,6 +1171,7 @@ class MainActivity : ComponentActivity() {
 
                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
                     handler?.cancel()
+                    if (discardOutdatedCredentialCallback(error?.url)) return
                     DiagnosticsLogger.record(
                         this@MainActivity,
                         "webview_ssl_error",
@@ -1440,7 +1440,7 @@ class MainActivity : ComponentActivity() {
     private fun handleMainWebViewPageStarted(url: String?) {
         // The server-switch about:blank placeholder can report its start after the new server's
         // redirect opened proxy consent; it is not a navigation away, so it must not void that consent.
-        if (url != "about:blank") recordMainFrameHop(url?.takeIf { it.isNotBlank() }, requested = false)
+        if (url != "about:blank") recordMainFrameHop(url?.takeIf { it.isNotBlank() })
         if (!url.isNullOrBlank() && !completeMainFrameOAuthIfCallback(url)) {
             parseTrustedOAuthStart(url)?.let { rememberActiveMainFrameOAuth(it) }
         }
@@ -1647,7 +1647,16 @@ class MainActivity : ComponentActivity() {
         if (description?.contains("ERR_LOCAL_NETWORK_PERMISSION_MISSING", ignoreCase = true) != true ||
             failedUrl.isBlank() || hasLocalNetworkPermission()
         ) return false
-        if (discardSupersededServerCallback(failedUrl)) return true
+        if (discardOutdatedCredentialCallback(failedUrl)) return true
+        val fence = serverSelectionFence
+        val failedOrigin = UrlOrigins.pageOrigin(failedUrl)
+        if (failedOrigin != null && failedOrigin in fence?.previousOrigins.orEmpty() &&
+            failedOrigin.startsWith("http://") &&
+            fence?.selectedUrl?.let(UrlOrigins::pageOrigin)?.startsWith("https://") == true
+        ) {
+            DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "https_downgrade"))
+            return false
+        }
         requestLocalNetworkPermissionIfNeeded(
             url = failedUrl,
             onGranted = { loadServerUrlWithVpnGuard(failedUrl) }
@@ -2171,7 +2180,6 @@ class MainActivity : ComponentActivity() {
             previousHosts = previousFence?.previousHosts.orEmpty() + listOfNotNull(UrlOrigins.hostFrom(previousServerUrl)),
             previousOrigins = previousFence?.previousOrigins.orEmpty() + listOfNotNull(UrlOrigins.pageOrigin(previousServerUrl))
         )
-        lastRequestedMainFrameHopUrl = null
         pendingVpnGuardUrl = null
         stopVpnReconnectWaitLoop()
 
@@ -2213,18 +2221,9 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
-    private fun isSupersededServerNavigation(url: String): Boolean {
-        val fence = serverSelectionFence ?: return false
-        val origin = UrlOrigins.pageOrigin(url) ?: return false
-        if (origin == UrlOrigins.pageOrigin(fence.selectedUrl) || origin !in fence.previousOrigins) return false
-        return lastRequestedMainFrameHopUrl?.let(UrlOrigins::pageOrigin) != origin
-    }
-
-    private fun discardSupersededServerCallback(url: String?): Boolean {
-        if (url.isNullOrBlank() ||
-            (!hasOutdatedServerCredentials(url) && !isSupersededServerNavigation(url))
-        ) return false
-        DiagnosticsLogger.record(this, "server_navigation_discarded", mapOf("reason" to "server_changed"))
+    private fun discardOutdatedCredentialCallback(url: String?): Boolean {
+        if (url.isNullOrBlank() || !hasOutdatedServerCredentials(url)) return false
+        DiagnosticsLogger.record(this, "server_navigation_discarded", mapOf("reason" to "server_credentials_changed"))
         return true
     }
 
@@ -2297,9 +2296,8 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun recordMainFrameHop(url: String?, requested: Boolean = true) {
+    private fun recordMainFrameHop(url: String?) {
         lastMainFrameHopUrl = url
-        if (requested) lastRequestedMainFrameHopUrl = url
         mainFrameNavigationGeneration++
     }
 

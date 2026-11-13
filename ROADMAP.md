@@ -45,6 +45,11 @@
   old URL credentials after the configured credentials change; this is not a
   sign-out and does not clear WebView's authentication cache. Reporter
   acceptance remains open.
+- [ ] Server-switch callback identity: a late WebView callback with unchanged
+  or absent URL credentials can still affect the selected route or error state,
+  including after returning to the same server. WebView does not provide a
+  navigation ID; retain the mounted WebView while a non-destructive solution
+  is investigated in #184. Navigation can still discard page state.
 - [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews prompt for credentials on challenges from the configured server host only. Hermes-Android does not remember prompt credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,

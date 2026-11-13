@@ -304,8 +304,8 @@ builds contain no Google Play or Firebase code.
 
 Current checked-in release metadata:
 
-- Version name: `1.3.0`
-- Version code: `10300`
+- Version name: `1.3.1`
+- Version code: `10301`
 - Play application ID: `com.hermeswebui.android`
 - GitHub application ID: `com.hermeswebui.android.github`
 - F-Droid application ID: `com.hermeswebui.android.fdroid`

@@ -1,5 +1,6 @@
 package com.hermeswebui.android.ui.web
 
+import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,7 +47,17 @@ fun WebShell(
     Box(modifier = Modifier.fillMaxSize().pullRefresh(pullRefreshState)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { webView }
+            // Compose adopts this pre-built view; without explicit params it is attached as
+            // WRAP_CONTENT, which makes Chromium lay the main frame out at zero height so every
+            // vh/dvh/svh/lvh unit (and html{height:100%}) resolves to 0 (Issue #184).
+            factory = {
+                webView.also {
+                    it.layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+            }
         )
 
         PullRefreshIndicator(

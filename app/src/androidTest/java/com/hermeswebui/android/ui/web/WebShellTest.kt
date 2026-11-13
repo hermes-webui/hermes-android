@@ -1,6 +1,8 @@
 package com.hermeswebui.android.ui.web
 
 import android.webkit.WebView
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertCountEquals
@@ -138,5 +140,62 @@ class WebShellTest {
         }
 
         composeTestRule.onAllNodesWithText("Edit server URL").assertCountEquals(0)
+    }
+
+    /**
+     * Issue #184: the pre-built WebView must be hosted MATCH_PARENT. As WRAP_CONTENT, Chromium
+     * lays the main frame out at zero height and 100vh/100dvh/html{height:100%} all measure 0
+     * even though the view itself is full size (which also collapsed Pocket ID's 12dvh QR canvas).
+     */
+    @Test
+    fun hostedWebView_hasRealViewportUnits() {
+        lateinit var view: WebView
+        composeTestRule.setContent {
+            val context = LocalContext.current
+            view = remember { WebView(context).also { it.settings.javaScriptEnabled = true } }
+            WebShell(
+                webView = view,
+                isLoading = false,
+                hasLoadedContent = true,
+                isOffline = false,
+                isReconnecting = false,
+                errorMessage = null,
+                onRefresh = {},
+                onRetry = {},
+                onOpenExternal = {},
+                onOpenSettings = {}
+            )
+        }
+        val loaded = CountDownLatch(1)
+        composeTestRule.runOnUiThread {
+            view.webViewClient = object : android.webkit.WebViewClient() {
+                override fun onPageFinished(v: WebView, url: String) { loaded.countDown() }
+            }
+            view.loadDataWithBaseURL(
+                "https://example.test/", PROBE_HTML, "text/html", "utf-8", null
+            )
+        }
+        assertThat(loaded.await(30, TimeUnit.SECONDS)).isTrue()
+        var result = ""
+        val done = CountDownLatch(1)
+        composeTestRule.runOnUiThread {
+            view.evaluateJavascript(
+                "(function(){var a=document.getElementById('a').offsetHeight," +
+                    "b=document.getElementById('b').offsetHeight;" +
+                    "return a+','+b+','+window.innerHeight;})()"
+            ) { result = it.trim('"'); done.countDown() }
+        }
+        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue()
+        val (vh, dvh, inner) = result.split(",").map { it.toInt() }
+        assertThat(inner).isGreaterThan(0)
+        assertThat(vh).isEqualTo(inner)
+        assertThat(dvh).isEqualTo(inner)
+    }
+
+    private companion object {
+        const val PROBE_HTML =
+            "<!doctype html><meta name=viewport content='width=device-width'>" +
+                "<body style='margin:0'><div id=a style='height:100vh'></div>" +
+                "<div id=b style='height:100dvh'></div>"
     }
 }

@@ -3,7 +3,7 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-11-11
+> Last updated: 2026-11-12
 
 ---
 
@@ -36,13 +36,16 @@
   and falls back to in-app sign-in otherwise. API 35 loopback tests cover the
   in-app gateway flow and the http-callback fallback; a real Auth Tab round trip,
   live TinyAuth/Pocket ID, and reporter acceptance are not verified.
-- [~] Issue #184 follow-up: optional remembered HTTP Basic login. **Settings →
-  Connection → Remember server sign-in** (off by default) saves the prompt's
-  credentials in encrypted settings for the exact configured host and realm,
-  reuses them only on WebView's first attempt, and deletes them when turned off
-  or via **Forget saved sign-ins**. Covered by API 35/36 loopback tests; not yet
-  confirmed by the reporter.
-- [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews now prompt for credentials on challenges from the configured server host only. Hermes-Android does not save credentials by default (see the opt-in #184 follow-up above); an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
+- [~] Issue #184 follow-up: the app no longer remembers credentials entered in
+  the HTTP Basic prompt or supplies previously remembered credentials. Legacy
+  encrypted data remains unused until explicitly deleted via **Forget saved
+  sign-ins**. WebView may reuse same-origin credentials in memory, and saved
+  server URLs and default profile names can still contain credentials.
+  Startup, reconnect, notification, workspace-recovery and Back paths reject
+  old URL credentials after the configured credentials change; this is not a
+  sign-out and does not clear WebView's authentication cache. Reporter
+  acceptance remains open.
+- [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews prompt for credentials on challenges from the configured server host only. Hermes-Android does not remember prompt credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,
   authentication, HTTPS and reusable URLs. Include the requested AGP 9.5.1
@@ -241,6 +244,7 @@ sketches are captured inline below.
 
 | ID | Date | Area | Summary |
 |---|---|---|---|
+| BUG-062 | 2026-11-12 | Authentication | Issue #184 follow-up: removed automatic reuse and saving of HTTP Basic credentials because WebView reports only the challenged host and realm, not its scheme or port. Manual masked sign-in remains available; previously saved encrypted data stays unused and can be explicitly deleted in Settings. Saved routes with outdated URL credentials are rejected after a server URL edit, including on startup, reconnect, notification, workspace recovery and Back; history containing incompatible credentials is cleared when the server changes. Loopback and Settings regressions were RED on the base and GREEN on API 35; live reporter acceptance remains open. |
 | BUG-061 | 2026-11-12 | WebView | Fixed Issue #190: a Hermes Agent Dashboard configured as the server URL rendered only its header because Android WebView evaluates its `h-dvh overflow-hidden` root as 0px and the viewport repair restored only an inner wrapper on the first pass, then capped the root at 82%. The repair now recognizes a collapsed page shell and restores it to the full viewport height in one pass, and the WebUI-only Enter, sidebar, Clarify and route-recovery shims now require a positive WebUI marker so the Dashboard no longer receives them. Emulator fixtures reproduce the Dashboard layout; a real device against a live Dashboard remains unverified pending the reporter's confirmation in #184. |
 | BUG-060 | 2026-11-12 | Authentication | Issue #184 follow-up: keep OIDC started by an approved proxy sign-in gateway in the app when its callback returns to that exact gateway origin, and add opt-in Sign in with Chrome (Auth Tab with verified callback return and in-app fallback). Also stop a server switch's `about:blank` placeholder from externalizing the new server's sign-in redirect or voiding its consent with a false "Server changed" (RED on an API 36 Fold emulator with Chrome in 4/4 and 4/5 runs per guard, GREEN 32/32 there and on API 35). API 35 loopback gateway tests were RED with the gateway trust removed and GREEN locally; real Auth Tab, live TinyAuth/Pocket ID, and reporter acceptance remain open. |
 | BUG-059 | 2026-11-12 | Authentication | Issue #184 follow-up: mask native HTTP Basic passwords and allow an initial proxy redirect after consent when WebView has no committed URL, while rejecting consent after a later navigation. API 35 loopback regressions were RED on base and GREEN locally; live reporter acceptance and passkey sign-in remain open. |

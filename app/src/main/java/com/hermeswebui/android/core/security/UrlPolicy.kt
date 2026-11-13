@@ -60,6 +60,24 @@ object UrlOrigins {
         return url.toUriOrNull()?.normalizedHost()?.takeIf { it.isNotBlank() }
     }
 
+    fun hasCompatibleUserInfo(url: String, configuredUrl: String): Boolean {
+        val target = url.toUriOrNull() ?: return false
+        if (target.rawAuthority?.contains('@') == true && target.rawUserInfo == null) return false
+        val targetUserInfo = target.browserUserInfo()?.takeIf { it.isNotEmpty() } ?: return true
+        val configured = configuredUrl.toUriOrNull() ?: return false
+        return targetUserInfo == configured.browserUserInfo()
+    }
+
+    fun hasSameUserInfo(first: String, second: String): Boolean {
+        return hasCompatibleUserInfo(first, second) && hasCompatibleUserInfo(second, first)
+    }
+
+    private fun URI.browserUserInfo(): String? {
+        val userInfo = URI(toASCIIString()).rawUserInfo ?: return null
+        val separator = userInfo.indexOf(':')
+        return if (separator == userInfo.lastIndex) userInfo.dropLast(1) else userInfo
+    }
+
     fun hasSameOrigin(url: String?, baseUrl: String, ignoreScheme: Boolean = false): Boolean {
         if (url.isNullOrBlank() || baseUrl.isBlank()) return false
         val target = url.toUriOrNull() ?: return false

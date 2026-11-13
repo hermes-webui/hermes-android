@@ -1,5 +1,6 @@
 package com.hermeswebui.android.server
 
+import com.hermeswebui.android.core.security.UrlOrigins
 import com.hermeswebui.android.data.ServerProfile
 import java.util.Locale
 
@@ -16,8 +17,7 @@ object ServerProfileRules {
         excludedProfileId: String? = null
     ): ServerProfileConflict? {
         val comparableProfiles = existingProfiles.filter { it.id != excludedProfileId }
-        val normalizedUrl = normalizeUrl(candidateUrl)
-        if (comparableProfiles.any { normalizeUrl(it.url) == normalizedUrl }) {
+        if (comparableProfiles.any { urlsMatch(it.url, candidateUrl) }) {
             return ServerProfileConflict.URL
         }
 
@@ -30,6 +30,11 @@ object ServerProfileRules {
         }
 
         return null
+    }
+
+    fun urlsMatch(first: String, second: String): Boolean {
+        return normalizeUrl(first) == normalizeUrl(second) &&
+            UrlOrigins.hasSameUserInfo(first.trim(), second.trim())
     }
 
     fun normalizeUrl(url: String): String {

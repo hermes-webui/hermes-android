@@ -61,7 +61,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
     private fun runMigration() {
         val lastMigrationVersion = sharedPreferences.getInt(KEY_LAST_MIGRATION_VERSION, 0)
-        val currentMigrationVersion = 15 // Increment this when adding new migrations
+        val currentMigrationVersion = 16 // Increment this when adding new migrations
 
         if (lastMigrationVersion < 1) {
             // Migration 1: Clear dashboard URLs from pre-0.1.5 versions
@@ -166,8 +166,11 @@ class SettingsRepository(context: Context) : SettingsStore {
         // legacy JSON (including an unreadable document) merely to add a cosmetic label.
         // Migration 15 is additive: absent detectedServerType remains unknown until a
         // configured frontend supplies its runtime marker. Preserve manual overrides.
-        // Neither needs data changes, so only the version marker is written once at the end,
-        // and not at all when the stored version is already current.
+        if (lastMigrationVersion < 16) {
+            // Disable the old opt-in without deleting the user's encrypted data.
+            sharedPreferences.edit { remove(KEY_REMEMBER_HTTP_AUTH_ENABLED) }
+        }
+
         if (lastMigrationVersion < currentMigrationVersion) {
             sharedPreferences.edit {
                 putInt(KEY_LAST_MIGRATION_VERSION, currentMigrationVersion)
@@ -215,11 +218,17 @@ class SettingsRepository(context: Context) : SettingsStore {
         val hosts = setOf(serverUrl, normalizedDashboardUrl)
             .mapNotNull(UrlOrigins::hostFrom)
             .toSet()
-        sharedPreferences.edit {
-            putString(KEY_SERVER_URL, serverUrl)
-            putString(KEY_DASHBOARD_URL, normalizedDashboardUrl)
-            putString(KEY_ALLOWED_HOSTS, hosts.joinToString(","))
-            putBoolean(KEY_IS_CONFIGURED, true)
+        synchronized(serverUrlPersistenceLock) {
+            val lastUrl = sharedPreferences.getString(KEY_LAST_URL, null)
+            sharedPreferences.edit {
+                putString(KEY_SERVER_URL, serverUrl)
+                putString(KEY_DASHBOARD_URL, normalizedDashboardUrl)
+                putString(KEY_ALLOWED_HOSTS, hosts.joinToString(","))
+                putBoolean(KEY_IS_CONFIGURED, true)
+                if (lastUrl != null && !UrlOrigins.hasCompatibleUserInfo(lastUrl, serverUrl)) {
+                    remove(KEY_LAST_URL)
+                }
+            }
         }
         // Keep the Current profile in step with a manually saved server URL.
         val profiles = getProfiles()
@@ -275,18 +284,6 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_REQUIRE_VPN_FOR_TAILSCALE_ENABLED, enabled) }
     }
 
-    fun isRememberHttpAuthEnabled(): Boolean {
-        return sharedPreferences.getBoolean(KEY_REMEMBER_HTTP_AUTH_ENABLED, false)
-    }
-
-    /** Turning the option off also deletes every saved HTTP Basic sign-in. */
-    fun setRememberHttpAuthEnabled(enabled: Boolean) {
-        sharedPreferences.edit {
-            putBoolean(KEY_REMEMBER_HTTP_AUTH_ENABLED, enabled)
-            if (!enabled) remove(KEY_HTTP_AUTH_CREDENTIALS)
-        }
-    }
-
     fun isBrowserSignInEnabled(): Boolean {
         return sharedPreferences.getBoolean(KEY_BROWSER_SIGN_IN_ENABLED, false)
     }
@@ -295,37 +292,10 @@ class SettingsRepository(context: Context) : SettingsStore {
         sharedPreferences.edit { putBoolean(KEY_BROWSER_SIGN_IN_ENABLED, enabled) }
     }
 
-    fun getHttpAuthCredential(host: String?, realm: String?): HttpAuthCredential? {
-        if (!isRememberHttpAuthEnabled()) return null
-        val key = HttpAuthCredential.scopeKey(host, realm) ?: return null
-        val entry = readHttpAuthCredentials().optJSONObject(key) ?: return null
-        val username = entry.optString("username")
-        if (username.isEmpty()) return null
-        return HttpAuthCredential(username, entry.optString("password"))
-    }
+    fun hasLegacyHttpAuthCredentials(): Boolean = sharedPreferences.contains(KEY_HTTP_AUTH_CREDENTIALS)
 
-    fun saveHttpAuthCredential(host: String?, realm: String?, credential: HttpAuthCredential) {
-        if (!isRememberHttpAuthEnabled() || credential.username.isEmpty()) return
-        val key = HttpAuthCredential.scopeKey(host, realm) ?: return
-        val all = readHttpAuthCredentials().put(
-            key,
-            JSONObject().put("username", credential.username).put("password", credential.password)
-        )
-        sharedPreferences.edit { putString(KEY_HTTP_AUTH_CREDENTIALS, all.toString()) }
-    }
-
-    fun savedHttpAuthCredentialCount(): Int = readHttpAuthCredentials().length()
-
-    fun clearHttpAuthCredentials() {
+    fun clearLegacyHttpAuthCredentials() {
         sharedPreferences.edit { remove(KEY_HTTP_AUTH_CREDENTIALS) }
-    }
-
-    private fun readHttpAuthCredentials(): JSONObject {
-        return try {
-            JSONObject(sharedPreferences.getString(KEY_HTTP_AUTH_CREDENTIALS, null) ?: "{}")
-        } catch (_: JSONException) {
-            JSONObject()
-        }
     }
 
     fun getVpnLaunchPackageName(): String {
@@ -460,19 +430,18 @@ class SettingsRepository(context: Context) : SettingsStore {
         }
     }
 
-    // Navigation callbacks persist the same final URL more than once per load. Each write is an
-    // AES-SIV key + AES-GCM value encryption, so skip writes that cannot change the stored value.
-    // Reads stay uncached because another repository instance (debug logging service) may read it.
-    @Volatile private var lastSavedUrl: String? = null
-
     override fun saveLastLoadedUrl(url: String) {
-        val known = lastSavedUrl ?: sharedPreferences.getString(KEY_LAST_URL, null)
-        if (known == url) {
-            lastSavedUrl = url
-            return
+        synchronized(serverUrlPersistenceLock) {
+            val configuredUrl = sharedPreferences.getString(KEY_SERVER_URL, "").orEmpty()
+            if (!UrlOrigins.hasCompatibleUserInfo(url, configuredUrl)) {
+                android.util.Log.w("HermesSettings", "Ignoring a visited URL with outdated credentials")
+                return
+            }
+            // Navigation callbacks can report the same URL repeatedly; avoid redundant writes.
+            if (sharedPreferences.getString(KEY_LAST_URL, null) != url) {
+                sharedPreferences.edit { putString(KEY_LAST_URL, url) }
+            }
         }
-        sharedPreferences.edit { putString(KEY_LAST_URL, url) }
-        lastSavedUrl = url
     }
 
     fun getLastLoadedUrl(): String? = sharedPreferences.getString(KEY_LAST_URL, null)
@@ -486,7 +455,7 @@ class SettingsRepository(context: Context) : SettingsStore {
         // does not make the original appear to disappear.
         if (profiles.isEmpty()) {
             val currentUrl = sharedPreferences.getString(KEY_SERVER_URL, null)?.trim().orEmpty()
-            if (currentUrl.isNotBlank() && normalizeProfileUrl(currentUrl) != normalizeProfileUrl(url)) {
+            if (currentUrl.isNotBlank() && !ServerProfileRules.urlsMatch(currentUrl, url)) {
                 val currentProfile = ServerProfile(
                     name = "Current server",
                     url = currentUrl,
@@ -499,7 +468,7 @@ class SettingsRepository(context: Context) : SettingsStore {
 
         val currentUrl = sharedPreferences.getString(KEY_SERVER_URL, null).orEmpty()
         val isCurrent = profiles.none { it.isActive } &&
-            normalizeProfileUrl(currentUrl) == normalizeProfileUrl(url)
+            ServerProfileRules.urlsMatch(currentUrl, url)
         val profile = ServerProfile(name = name, url = url, isActive = isCurrent, serverType = serverType)
         profiles.add(profile)
         saveProfiles(profiles)
@@ -609,6 +578,7 @@ class SettingsRepository(context: Context) : SettingsStore {
     }
 
     companion object {
+        private val serverUrlPersistenceLock = Any()
         private const val FILE_NAME = "hermes_secure_prefs"
         private const val KEY_SERVER_URL = "server_url"
         // Preserve the original encrypted preference key so existing installs keep their saved URL.

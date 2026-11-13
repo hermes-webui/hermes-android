@@ -1293,6 +1293,9 @@ object HermesWebUiScripts {
                 if (window.__hermesAndroidRouteRecoveryInstalled) return;
                 window.__hermesAndroidRouteRecoveryInstalled = true;
                 var recoveryUrl = $quotedLastUrl;
+                window.addEventListener('hermes-android-reset-route-recovery', function() {
+                  recoveryUrl = '';
+                });
                 // Workspace-panel recovery targets Hermes WebUI markup only (#190).
                 var isHermesWebUiPage = function() {
                   if (window.__HERMES_UI_SURFACE__ === 'webapp') return false;

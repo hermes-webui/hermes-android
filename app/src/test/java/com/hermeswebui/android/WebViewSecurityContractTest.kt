@@ -93,17 +93,34 @@ class WebViewSecurityContractTest {
             .isEqualTo(2)
         assertThat(Regex("""showHttpAuthPrompt\(handler, host, realm\)""").findAll(mainActivity).count())
             .isEqualTo(2)
+        val popupFactory = bodiesOf(mainActivity, "private fun createPopupWindow(").single()
+        assertThat(popupFactory).contains("webViewClient = buildPopupWebViewClient(this)")
+        val popupClient = bodiesOf(mainActivity, "private fun buildPopupWebViewClient(").single()
+        assertThat(popupClient).contains("override fun onReceivedHttpAuthRequest(")
+        assertThat(popupClient).contains("showHttpAuthPrompt(handler, host, realm)")
         val prompt = bodiesOf(mainActivity, "private fun showHttpAuthPrompt(").single()
-        assertThat(prompt).contains("isTrustedHttpAuthHost(host)")
-        assertThat(prompt).contains("handler.cancel()")
-        // Saving is opt-in: only from the prompt's Remember checkbox, which exists only while
-        // the setting is on, and saved sign-ins are reused only on WebView's first attempt.
-        assertThat(Regex("""saveHttpAuthCredential\(""").findAll(prompt).count()).isEqualTo(1)
-        assertThat(prompt).contains("if (remember?.isChecked == true")
-        assertThat(prompt).contains("settingsRepository.isRememberHttpAuthEnabled()")
-        assertThat(prompt).contains("saved != null && handler.useHttpAuthUsernamePassword()")
+        assertThat(prompt).contains("if (!currentWebTrustPolicy().isTrustedHttpAuthHost(host)) {")
+        val untrusted = bodiesOf(prompt, "if (!currentWebTrustPolicy().isTrustedHttpAuthHost(host))").single()
+        assertThat(untrusted).contains("handler.cancel()")
+        assertThat(untrusted).contains("return")
+        assertThat(untrusted.indexOf("handler.cancel()")).isLessThan(untrusted.indexOf("return"))
         assertThat(prompt.indexOf("isTrustedHttpAuthHost(host)"))
-            .isLessThan(prompt.indexOf("getHttpAuthCredential(host, realm)"))
+            .isLessThan(prompt.indexOf("PendingHttpAuthPrompt(handler)"))
+        assertThat(prompt).doesNotContain("handler.proceed(")
+        assertThat(prompt).contains("setOnClickListener")
+        assertThat(prompt.indexOf("setOnClickListener"))
+            .isLessThan(prompt.indexOf("proceedHttpAuthPrompt(prompt, enteredUsername, enteredPassword)"))
+        listOf(
+            "getHttpAuthCredential(",
+            "saveHttpAuthCredential(",
+            "useHttpAuthUsernamePassword(",
+            "getHttpAuthUsernamePassword(",
+            "setHttpAuthUsernamePassword("
+        ).forEach { forbidden ->
+            codeOnly.forEach { (path, text) ->
+                assertWithMessage("$path must not use $forbidden").that(text).doesNotContain(forbidden)
+            }
+        }
         val proceed = bodiesOf(mainActivity, "private fun proceedHttpAuthPrompt(").single()
         assertThat(proceed).contains("prompt.handler.proceed(username, password)")
         val cancel = bodiesOf(mainActivity, "private fun cancelHttpAuthPrompt(").single()

@@ -82,6 +82,7 @@ import com.hermeswebui.android.R
 import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.launcher.LauncherIcon
+import com.hermeswebui.android.server.ServerProfileRules
 import com.hermeswebui.android.ui.ServerValidationUiState
 import kotlin.math.roundToInt
 
@@ -127,9 +128,7 @@ fun SettingsScreen(
     onSetBackgroundActivityFullTextEnabled: (Boolean) -> Unit,
     onSetReconnectPollIntervalSeconds: (Int) -> Unit,
     onSetRequireVpnForTailscaleEnabled: (Boolean) -> Unit,
-    rememberHttpAuthEnabled: Boolean = false,
-    savedHttpAuthCredentialCount: Int = 0,
-    onSetRememberHttpAuthEnabled: (Boolean) -> Unit = {},
+    hasLegacyHttpAuthCredentials: Boolean = false,
     onForgetSavedHttpAuth: () -> Unit = {},
     browserSignInEnabled: Boolean = false,
     onSetBrowserSignInEnabled: (Boolean) -> Unit = {},
@@ -391,9 +390,8 @@ fun SettingsScreen(
                 // ── Servers ───────────────────────────────────────────────
                 SectionHeader("Servers")
 
-                val activeProfile = serverProfiles.firstOrNull { profile ->
-                    profile.url.trimEnd('/').equals(initialServerUrl.trimEnd('/'), ignoreCase = true)
-                } ?: serverProfiles.firstOrNull { it.isActive }
+                val activeProfile = serverProfiles.firstOrNull { it.isActive }
+                    ?: serverProfiles.firstOrNull { ServerProfileRules.urlsMatch(it.url, initialServerUrl) }
                 val sortedProfiles = listOfNotNull(activeProfile) +
                     serverProfiles.filter { it.id != activeProfile?.id }
 
@@ -719,40 +717,7 @@ fun SettingsScreen(
 
                         HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
 
-                        ListItem(
-                            headlineContent = {
-                                Text(
-                                    "Remember server sign-in",
-                                    color = onSurface,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            },
-                            supportingContent = {
-                                Text(
-                                    "Offers to save the username and password for your server's own sign-in box (HTTP Basic, for example from a reverse proxy) in encrypted app storage. Saved sign-ins are used only for the exact configured server host. Turning this off deletes them.",
-                                    color = onSurfaceVar,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = rememberHttpAuthEnabled,
-                                    onCheckedChange = onSetRememberHttpAuthEnabled,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                                        checkedTrackColor = primaryColor,
-                                        uncheckedThumbColor = onSurfaceVar,
-                                        uncheckedTrackColor = surfaceVariant
-                                    )
-                                )
-                            },
-                            colors = ListItemDefaults.colors(containerColor = surfaceColor),
-                            modifier = Modifier.clickable {
-                                onSetRememberHttpAuthEnabled(!rememberHttpAuthEnabled)
-                            }
-                        )
-
-                        if (rememberHttpAuthEnabled && savedHttpAuthCredentialCount > 0) {
+                        if (hasLegacyHttpAuthCredentials) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -760,11 +725,7 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (savedHttpAuthCredentialCount == 1) {
-                                        "1 sign-in saved"
-                                    } else {
-                                        "$savedHttpAuthCredentialCount sign-ins saved"
-                                    },
+                                    text = "Previously remembered sign-ins are inactive; server URLs and names are unaffected.",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.weight(1f)
@@ -773,9 +734,8 @@ fun SettingsScreen(
                                     Text("Forget saved sign-ins")
                                 }
                             }
+                            HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
                         }
-
-                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
 
                         ListItem(
                             headlineContent = {
@@ -1494,11 +1454,10 @@ internal fun AddServerProfileDialog(
     var type by remember { mutableStateOf(ServerType.UNSPECIFIED) }
     val trimmedName = profileName.trim()
     val trimmedUrl = profileUrl.trim()
-    val normalizedUrl = trimmedUrl.trimEnd('/').lowercase()
     val isValidUrl = trimmedUrl.isNotBlank() &&
         (trimmedUrl.startsWith("http://") || trimmedUrl.startsWith("https://"))
     val isDuplicateUrl = existingProfiles.any {
-        it.url.trim().trimEnd('/').lowercase() == normalizedUrl
+        ServerProfileRules.urlsMatch(it.url, trimmedUrl)
     }
     val isDuplicateName = trimmedName.isNotBlank() &&
         existingProfiles.any { it.name.trim().equals(trimmedName, ignoreCase = true) }

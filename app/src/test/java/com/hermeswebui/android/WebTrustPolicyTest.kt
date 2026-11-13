@@ -41,6 +41,26 @@ class WebTrustPolicyTest {
     }
 
     @Test
+    fun `notification targets cannot restore removed or changed URL credentials`() {
+        val oldRoute = "https://User:p%40ss@hermes.example.com/session/123"
+        assertThat(policy.isTrustedNotificationTarget(oldRoute)).isFalse()
+
+        val configured = WebTrustPolicy(
+            urlPolicy = UrlPolicy(setOf("hermes.example.com")),
+            configuredWebUiUrl = "https://User:p%40ss@hermes.example.com",
+            configuredDashboardUrl = ""
+        )
+        assertThat(configured.isTrustedNotificationTarget(oldRoute)).isTrue()
+        assertThat(configured.isTrustedNotificationTarget("https://hermes.example.com/session/123")).isTrue()
+        assertThat(configured.isTrustedNotificationTarget("https://user:p%40ss@hermes.example.com/session/123"))
+            .isFalse()
+        assertThat(configured.isTrustedNotificationTarget("https://User:other@hermes.example.com/session/123"))
+            .isFalse()
+        assertThat(configured.isTrustedNotificationTarget("https://User:p@ss@hermes.example.com/session/123"))
+            .isFalse()
+    }
+
+    @Test
     fun `notification bridge requires main frame source and destination`() {
         assertThat(
             policy.isTrustedNotificationBridgeSource(

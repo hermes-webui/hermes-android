@@ -1,15 +1,18 @@
 package com.hermeswebui.android.ui.settings
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import com.hermeswebui.android.data.ServerProfile
 import com.hermeswebui.android.ui.ServerValidationUiState
 import org.junit.Rule
 import org.junit.Test
@@ -234,6 +237,49 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun currentProfileUsesActiveIdWhenUrlCredentialsDifferOnlyByCase() {
+        val first = ServerProfile(id = "first", name = "First", url = "https://User:Pass@hermes.example.com")
+        val current = ServerProfile(
+            id = "current",
+            name = "Current profile",
+            url = "https://user:Pass@hermes.example.com",
+            isActive = true
+        )
+        var switchedTo: String? = null
+        var reconnects = 0
+        renderConfiguredSettings(
+            seconds = 1,
+            initialServerUrl = current.url,
+            profiles = listOf(first, current),
+            onSwitchProfile = { switchedTo = it },
+            onReconnectCurrentServer = { reconnects++ }
+        )
+
+        composeTestRule.onNodeWithText("First").performClick()
+        assertThat(switchedTo).isEqualTo("first")
+        assertThat(reconnects).isEqualTo(0)
+        composeTestRule.onNodeWithText("Current profile").performClick()
+        assertThat(reconnects).isEqualTo(1)
+    }
+
+    @Test
+    fun addServerAllowsCredentialsThatDifferOnlyByCase() {
+        val existing = ServerProfile(id = "first", name = "First", url = "https://User:Pass@hermes.example.com")
+        var addedUrl: String? = null
+        composeTestRule.setContent {
+            AddServerProfileDialog(
+                existingProfiles = listOf(existing),
+                onConfirm = { _, url, _ -> addedUrl = url },
+                onDismiss = {}
+            )
+        }
+        composeTestRule.onNodeWithText("Server URL")
+            .performTextReplacement("https://user:Pass@hermes.example.com")
+        composeTestRule.onNodeWithText("Add").assertIsEnabled().performClick()
+        assertThat(addedUrl).isEqualTo("https://user:Pass@hermes.example.com")
+    }
+
+    @Test
     fun reconnectPollingInterval_rendersSingularDescription() {
         // Regression for issue #81: the description used stringResource() with a plural
         // resource ID, which throws Resources.NotFoundException during composition and
@@ -345,6 +391,10 @@ class SettingsScreenTest {
 
     private fun renderConfiguredSettings(
         seconds: Int,
+        initialServerUrl: String = "https://hermes.example.com",
+        profiles: List<ServerProfile> = emptyList(),
+        onSwitchProfile: (String) -> Unit = {},
+        onReconnectCurrentServer: () -> Unit = {},
         clientCertificateUri: String? = null,
         clientCertificatePassword: String? = null,
         onSetClientCertificateConfig: (String?, String?) -> Unit = { _, _ -> },
@@ -352,7 +402,7 @@ class SettingsScreenTest {
     ) {
         composeTestRule.setContent {
             SettingsScreen(
-                initialServerUrl = "https://hermes.example.com",
+                initialServerUrl = initialServerUrl,
                 isConfigured = true,
                 backgroundReconnectEnabled = true,
                 backgroundActivityFullTextEnabled = false,
@@ -376,7 +426,7 @@ class SettingsScreenTest {
                 clientCertificatePassword = clientCertificatePassword,
                 serverValidation = ServerValidationUiState(),
                 appVersionLabel = "Version 0.0.0",
-                serverProfiles = emptyList(),
+                serverProfiles = profiles,
                 onSave = {},
                 onDismiss = {},
                 onShowWelcome = onShowWelcome,
@@ -405,8 +455,8 @@ class SettingsScreenTest {
                 onDeleteProfile = {},
                 onEditProfile = { _, _, _, _ -> },
                 onEditCurrentServer = { _, _, _ -> },
-                onSwitchProfile = {},
-                onReconnectCurrentServer = {},
+                onSwitchProfile = onSwitchProfile,
+                onReconnectCurrentServer = onReconnectCurrentServer,
                 onClearServerValidation = {}
             )
         }

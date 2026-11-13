@@ -212,10 +212,11 @@ the configured URL remains usable. Changing the configured URL removes an
 incompatible remembered route; late page callbacks are checked against the
 current URL before saving. Main-frame requests whose exposed URL carries
 outdated credentials for a selected or previously selected server in the current
-activity are blocked, including POST requests and popup handoffs. The request interceptor reads an
-immutable selection snapshot because it runs off the UI thread; Current-profile
-edits update that snapshot before persisting the new URL. Permission-error
-recovery also rejects superseded server origins even when credentials match.
+activity are blocked, including POST requests and popup handoffs. The request
+interceptor reads an immutable selection snapshot because it runs off the UI
+thread; Current-profile edits update that snapshot before persisting the new
+URL. Late page, history and error callbacks from a superseded server are
+discarded, including permission errors from an old origin with matching credentials.
 Legacy incompatible routes may remain encrypted
 until replaced. When history contains incompatible credentials for the previous
 server host, it is cleared before the new page loads and again when that page

@@ -1080,15 +1080,14 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
-                    if (!url.isNullOrBlank() &&
-                        (hasOutdatedServerCredentials(url) || isSupersededServerNavigation(url))
-                    ) return
+                    if (discardSupersededServerCallback(url)) return
                     serverTypeDocumentGeneration++
                     handleMainWebViewPageStarted(url)
                 }
 
                 override fun onPageCommitVisible(view: WebView?, url: String?) {
                     super.onPageCommitVisible(view, url)
+                    if (discardSupersededServerCallback(url)) return
                     clearStaleHistoryAfterNavigation(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
                     viewModel.onPageCommitVisible(url)
@@ -1096,6 +1095,7 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    if (discardSupersededServerCallback(url)) return
                     clearStaleHistoryAfterNavigation(view, url)
                     applyHermesWebViewCompatibilityFixes(view, url)
                     detectLoadedServerType(view)
@@ -1116,6 +1116,7 @@ class MainActivity : ComponentActivity() {
                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                     super.doUpdateVisitedHistory(view, url, isReload)
                     val visitedUrl = url?.takeIf { it.isNotBlank() } ?: return
+                    if (discardSupersededServerCallback(visitedUrl)) return
                     // Ignore internal/non-web URLs; persist only trusted Hermes WebUI routes.
                     if (!urlPolicy.isAllowed(visitedUrl)) return
                     if (!matchesConfiguredWebUiRoute(visitedUrl)) return
@@ -1134,6 +1135,7 @@ class MainActivity : ComponentActivity() {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame != true) return
                     val failedUrl = request.url?.toString().orEmpty()
+                    if (discardSupersededServerCallback(failedUrl)) return
                     if (recoverFromLocalNetworkPermissionError(failedUrl, error?.description)) return
                     val offline = isOfflineError(error?.errorCode)
                     val message = error?.description?.toString() ?: "Failed to load page"
@@ -1645,10 +1647,7 @@ class MainActivity : ComponentActivity() {
         if (description?.contains("ERR_LOCAL_NETWORK_PERMISSION_MISSING", ignoreCase = true) != true ||
             failedUrl.isBlank() || hasLocalNetworkPermission()
         ) return false
-        if (hasOutdatedServerCredentials(failedUrl) || isSupersededServerNavigation(failedUrl)) {
-            DiagnosticsLogger.record(this, "server_navigation_discarded", mapOf("reason" to "server_changed"))
-            return true
-        }
+        if (discardSupersededServerCallback(failedUrl)) return true
         requestLocalNetworkPermissionIfNeeded(
             url = failedUrl,
             onGranted = { loadServerUrlWithVpnGuard(failedUrl) }
@@ -2219,6 +2218,14 @@ class MainActivity : ComponentActivity() {
         val origin = UrlOrigins.pageOrigin(url) ?: return false
         if (origin == UrlOrigins.pageOrigin(fence.selectedUrl) || origin !in fence.previousOrigins) return false
         return lastRequestedMainFrameHopUrl?.let(UrlOrigins::pageOrigin) != origin
+    }
+
+    private fun discardSupersededServerCallback(url: String?): Boolean {
+        if (url.isNullOrBlank() ||
+            (!hasOutdatedServerCredentials(url) && !isSupersededServerNavigation(url))
+        ) return false
+        DiagnosticsLogger.record(this, "server_navigation_discarded", mapOf("reason" to "server_changed"))
+        return true
     }
 
     private fun clearStaleHistoryAfterNavigation(view: WebView?, url: String?) {

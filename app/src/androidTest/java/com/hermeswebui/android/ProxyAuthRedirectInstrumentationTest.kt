@@ -5,6 +5,7 @@ import android.app.Instrumentation
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.SystemClock
 import android.text.method.PasswordTransformationMethod
 import android.view.MotionEvent
@@ -35,7 +36,10 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.filters.SdkSuppress
 import android.webkit.CookieManager
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -47,6 +51,7 @@ import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.data.DiagnosticsLogger
 import com.hermeswebui.android.background.HermesDebugLoggingService
 import com.hermeswebui.android.notification.HermesNotificationPresenter
+import com.hermeswebui.android.ui.MainViewModel
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.SocketException
@@ -570,6 +575,122 @@ class ProxyAuthRedirectInstrumentationTest {
                     assertThat(launches.get()).isEqualTo(1)
                 }
                 assertThat(repository.getSettings(nextUrl, "").serverUrl).isEqualTo(nextUrl)
+            }
+        }
+    }
+
+    @Test
+    fun oldServerErrorDoesNotReplaceNewServerButCurrentErrorsStillShow() {
+        withConfiguredServer(basicAuth = true, publicStatus = true) { oldServer, repository ->
+            ProxyServer(basicAuth = true, publicStatus = true).use { newServer ->
+                val oldUrl = oldServer.baseUrl.replace("http://", "http://test-user:test-pass@")
+                val newUrl = newServer.baseUrl.replace("http://", "http://test-user:test-pass@")
+                repository.saveAppUrls(oldUrl, "")
+                repository.saveLastLoadedUrl(oldUrl)
+                repository.addProfile("Primary", oldUrl)
+                val next = repository.addProfile("Next", newUrl)
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    awaitWebView(scenario) { it.title == "Hermes HTTP authenticated" }
+                    scenario.onActivity { activity ->
+                        MainActivity::class.java.getDeclaredMethod(
+                            "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                        ).apply {
+                            isAccessible = true
+                            invoke(activity, next)
+                        }
+                    }
+                    awaitWebView(scenario) {
+                        it.title == "Hermes HTTP authenticated" && it.url?.contains(":${Uri.parse(newUrl).port}") == true
+                    }
+                    oldServer.close()
+                    val oldError = AtomicReference<Pair<WebResourceRequest, WebResourceError>>()
+                    val errorReady = CountDownLatch(1)
+                    val helper = AtomicReference<WebView>()
+                    scenario.onActivity { activity ->
+                        helper.set(WebView(activity).apply {
+                            webViewClient = object : WebViewClient() {
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    if (request?.isForMainFrame == true && error != null) {
+                                        oldError.set(request to error)
+                                        errorReady.countDown()
+                                    }
+                                }
+                            }
+                            loadUrl("$oldUrl/session/old")
+                        })
+                    }
+                    try {
+                        assertThat(errorReady.await(10, TimeUnit.SECONDS)).isTrue()
+                        scenario.onActivity { activity ->
+                            val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                            val viewModel = MainActivity::class.java.getDeclaredField("viewModel").apply {
+                                isAccessible = true
+                            }.get(activity) as MainViewModel
+                            fun request(url: String) = object : WebResourceRequest {
+                                override fun getUrl(): Uri = Uri.parse(url)
+                                override fun isForMainFrame(): Boolean = true
+                                override fun isRedirect(): Boolean = false
+                                override fun hasGesture(): Boolean = false
+                                override fun getMethod(): String = "GET"
+                                override fun getRequestHeaders(): Map<String, String> = emptyMap()
+                            }
+                            val (oldRequest, error) = checkNotNull(oldError.get())
+                            assertThat(viewModel.uiState.value.errorMessage).isNull()
+                            assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+                            webView.webViewClient.onPageStarted(webView, "$oldUrl/session/old", null)
+                            webView.webViewClient.onReceivedError(webView, oldRequest, error)
+                            assertThat(viewModel.uiState.value.errorMessage).isNull()
+                            assertThat(viewModel.uiState.value.isReconnecting).isFalse()
+                            webView.webViewClient.onReceivedError(webView, request(newUrl), error)
+                            assertThat(viewModel.uiState.value.isReconnecting).isTrue()
+                        }
+                    } finally {
+                        scenario.onActivity { helper.get()?.destroy() }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun oldPageCallbacksDoNotReplaceTheSelectedServerAfterCredentialsChange() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
+            val oldUrl = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            repository.saveAppUrls(oldUrl, "")
+            repository.saveLastLoadedUrl("$oldUrl/session/old")
+            repository.addProfile("Primary", oldUrl)
+            val next = repository.addProfile("No URL credentials", server.baseUrl)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                scenario.onActivity { activity ->
+                    delayLocalNetworkPermission(activity) {}
+                    MainActivity::class.java.getDeclaredMethod(
+                        "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, next)
+                    }
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    val viewModel = MainActivity::class.java.getDeclaredField("viewModel").apply {
+                        isAccessible = true
+                    }.get(activity) as MainViewModel
+                    val stale = "$oldUrl/session/old"
+                    webView.webViewClient.onPageCommitVisible(webView, stale)
+                    val afterCommit = viewModel.uiState.value.currentUrl
+                    viewModel.onPageStarted(next.url)
+                    webView.webViewClient.onPageFinished(webView, stale)
+                    val afterFinish = viewModel.uiState.value.currentUrl
+                    viewModel.onPageStarted(next.url)
+                    webView.webViewClient.doUpdateVisitedHistory(webView, stale, false)
+                    val afterHistory = viewModel.uiState.value.currentUrl
+                    assertThat(listOf(afterCommit, afterFinish, afterHistory))
+                        .containsExactly(next.url, next.url, next.url).inOrder()
+                }
             }
         }
     }

@@ -299,6 +299,28 @@ class MainViewModelTest {
     }
 
     @Test
+    fun `navigation request keeps resume from restarting the old retry`() = runTest(testDispatcher) {
+        var probeCount = 0
+        val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ ->
+            probeCount++
+            true
+        }
+        viewModel.onPageError("Connection refused", isOffline = false)
+        runCurrent()
+        viewModel.onNavigationRequested()
+        viewModel.resumeAutoRetryIfNeeded()
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertThat(probeCount).isEqualTo(0)
+
+        viewModel.onPageStarted(defaultServerUrl)
+        viewModel.onPageError("Connection refused again", isOffline = false)
+        advanceTimeBy(1_001L)
+        runCurrent()
+        assertThat(probeCount).isEqualTo(1)
+    }
+
+    @Test
     fun `onPageStarted cancels auto-retry and clears error`() = runTest(testDispatcher) {
         val viewModel = MainViewModel(FakeSettingsStore(), null, defaultServerUrl, defaultDashboardUrl) { _ -> false }
 

@@ -77,6 +77,7 @@ class MainViewModel(
     private var autoRetryJob: Job? = null
     private var autoRetryGeneration = 0L
     private var autoRetryAllowed = true
+    private var navigationPending = false
     private var currentLoadHasMainFrameError = false
     private var deferredPageError: DeferredPageError? = null
     private var appIsBackgrounded = false
@@ -89,6 +90,7 @@ class MainViewModel(
     fun onPageStarted(url: String?) {
         autoRetryGeneration++
         autoRetryAllowed = true
+        navigationPending = false
         cancelAutoRetry(clearDeferredPageError = true)
         currentLoadHasMainFrameError = false
         _uiState.update {
@@ -133,6 +135,7 @@ class MainViewModel(
     fun onPageError(message: String, isOffline: Boolean, retryAutomatically: Boolean = true) {
         autoRetryGeneration++
         autoRetryAllowed = retryAutomatically
+        navigationPending = false
         currentLoadHasMainFrameError = true
         val state = _uiState.value
         val shouldDeferErrorUi = retryAutomatically && shouldDeferErrorUi(state)
@@ -163,6 +166,13 @@ class MainViewModel(
 
     fun isCurrentAutoReload(generation: Long): Boolean =
         autoRetryAllowed && generation == autoRetryGeneration
+
+    fun requiresManualRetry(): Boolean = !autoRetryAllowed
+
+    fun onNavigationRequested() {
+        navigationPending = true
+        cancelAutoRetry()
+    }
 
     fun onAppBackgrounded() {
         appIsBackgrounded = true
@@ -273,7 +283,7 @@ class MainViewModel(
      */
     fun resumeAutoRetryIfNeeded() {
         val state = _uiState.value
-        if (!autoRetryAllowed) return
+        if (!autoRetryAllowed || navigationPending) return
         if ((state.errorMessage == null && deferredPageError == null) || state.isLoading) return
         if (autoRetryJob?.isActive == true) return
         startAutoRetry()

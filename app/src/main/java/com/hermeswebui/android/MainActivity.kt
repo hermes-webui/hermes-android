@@ -493,7 +493,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             AppContent(
                 onReload = { refreshConfiguredHermes() },
-                onOpenExternal = { openInExternalBrowser(viewModel.uiState.value.currentUrl) },
+                onOpenExternal = {
+                    val state = viewModel.uiState.value
+                    openInExternalBrowser(
+                        if (viewModel.requiresManualRetry()) state.settings.serverUrl else state.currentUrl
+                    )
+                },
                 onSaveSettings = { serverUrl -> saveSettings(serverUrl) },
                 onRequestExit = { finish() }
             )
@@ -2369,6 +2374,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recordMainFrameHop(url: String?) {
+        viewModel.onNavigationRequested()
         lastMainFrameHopUrl = url
         mainFrameNavigationGeneration++
     }
@@ -2923,6 +2929,7 @@ class MainActivity : ComponentActivity() {
             DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "oauth_flow_changed"))
             return
         }
+        viewModel.onNavigationRequested()
         if (!shouldRequireVpnForServerUrl(url) || isVpnTransportActive()) {
             pendingVpnGuardUrl = null
             pendingVpnOAuthRecoveryGeneration = null
@@ -2950,11 +2957,15 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshConfiguredHermes(closeSettings: Boolean = false) {
         val state = viewModel.uiState.value
-        val targetUrl = SelectedServerNavigation.reconnectUrl(
-            currentUrl = state.currentUrl,
-            selectedServerUrl = state.settings.serverUrl,
-            trustPolicy = currentWebTrustPolicy()
-        )
+        val targetUrl = if (viewModel.requiresManualRetry()) {
+            state.settings.serverUrl
+        } else {
+            SelectedServerNavigation.reconnectUrl(
+                currentUrl = state.currentUrl,
+                selectedServerUrl = state.settings.serverUrl,
+                trustPolicy = currentWebTrustPolicy()
+            )
+        }
         if (targetUrl.isBlank()) {
             viewModel.openSettings()
             return

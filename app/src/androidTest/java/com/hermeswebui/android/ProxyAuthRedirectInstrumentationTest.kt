@@ -927,6 +927,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 }
                 val failedUrl = "${server.baseUrl}/session/failed-post"
                 val beforeRequests = server.requests.count { it.path == "/session/failed-post" }
+                val beforeRootRequests = server.requests.count { it.path == "/" }
                 scenario.onActivity { activity ->
                     val launches = AtomicInteger()
                     delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
@@ -950,6 +951,32 @@ class ProxyAuthRedirectInstrumentationTest {
                 }
                 SystemClock.sleep(1_500)
                 assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
+                compose.waitUntil(10_000) {
+                    compose.onAllNodesWithText("Retry").fetchSemanticsNodes().isNotEmpty()
+                }
+                val externalUrls = CopyOnWriteArrayList<String>()
+                val browser = object : Instrumentation.ActivityMonitor() {
+                    override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                        if (intent.action != Intent.ACTION_VIEW) return null
+                        externalUrls.add(intent.dataString.orEmpty())
+                        return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+                    }
+                }
+                instrumentation.addMonitor(browser)
+                try {
+                    compose.onNodeWithText("Open in browser").performClick()
+                    eventually("External recovery opens the configured server", 10_000) { externalUrls.isNotEmpty() }
+                    assertThat(externalUrls.single()).isEqualTo(server.baseUrl)
+                } finally {
+                    instrumentation.removeMonitor(browser)
+                }
+                compose.onNodeWithText("Retry").performClick()
+                eventually("Manual retry requests a page", 10_000) {
+                    server.requests.count { it.path == "/" } > beforeRootRequests ||
+                        server.requests.count { it.path == "/session/failed-post" } > beforeRequests
+                }
+                assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
+                assertThat(server.requests.count { it.path == "/" }).isGreaterThan(beforeRootRequests)
             }
         }
     }
@@ -986,9 +1013,83 @@ class ProxyAuthRedirectInstrumentationTest {
                 compose.waitForIdle()
                 SystemClock.sleep(500)
                 assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
+                val replacementUrl = "${server.baseUrl}/session/replacement"
+                scenario.onActivity { activity ->
+                    viewModel.onPageError("Connection failed", isOffline = false)
+                    previousGeneration = MainViewModel::class.java.getDeclaredField("autoRetryGeneration")
+                        .apply { isAccessible = true }.getLong(viewModel)
+                    assertThat(autoReloads.tryEmit(previousGeneration)).isTrue()
+                    MainActivity::class.java.getDeclaredMethod("loadInMainWebView", String::class.java).apply {
+                        isAccessible = true
+                        invoke(activity, replacementUrl)
+                    }
+                    assertThat(viewModel.isCurrentAutoReload(previousGeneration)).isFalse()
+                }
+                compose.waitForIdle()
+                eventually("Replacement navigation was requested", 10_000) {
+                    server.requests.any { it.path == "/session/replacement" }
+                }
+                assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
                 scenario.onActivity {
                     viewModel.onPageStarted(failedUrl)
                     assertThat(autoReloads.tryEmit(previousGeneration)).isTrue()
+                }
+                compose.waitForIdle()
+                SystemClock.sleep(500)
+                assertThat(server.requests.count { it.path == "/session/failed-post" }).isEqualTo(beforeRequests)
+            }
+        }
+    }
+
+    @Test
+    fun queuedVpnNavigationInvalidatesThePreviousAutoReload() {
+        withConfiguredServer(officialWebapp = true, publicStatus = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                val oldUrl = "${server.baseUrl}/session/failed-post"
+                val beforeRequests = server.requests.count { it.path == "/session/failed-post" }
+                lateinit var viewModel: MainViewModel
+                lateinit var autoReloads: MutableSharedFlow<Long>
+                scenario.onActivity { activity ->
+                    viewModel = MainActivity::class.java.getDeclaredField("viewModel")
+                        .apply { isAccessible = true }.get(activity) as MainViewModel
+                    @Suppress("UNCHECKED_CAST")
+                    autoReloads = MainViewModel::class.java.getDeclaredField("_autoReloadEvent")
+                        .apply { isAccessible = true }.get(viewModel) as MutableSharedFlow<Long>
+                }
+                compose.waitUntil(10_000) { autoReloads.subscriptionCount.value > 0 }
+                scenario.onActivity { activity ->
+                    viewModel.setRequireVpnForTailscaleEnabled(true)
+                    viewModel.onPageStarted(oldUrl)
+                    viewModel.onPageError("Connection failed", isOffline = false)
+                    val generation = MainViewModel::class.java.getDeclaredField("autoRetryGeneration")
+                        .apply { isAccessible = true }.getLong(viewModel)
+                    assertThat(autoReloads.tryEmit(generation)).isTrue()
+                    val probe: suspend (String) -> Boolean = { false }
+                    MainActivity::class.java.getDeclaredField("vpnReconnectProbe").apply {
+                        isAccessible = true
+                        set(activity, probe)
+                    }
+                    MainActivity::class.java.getDeclaredField("lastVpnLaunchAttemptElapsedMs").apply {
+                        isAccessible = true
+                        setLong(activity, SystemClock.elapsedRealtime())
+                    }
+                    val target = "http://100.64.0.1/session/replacement"
+                    MainActivity::class.java.getDeclaredMethod(
+                        "loadServerUrlWithVpnGuard", String::class.java, Long::class.javaObjectType
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, target, null)
+                    }
+                    assertThat(MainActivity::class.java.getDeclaredField("pendingVpnGuardUrl").apply {
+                        isAccessible = true
+                    }.get(activity)).isEqualTo(target)
+                    assertThat(viewModel.isCurrentAutoReload(generation)).isFalse()
+                    viewModel.resumeAutoRetryIfNeeded()
+                    assertThat(viewModel.uiState.value.isReconnecting).isFalse()
                 }
                 compose.waitForIdle()
                 SystemClock.sleep(500)

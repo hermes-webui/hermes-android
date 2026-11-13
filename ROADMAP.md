@@ -54,6 +54,7 @@
   older HTTP OAuth pages reached through Back may require a manual retry after
   permission is granted; unhandled permission errors do not auto-retry, replay
   a POST as a GET, or infer that a history entry belongs to the current OAuth flow.
+  The Retry action starts again at the configured server.
 - [x] Proxy-level HTTP Basic authentication ([Issue #185](https://github.com/hermes-webui/hermes-android/issues/185)): main and popup WebViews prompt for credentials on challenges from the configured server host only. Hermes-Android does not remember prompt credentials; an API 36 loopback test covers the challenge and authenticated page, but no emulator was available for local execution.
 - [x] First-run and Servers setup help: copy separate guided Hermes-chat prompts
   for community WebUI and official WebApp; explain host-vs-phone access,

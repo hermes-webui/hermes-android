@@ -56,6 +56,19 @@ class UrlPolicyTest {
     }
 
     @Test
+    fun `URL credentials preserve browser-escaped userinfo delimiters`() {
+        val configured = "https://us;er:p=:ss@hermes.example.com"
+        val serialized = "https://us%3Ber:p%3D%3Ass@hermes.example.com/session"
+        assertThat(UrlOrigins.hasSameUserInfo(configured, serialized)).isTrue()
+        assertThat(
+            UrlOrigins.hasCompatibleUserInfo(
+                "https://us%3Ber:P%3D%3Ass@hermes.example.com/session",
+                configured
+            )
+        ).isFalse()
+    }
+
+    @Test
     fun `allows allowlisted host over https`() {
         assertThat(policy.isAllowed("https://hermes.example.com")).isTrue()
     }

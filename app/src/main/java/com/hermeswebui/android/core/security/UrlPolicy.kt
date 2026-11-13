@@ -75,7 +75,14 @@ object UrlOrigins {
     private fun URI.browserUserInfo(): String? {
         val userInfo = URI(toASCIIString()).rawUserInfo ?: return null
         val separator = userInfo.indexOf(':')
-        return if (separator == userInfo.lastIndex) userInfo.dropLast(1) else userInfo
+        fun encodeComponent(value: String) = value
+            .replace(";", "%3B")
+            .replace("=", "%3D")
+            .replace(":", "%3A")
+        if (separator < 0) return encodeComponent(userInfo)
+        val username = encodeComponent(userInfo.substring(0, separator))
+        val password = userInfo.substring(separator + 1)
+        return if (password.isEmpty()) username else "$username:${encodeComponent(password)}"
     }
 
     fun hasSameOrigin(url: String?, baseUrl: String, ignoreScheme: Boolean = false): Boolean {

@@ -210,7 +210,13 @@ skips incompatible Back entries on the server host, including other ports. A
 URL without userinfo or with browser-normalized, case-sensitive userinfo matching
 the configured URL remains usable. Changing the configured URL removes an
 incompatible remembered route; late page callbacks are checked against the
-current URL before saving. Legacy incompatible routes may remain encrypted
+current URL before saving. Main-frame requests whose exposed URL carries
+outdated credentials for a selected or previously selected server in the current
+activity are blocked, including POST requests and popup handoffs. The request interceptor reads an
+immutable selection snapshot because it runs off the UI thread; Current-profile
+edits update that snapshot before persisting the new URL. Permission-error
+recovery also rejects superseded server origins even when credentials match.
+Legacy incompatible routes may remain encrypted
 until replaced. When history contains incompatible credentials for the previous
 server host, it is cleared before the new page loads and again when that page
 commits. A server selection change also revokes the old page's recovery handler,

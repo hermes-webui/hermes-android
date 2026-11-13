@@ -112,6 +112,35 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
+    fun configuredCredentialsWithDelimitersRemainUsableForPageNavigation() {
+        withConfiguredServer(officialWebapp = true) { server, repository ->
+            val configured = server.baseUrl.replace("http://", "http://test-user:p=;:ass@")
+            repository.saveAppUrls(configured, "")
+            repository.saveLastLoadedUrl(configured)
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                fun blockedNavigations(): Int = DiagnosticsLogger.recentText(context)
+                    .lineSequence().count { it.contains("stale_credential_navigation_blocked") }
+                val blockedBefore = blockedNavigations()
+                evaluateWebView(
+                    scenario,
+                    "window.location.href = ${JSONObject.quote("$configured/session/delimiters")};",
+                    requireCallback = false
+                )
+                eventually("Configured credentialed route was loaded or blocked") {
+                    blockedNavigations() > blockedBefore ||
+                        server.requests.any { it.path == "/session/delimiters" }
+                }
+                assertThat(server.requests.any { it.path == "/session/delimiters" }).isTrue()
+                assertThat(blockedNavigations()).isEqualTo(blockedBefore)
+            }
+        }
+    }
+
+    @Test
     fun coldStart_rejectsLegacyVisitedAndNotificationUrlsWithRemovedCredentials() {
         withConfiguredServer(officialWebapp = true) { server, repository ->
             val credentialed = server.baseUrl.replace("http://", "http://test-user:test-pass@")
@@ -460,6 +489,165 @@ class ProxyAuthRedirectInstrumentationTest {
                     assertThat(pendingField.get(activity)).isNotSameInstanceAs(newServerCallback)
                 }
                 assertThat(repository.getSettings(server.baseUrl, "").serverUrl).isEqualTo(next.url)
+            }
+        }
+    }
+
+    @Test
+    fun switchingServerSchemeIgnoresAnOldLocalNetworkErrorWithMatchingCredentials() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
+            val oldUrl = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            repository.saveAppUrls(oldUrl, "")
+            repository.saveLastLoadedUrl("$oldUrl/session/old")
+            repository.addProfile("Primary", oldUrl)
+            val next = repository.addProfile("HTTPS", oldUrl.replace("http://", "https://"))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                val launches = AtomicInteger()
+                scenario.onActivity { activity ->
+                    delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                    MainActivity::class.java.getDeclaredMethod(
+                        "performServerProfileSwitch", com.hermeswebui.android.data.ServerProfile::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, next)
+                    }
+                    assertThat(launches.get()).isEqualTo(1)
+                    val pendingField = MainActivity::class.java.getDeclaredField("pendingLocalNetworkPermissionAction")
+                        .apply { isAccessible = true }
+                    val newServerCallback = pendingField.get(activity)
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    webView.webViewClient.onPageStarted(webView, "$oldUrl/session/old", null)
+                    MainActivity::class.java.getDeclaredMethod(
+                        "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                        assertThat(launches.get()).isEqualTo(1)
+                        assertThat(pendingField.get(activity)).isSameInstanceAs(newServerCallback)
+                        invoke(activity, next.url, "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                    }
+                    assertThat(launches.get()).isEqualTo(2)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun editingCurrentServerHostIgnoresAnOldLocalNetworkError() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
+            val oldUrl = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            val nextUrl = server.baseUrl.replace("127.0.0.1", "localhost")
+            repository.saveAppUrls(oldUrl, "")
+            repository.saveLastLoadedUrl("$oldUrl/session/old")
+            val current = repository.addProfile("Primary", oldUrl)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                val launches = AtomicInteger()
+                scenario.onActivity { activity ->
+                    delayLocalNetworkPermission(activity) { launches.incrementAndGet() }
+                    val coordinator = MainActivity::class.java.getDeclaredField("serverProfileCoordinator")
+                        .apply { isAccessible = true }.get(activity)
+                    coordinator.javaClass.getDeclaredMethod(
+                        "updateProfileAndFollowCurrent",
+                        String::class.java,
+                        String::class.java,
+                        String::class.java,
+                        ServerType::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(coordinator, current.id, current.name, nextUrl, ServerType.UNSPECIFIED)
+                    }
+                    assertThat(launches.get()).isEqualTo(1)
+                    MainActivity::class.java.getDeclaredMethod(
+                        "recoverFromLocalNetworkPermissionError", String::class.java, CharSequence::class.java
+                    ).apply {
+                        isAccessible = true
+                        invoke(activity, "$oldUrl/session/old", "net::ERR_LOCAL_NETWORK_PERMISSION_MISSING")
+                    }
+                    assertThat(launches.get()).isEqualTo(1)
+                }
+                assertThat(repository.getSettings(nextUrl, "").serverUrl).isEqualTo(nextUrl)
+            }
+        }
+    }
+
+    @Test
+    fun popupHandoffDoesNotLoadAnOutdatedCredentialedUrl() {
+        withConfiguredServer(officialWebapp = true) { server, _ ->
+            instrumentation.runOnMainSync {
+                CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
+            }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes signed in" }
+                val staleUrl = server.baseUrl.replace("http://", "http://test-user:test-pass@") +
+                    "/session/popup-stale"
+                fun blockedNavigations(): Int = DiagnosticsLogger.recentText(context)
+                    .lineSequence().count { it.contains("stale_credential_navigation_blocked") }
+                val blockedBefore = blockedNavigations()
+                scenario.onActivity { activity ->
+                    MainActivity::class.java.getDeclaredMethod("handleNewWindowUrl", String::class.java).apply {
+                        isAccessible = true
+                        invoke(activity, staleUrl)
+                    }
+                }
+                eventually("Popup handoff was blocked or the stale route was requested") {
+                    blockedNavigations() > blockedBefore ||
+                        server.requests.any { it.path == "/session/popup-stale" }
+                }
+                assertThat(blockedNavigations()).isGreaterThan(blockedBefore)
+                assertThat(server.requests.none { it.path == "/session/popup-stale" }).isTrue()
+            }
+        }
+    }
+
+    @Test
+    fun oldDocumentCannotPostToAStaleCredentialedRouteAfterEditingTheServer() {
+        assumeLocalNetworkPermissionIsPending()
+        withConfiguredServer(basicAuth = true, publicStatus = true) { server, repository ->
+            val credentialed = server.baseUrl.replace("http://", "http://test-user:test-pass@")
+            repository.saveAppUrls(credentialed, "")
+            repository.saveLastLoadedUrl("$credentialed/session/old")
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitWebView(scenario) { it.title == "Hermes session old" }
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                        .loadUrl("${server.baseUrl}/session/current")
+                }
+                awaitWebView(scenario) { it.title == "Hermes session current" }
+                val permissionRequested = CountDownLatch(1)
+                scenario.onActivity { activity ->
+                    checkNotNull(findWebView(activity.findViewById(android.R.id.content))).clearHistory()
+                    delayLocalNetworkPermission(activity) { permissionRequested.countDown() }
+                    MainActivity::class.java.getDeclaredMethod("saveSettings", String::class.java).apply {
+                        isAccessible = true
+                        invoke(activity, server.baseUrl)
+                    }
+                }
+                eventually("Current server URL updated") {
+                    repository.getSettings(server.baseUrl, "").serverUrl == server.baseUrl
+                }
+                assertThat(permissionRequested.await(10, TimeUnit.SECONDS)).isTrue()
+                fun blockedNavigations(): Int = DiagnosticsLogger.recentText(context)
+                    .lineSequence().count { it.contains("stale_credential_navigation_blocked") }
+                val blockedBefore = blockedNavigations()
+                evaluateWebView(scenario, """
+                    (function() {
+                      var form = document.createElement('form');
+                      form.method = 'POST';
+                      form.action = ${JSONObject.quote("$credentialed/session/post-stale")};
+                      document.body.appendChild(form);
+                      form.submit();
+                    })();
+                """.trimIndent(), requireCallback = false)
+                eventually("POST was blocked or the stale route was requested") {
+                    blockedNavigations() > blockedBefore ||
+                        server.requests.any { it.path == "/session/post-stale" }
+                }
+                assertThat(blockedNavigations()).isGreaterThan(blockedBefore)
+                assertThat(server.requests.none { it.path == "/session/post-stale" }).isTrue()
             }
         }
     }

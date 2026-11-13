@@ -230,6 +230,10 @@ class MainActivity : ComponentActivity() {
     private var lastVpnLaunchAttemptElapsedMs: Long = 0L
     private var pendingVpnGuardUrl: String? = null
     private var pendingVpnOAuthRecoveryGeneration: Long? = null
+    private var vpnReconnectProbe: suspend (String) -> Boolean = { url ->
+        isVpnTransportActive() &&
+            HermesApiClient.isServerReachable(url, timeoutMs = VpnReconnectPollIntervalMs.toInt() - 100)
+    }
     private var vpnReconnectWaitJob: Job? = null
     private var tailscaleLaunchFallbackJob: Job? = null
     private var serverSelectionGeneration = 0L
@@ -1131,7 +1135,13 @@ class MainActivity : ComponentActivity() {
                     if (discardOutdatedCredentialCallback(failedUrl)) return
                     if (recoverFromLocalNetworkPermissionError(failedUrl, error?.description, request.method)) return
                     val offline = isOfflineError(error?.errorCode)
-                    val message = error?.description?.toString() ?: "Failed to load page"
+                    val message = if (!request.method.equals("GET", ignoreCase = true) &&
+                        error?.description?.contains("ERR_LOCAL_NETWORK_PERMISSION_MISSING", ignoreCase = true) == true
+                    ) {
+                        "If prompted, allow local network access, then retry your action."
+                    } else {
+                        error?.description?.toString() ?: "Failed to load page"
+                    }
                     DiagnosticsLogger.record(
                         this@MainActivity,
                         "webview_main_frame_error",
@@ -1662,13 +1672,23 @@ class MainActivity : ComponentActivity() {
         ) return false
         if (discardOutdatedCredentialCallback(failedUrl)) return true
         if (!method.equals("GET", ignoreCase = true)) {
-            DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "non_get_request"))
+            val navigationGeneration = mainFrameNavigationGeneration
+            requestLocalNetworkPermissionIfNeeded(failedUrl, onGranted = {
+                if (navigationGeneration == mainFrameNavigationGeneration) {
+                    Toast.makeText(this, "Retry your action after allowing local network access.", Toast.LENGTH_LONG).show()
+                }
+            })
+            DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "manual_retry_required"))
             return false
         }
         val fence = serverSelectionFence
         val failedOrigin = UrlOrigins.pageOrigin(failedUrl)
         val oauthGeneration = oauthRecoveryNavigationGeneration.takeIf {
             isCurrentOAuthRecovery(failedUrl, it)
+        }
+        if (activeMainFrameOAuthFlow != null && oauthGeneration == null) {
+            DiagnosticsLogger.record(this, "local_network_recovery_blocked", mapOf("reason" to "unproven_oauth_navigation"))
+            return false
         }
         if (failedOrigin != null && failedOrigin in fence?.previousOrigins.orEmpty() &&
             failedOrigin.startsWith("http://") &&
@@ -3166,11 +3186,7 @@ class MainActivity : ComponentActivity() {
                     pendingVpnOAuthRecoveryGeneration = null
                     return@launch
                 }
-                val reachable = isVpnTransportActive() &&
-                    HermesApiClient.isServerReachable(
-                        baseUrl = pendingUrl,
-                        timeoutMs = VpnReconnectPollIntervalMs.toInt() - 100
-                    )
+                val reachable = vpnReconnectProbe(pendingUrl)
                 if (selectionGeneration != serverSelectionGeneration || pendingVpnGuardUrl != pendingUrl ||
                     pendingVpnOAuthRecoveryGeneration != oauthGeneration
                 ) {

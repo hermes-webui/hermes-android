@@ -45,6 +45,14 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha }}
 
+      - name: Check out publication workflow tools
+        if: inputs.track == 'production'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .publish-workflow
+
       - name: Set up JDK 17
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
@@ -128,6 +136,23 @@ jobs:
             exit 1
           }
 
+      - name: Prepare production verification
+        if: inputs.track == 'production'
+        id: production_verifier
+        shell: bash
+        env:
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          python3 -m pip install -r .publish-workflow/tools/requirements-play-listing.txt
+          version_code="$(python3 -c 'import runpy, sys; print(runpy.run_path(".publish-workflow/tools/bump_version.py")["version_code"](sys.argv[1]))' "$VERSION_NAME")"
+          cli_help="$(python3 .publish-workflow/tools/publish_play_listing.py --help)"
+          [[ "$cli_help" == *"--expected-production-version-code"* && "$cli_help" == *"--expected-play-notes"* ]] || {
+            echo "Production verifier does not support track readback"
+            exit 1
+          }
+          python3 -c 'from pathlib import Path; import runpy; runpy.run_path(".publish-workflow/tools/publish_play_listing.py")["read_descriptions"](Path("store/google-play/en-US"))'
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+
       - name: Decode Google Play service account
         shell: bash
         run: |
@@ -149,10 +174,14 @@ jobs:
           releaseName: Hermes WebUI Android v${{ inputs.version_name }}
           whatsNewDirectory: build/release/play-whatsnew
 
-      - name: Publish and verify production listing descriptions
+      - name: Publish listing and verify production track
         if: inputs.track == 'production'
         shell: bash
+        env:
+          EXPECTED_VERSION_CODE: ${{ steps.production_verifier.outputs.version_code }}
         run: |
-          python3 -m pip install -r tools/requirements-play-listing.txt
-          python3 tools/publish_play_listing.py \
-            --credentials signing/google-play-service-account.json
+          python3 .publish-workflow/tools/publish_play_listing.py \
+            --credentials signing/google-play-service-account.json \
+            --metadata store/google-play/en-US \
+            --expected-production-version-code "$EXPECTED_VERSION_CODE" \
+            --expected-play-notes build/release/play-whatsnew/whatsnew-en-US

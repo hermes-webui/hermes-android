@@ -327,7 +327,11 @@ Keep `RELEASE.md` aligned with the workflow operator path whenever release
 automation changes.
 Production Play descriptions live in `store/google-play/en-US/` and are published
 by `tools/publish_play_listing.py` after AAB submission, with fresh-edit API
-readback. Preserve existing title/video. Keep F-Droid-specific descriptions under
+readback of the listing and the exact production version, status and English
+release notes. Use the publishing workflow's revision of the verifier even when
+retrying an older reviewed release, while retaining that release's listing text.
+A readback failure can occur after submission; inspect Play before retrying.
+Preserve existing title/video. Keep F-Droid-specific descriptions under
 `fastlane/metadata/android/en-US/`; do not publish their channel/privacy wording
 to Play or claim API-committed text is already visible on the public storefront.
 

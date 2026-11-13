@@ -1,0 +1,3 @@
+Improved proxy and gateway sign-in, masked Basic passwords, and optional sign-in with Chrome.
+Stopped reusing app-saved Basic sign-ins; existing URL credentials and WebView caching are unchanged.
+Fixed a collapsed Dashboard shell when the Dashboard is configured as the server.

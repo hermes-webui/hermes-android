@@ -1,5 +1,7 @@
 package com.hermeswebui.android.ui.onboarding
 
+import android.app.Activity
+import android.app.Instrumentation
 import android.content.Context
 import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
@@ -17,6 +19,8 @@ import com.hermeswebui.android.MainActivity
 import com.hermeswebui.android.R
 import com.hermeswebui.android.background.HermesDebugLoggingService
 import com.hermeswebui.android.data.SettingsRepository
+import com.hermeswebui.android.launcher.AppShortcuts
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -113,6 +117,42 @@ class WelcomeFirstRunInstrumentationTest {
                 }
                 // Back on the settings sheet it was opened from.
                 assertThat(compose.onAllNodesWithText(serverSetupMarker).fetchSemanticsNodes()).isNotEmpty()
+            }
+        }
+    }
+
+    @Test
+    fun configuredSettingsCanOpenReleaseNotesWithoutAnUpdateProvider() {
+        withFreshPreferences { repository ->
+            repository.saveAppUrls("http://127.0.0.1:9", "")
+            ActivityScenario.launch<MainActivity>(AppShortcuts.settingsIntent(context)).use {
+                awaitText("Check for updates")
+                compose.onNodeWithText("Check for updates").performScrollTo().performClick()
+                compose.onNodeWithText("This build does not have an update provider.")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+
+                val opened = AtomicReference<Intent>()
+                val browser = object : Instrumentation.ActivityMonitor() {
+                    override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
+                        if (intent.action != Intent.ACTION_VIEW) return null
+                        opened.set(Intent(intent))
+                        return Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null)
+                    }
+                }
+                instrumentation.addMonitor(browser)
+                try {
+                    compose.onNodeWithText("Latest GitHub release notes")
+                        .performScrollTo()
+                        .performClick()
+                    compose.waitUntil(5_000) { opened.get() != null }
+                    val url = opened.get().data
+                    assertThat(url?.scheme).isEqualTo("https")
+                    assertThat(url?.host).isEqualTo("github.com")
+                    assertThat(url?.path).endsWith("/releases/latest")
+                } finally {
+                    instrumentation.removeMonitor(browser)
+                }
             }
         }
     }

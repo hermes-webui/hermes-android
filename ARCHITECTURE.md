@@ -79,7 +79,8 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - `HermesAppUpdateCoordinator`: owns automatic/manual app-update checks, channel-specific update notifications, Play update launch, and GitHub APK download intents.
 - About and Updates are adjacent at the bottom of native Settings. A current
   GitHub result carries release metadata without offering an APK; the public
-  latest-GitHub-notes link is separate from the Play update action.
+  latest-GitHub-notes link is shared by all build types and separate from the
+  channel-specific update provider. F-Droid and debug still have no updater.
 - `HermesServerProfileCoordinator`: owns startup preflight plus add/edit/delete/switch validation and confirmation flows for Hermes server profiles.
 - `HermesForegroundServiceCoordinator`: owns reconnect/debug foreground-service lifecycle sync so `onResume`, `onStop`, and settings toggles do not each duplicate service promotion/teardown rules.
 - `HermesWebViewConfigurator`: centralizes shared main/popup WebView hardening and settings setup.

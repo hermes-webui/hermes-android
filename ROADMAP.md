@@ -18,12 +18,22 @@
   needs separate integration. About and Updates now sit together at the bottom;
   latest GitHub notes remain available even without a newer APK. Android API 36
   fixtures cover RemoteInput delivery, cookie/mount/session routing, lifecycle
-  and layout; live authenticated WebUI/OEM acceptance remains pending in
+  and layout. An authenticated API 36 live conversation now verifies a real
+  completion alert, actual Android RemoteInput delivery exactly once to the
+  intended session/profile, and the server-persisted agent response. Quiet
+  foreground/background notification access, its Settings action, disabling,
+  and the bottom-of-Settings version/check controls were exercised live.
+  Live QA caught a blank release-notes target outside the GitHub build; the
+  public page URL is now shared without enabling other update providers,
+  with a real MainActivity outbound-intent regression. OEM acceptance and
+  release approval remain pending in
   [#202](https://github.com/hermes-webui/hermes-android/issues/202).
   The live harness now opens the activity even when a service keeps its process
   alive and waits for an actual DevTools page; manual sign-in remains required.
   Full-suite reply-fixture failures exposed Android dropping burst notification
   updates, so the fixtures now respect the existing per-package rate window.
+  The live s04 prompt-card hit tests fail identically on production base
+  `330a03e` and the feature build; no prompt-layout changes were made.
 
 - [~] Issue #184 passkey investigation: AndroidX Credential Manager is
   included with the same dependency path in every WebView build, without the

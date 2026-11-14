@@ -122,6 +122,11 @@ extensions.configure<ApplicationExtension>("android") {
         versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "GITHUB_RELEASES_PAGE_URL",
+            "\"https://github.com/$githubReleaseRepo/releases/latest\""
+        )
     }
 
     buildTypes {
@@ -132,7 +137,6 @@ extensions.configure<ApplicationExtension>("android") {
             applicationIdSuffix = ".fdroid"
             buildConfigField("String", "UPDATE_CHANNEL", "\"none\"")
             buildConfigField("String", "GITHUB_RELEASES_API_URL", "\"\"")
-            buildConfigField("String", "GITHUB_RELEASES_PAGE_URL", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             ndk {
@@ -163,17 +167,11 @@ extensions.configure<ApplicationExtension>("android") {
                 "GITHUB_RELEASES_API_URL",
                 "\"https://api.github.com/repos/$githubReleaseRepo/releases/latest\""
             )
-            buildConfigField(
-                "String",
-                "GITHUB_RELEASES_PAGE_URL",
-                "\"https://github.com/$githubReleaseRepo/releases/latest\""
-            )
         }
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "UPDATE_CHANNEL", "\"none\"")
             buildConfigField("String", "GITHUB_RELEASES_API_URL", "\"\"")
-            buildConfigField("String", "GITHUB_RELEASES_PAGE_URL", "\"\"")
         }
     }
 

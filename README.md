@@ -289,7 +289,8 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
   installed version, check/download/install for your build channel, and open
   the latest GitHub release notes. GitHub checks retain the latest release
   summary even when there is no newer APK; GitHub notes are not a claim about
-  which version Google Play has delivered.
+  which version Google Play has delivered. The manual notes link works in
+  every build, without enabling an update provider in F-Droid or debug builds.
 
 ### Security and trust boundaries
 

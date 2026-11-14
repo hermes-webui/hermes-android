@@ -57,12 +57,18 @@ internal object NotificationReplyActions {
     }
 
     @Synchronized
+    fun invalidate(notificationTag: String?, notificationId: Int) {
+        targets.entries.removeAll {
+            it.value.notificationId == notificationId && it.value.notificationTag == notificationTag
+        }
+        consumedTokens.retainAll(targets.keys)
+    }
+
+    @Synchronized
     fun action(context: Context, target: NotificationReplyTarget): NotificationCompat.Action {
         onSelectedServerChanged(target.serverUrl)
         targets.entries.removeAll { it.value.expiresAt <= SystemClock.elapsedRealtime() }
-        targets.entries.removeAll {
-            it.value.notificationId == target.notificationId && it.value.notificationTag == target.notificationTag
-        }
+        invalidate(target.notificationTag, target.notificationId)
         while (targets.size >= 32) targets.remove(targets.keys.first())
         consumedTokens.retainAll(targets.keys)
         val token = target.token
@@ -136,7 +142,12 @@ class HermesNotificationReplyReceiver : BroadcastReceiver() {
     }
 
     @android.annotation.SuppressLint("MissingPermission")
-    private fun showResult(context: Context, target: NotificationReplyTarget?, body: String) {
+    private fun showResult(
+        context: Context,
+        target: NotificationReplyTarget?,
+        body: String
+    ) = synchronized(NotificationReplyActions) {
+        if (target != null && !NotificationReplyActions.isCurrent(target)) return@synchronized
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (target != null) {

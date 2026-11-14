@@ -97,7 +97,11 @@ class HermesNotificationPresenter(
     }
 
     @SuppressLint("MissingPermission")
-    fun showNotification(payload: JSONObject, fallbackTargetUrl: String?, configuredServerUrl: String? = null): Boolean {
+    fun showNotification(
+        payload: JSONObject,
+        fallbackTargetUrl: String?,
+        configuredServerUrl: String? = null
+    ): Boolean = synchronized(NotificationReplyActions) {
         val options = payload.optJSONObject("options") ?: JSONObject()
         val title = payload.optString("title")
             .takeIf { it.isNotBlank() }
@@ -112,6 +116,7 @@ class HermesNotificationPresenter(
 
         val pendingIntent = targetUrl?.let { buildNotificationPendingIntent(it, tag) }
         val notificationId = notificationIdBase + ((tag ?: title).hashCode() and 0x0FFFFFFF)
+        NotificationReplyActions.invalidate(tag, notificationId)
         val replyProfile = payload.optString("replyProfile").takeIf { it.isNotBlank() && it.length <= 128 }
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_notification)
@@ -138,7 +143,7 @@ class HermesNotificationPresenter(
             .build()
 
         NotificationManagerCompat.from(context).notify(tag, notificationId, notification)
-        return true
+        true
     }
 
     private fun buildNotificationPendingIntent(targetUrl: String, tag: String?): PendingIntent {

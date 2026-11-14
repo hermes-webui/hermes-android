@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.webkit.CookieManager
 import androidx.core.app.RemoteInput
@@ -166,6 +167,42 @@ class NotificationReplyInstrumentationTest {
         awaitResult("Could not confirm the reply.")
     }
 
+    @Test
+    fun gatewayFailuresAndTimeoutsDoNotClaimTheReplyWasRejected() {
+        for (status in listOf("502 Bad Gateway", "504 Gateway Timeout", "408 Request Timeout")) {
+            serve("""{"error":"gateway could not confirm upstream response"}""", status)
+            send(replyAction(), "Hello")
+            awaitResult("Could not confirm the reply.")
+        }
+    }
+
+    @Test
+    fun aDelayedReplyResultCannotReplaceANewerNonReplyNotification() {
+        val releaseResponse = CountDownLatch(1)
+        serve("""{"stream_id":"stream-1","session_id":"team/notes"}""") {
+            check(releaseResponse.await(5, TimeUnit.SECONDS))
+        }
+        send(replyAction(), "Hello")
+        check(requests.await(5, TimeUnit.SECONDS))
+        try {
+            presenter.showNotification(
+                JSONObject().put("title", "Approval required")
+                    .put("options", JSONObject().put("tag", TAG).put("body", "Choose an approval action")),
+                targetUrl, serverUrl
+            )
+            awaitResult("Choose an approval action")
+        } finally {
+            releaseResponse.countDown()
+        }
+        val descriptor = instrumentation.uiAutomation.executeShellCommand("am wait-for-broadcast-idle")
+        val output = ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
+        assertThat(output).contains("idle")
+        val notification = manager.activeNotifications.single { it.tag == TAG }.notification
+        assertThat(notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+            .isEqualTo("Approval required")
+        assertThat(notification.actions.none { it.title.toString() == "Reply" }).isTrue()
+    }
+
     private fun replyAction(): Notification.Action {
         presenter.showNotification(
             JSONObject().put("title", "Response complete").put("replyProfile", "work")
@@ -202,7 +239,7 @@ class NotificationReplyInstrumentationTest {
         error("Reply result did not start with $prefix")
     }
 
-    private fun serve(body: String, status: String = "200 OK") {
+    private fun serve(body: String, status: String = "200 OK", beforeResponse: () -> Unit = {}) {
         thread(isDaemon = true, name = "reply-fixture") {
             server.accept().use { socket ->
                 socket.soTimeout = 5_000
@@ -220,6 +257,7 @@ class NotificationReplyInstrumentationTest {
                 while (count < length) count += reader.read(buffer, count, length - count)
                 receivedBody = String(buffer)
                 requests.countDown()
+                beforeResponse()
                 val bytes = body.toByteArray()
                 socket.getOutputStream().write(
                     ("HTTP/1.1 $status\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\n" +

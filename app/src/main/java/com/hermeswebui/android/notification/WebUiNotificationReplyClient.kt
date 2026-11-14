@@ -42,7 +42,11 @@ internal object WebUiNotificationReplyClient {
                 .toString().toByteArray(Charsets.UTF_8)
             connection.setFixedLengthStreamingMode(payload.size)
             connection.outputStream.use { it.write(payload) }
-            if (connection.responseCode !in 200..299) return NotificationReplyResult.Rejected
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                return if (status in 300..499 && status != 408) NotificationReplyResult.Rejected
+                else NotificationReplyResult.Unconfirmed
+            }
             val response = connection.inputStream.bufferedReader().use {
                 val buffer = CharArray(16_385)
                 var count = 0

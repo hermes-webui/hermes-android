@@ -70,7 +70,10 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
   encoded mount prefixes and session IDs, never follow redirects or auto-resend,
   and have an eight-second transport deadline. Only a matching session/stream
   admission is reported as accepted (not as a completed agent response).
-  Replacement notification generations fence delayed send results. Native
+  Gateway/server failures and request timeouts leave delivery unconfirmed,
+  because the upstream turn might already have started. Every replacement
+  notification, including one without Reply, revokes its previous action;
+  replacement and result posting share the same lock to fence delayed results. Native
   SSE/approval behavior and the official Webapp gateway protocol are unchanged;
   direct reply depends on the WebUI browser alert, not a new gateway adapter.
 - `HermesAppUpdateCoordinator`: owns automatic/manual app-update checks, channel-specific update notifications, Play update launch, and GitHub APK download intents.

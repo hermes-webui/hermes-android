@@ -25,9 +25,10 @@ class LauncherIconInstrumentationTest {
         val manager = LauncherIconManager(context)
         val original = manager.selectedIcon()
         try {
-            for (choice in listOf(LauncherIcon.AGENT, LauncherIcon.WEBUI)) {
+            for (choice in listOf(LauncherIcon.AGENT, LauncherIcon.WEBUI, LauncherIcon.AGENT)) {
+                // The real icon switch must republish: Android removes a dynamic shortcut whose
+                // alias is disabled, which would make the Settings shortcut vanish (Issue #194).
                 manager.select(choice)
-                AppShortcuts.publish(context, choice)
                 val shortcut = ShortcutManagerCompat.getDynamicShortcuts(context)
                     .single { it.id == AppShortcuts.SETTINGS_SHORTCUT_ID }
                 assertThat(shortcut.activity).isEqualTo(ComponentName(context.packageName, choice.aliasName))
@@ -38,7 +39,6 @@ class LauncherIconInstrumentationTest {
             }
         } finally {
             manager.select(original)
-            AppShortcuts.publish(context, original)
         }
     }
 

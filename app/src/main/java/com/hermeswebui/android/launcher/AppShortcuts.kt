@@ -24,8 +24,8 @@ object AppShortcuts {
         Intent(Intent.ACTION_VIEW, SETTINGS_URI).setClass(context, MainActivity::class.java)
 
     /**
-     * Bind the shortcut to the enabled launcher alias; Android drops dynamic shortcuts tied to a
-     * disabled alias, so this must run again after the launcher icon changes.
+     * Bind the shortcut to the enabled launcher alias. Android removes dynamic shortcuts bound to
+     * a disabled alias, so [LauncherIconManager.select] republishes after every switch.
      */
     fun publish(context: Context, launcherIcon: LauncherIcon) {
         val shortcut = ShortcutInfoCompat.Builder(context, SETTINGS_SHORTCUT_ID)

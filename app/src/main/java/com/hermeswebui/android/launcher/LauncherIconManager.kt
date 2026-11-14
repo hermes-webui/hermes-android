@@ -11,6 +11,7 @@ enum class LauncherIcon(val aliasName: String) {
 }
 
 class LauncherIconManager(context: Context) {
+    private val appContext = context.applicationContext ?: context
     private val packageManager = context.packageManager
     private val packageName = context.packageName
 
@@ -38,6 +39,8 @@ class LauncherIconManager(context: Context) {
         check(selectedIcon() == icon && LauncherIcon.entries.count(::isEnabled) == 1) {
             "Android did not apply the launcher icon selection"
         }
+        // Android removes dynamic shortcuts bound to the alias that was just disabled.
+        AppShortcuts.publish(appContext, icon)
     }
 
     private fun component(icon: LauncherIcon) = ComponentName(packageName, icon.aliasName)

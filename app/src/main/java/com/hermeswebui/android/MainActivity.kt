@@ -930,7 +930,6 @@ class MainActivity : ComponentActivity() {
                         try {
                             launcherIcons.select(choice)
                             launcherIcon = launcherIcons.selectedIcon()
-                            publishSettingsShortcut()
                         } catch (exception: RuntimeException) {
                             android.util.Log.e("HermesLauncher", "Launcher icon selection failed", exception)
                             launcherIcon = launcherIcons.selectedIcon()

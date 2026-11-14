@@ -1,0 +1,2 @@
+Back now behaves normally and closes the app with a second press instead of opening Settings. Settings is available from a new long-press launcher shortcut and from the background notification.
+Fixed the workspace toggle sometimes opening a blocked page after editing a server's sign-in details.

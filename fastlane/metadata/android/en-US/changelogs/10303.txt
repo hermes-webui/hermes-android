@@ -1,0 +1,3 @@
+Keep Settings available in a quiet, minimized notification while Hermes is open.
+Reply to completed WebUI conversations from eligible notifications.
+Find About, update actions, and working release-note links together at the bottom of Settings.

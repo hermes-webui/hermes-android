@@ -130,6 +130,7 @@ import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.notification.HermesNotificationBridgeCoordinator
 import com.hermeswebui.android.security.ClientCertificateRequestSupport
 import com.hermeswebui.android.notification.HermesNotificationPresenter
+import com.hermeswebui.android.notification.NotificationReplyActions
 import com.hermeswebui.android.domain.ServerUrlValidator
 import com.hermeswebui.android.server.HermesServerProfileCoordinator
 import com.hermeswebui.android.server.SelectedServerNavigation
@@ -365,6 +366,7 @@ class MainActivity : ComponentActivity() {
             notificationBridgeCoordinator.onPermissionResult(granted)
             val permission = notificationBridgeCoordinator.permissionState()
             updateWebNotificationPermissionState(permission)
+            syncOngoingHermesNotification()
             if (!granted) {
                 Toast.makeText(this, "Notification permission denied", Toast.LENGTH_SHORT).show()
             }
@@ -410,7 +412,8 @@ class MainActivity : ComponentActivity() {
                 } else {
                     notificationPresenter.showNotification(
                         payload = payload,
-                        fallbackTargetUrl = viewModel.uiState.value.currentUrl
+                        fallbackTargetUrl = viewModel.uiState.value.currentUrl,
+                        configuredServerUrl = viewModel.uiState.value.settings.serverUrl
                     )
                 }
             },
@@ -507,6 +510,8 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             viewModel.uiState.collect { state ->
+                NotificationReplyActions.onSelectedServerChanged(state.settings.serverUrl)
+                syncOngoingHermesNotification()
                 foregroundServiceCoordinator.onUiStateChanged(
                     state = state,
                     activityVisible = activityVisible
@@ -570,6 +575,7 @@ class MainActivity : ComponentActivity() {
             foregroundServiceCoordinator.onActivityResumed()
             viewModel.onAppForegrounded()
             updateWebNotificationPermissionState()
+            syncOngoingHermesNotification()
             appUpdateCoordinator.resumePendingGitHubInstallIfReady()
             viewModel.resumeAutoRetryIfNeeded()
             startVpnReconnectWaitLoopIfNeeded()
@@ -602,6 +608,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (isFinishing && ::notificationPresenter.isInitialized) {
+            notificationPresenter.cancelOngoingNotification()
+            NotificationReplyActions.clear()
+        }
         if (::serverProfileCoordinator.isInitialized) serverProfileCoordinator.dispose()
         proxySignInDialog?.dismiss()
         pendingHttpAuthPrompt?.let { prompt ->
@@ -902,10 +912,13 @@ class MainActivity : ComponentActivity() {
                     onOpenAppUpdateRelease = {
                         val releaseUrl = uiState.appUpdateReleaseUrl
                         when {
-                            releaseUrl.isNullOrBlank() -> Unit
+                            releaseUrl.isNullOrBlank() -> openInExternalBrowser(BuildConfig.GITHUB_RELEASES_PAGE_URL)
                             releaseUrl.startsWith("play://") -> appUpdateCoordinator.startPlayUpdateFlow()
                             else -> openInExternalBrowser(releaseUrl)
                         }
+                    },
+                    onOpenLatestReleaseNotes = {
+                        openInExternalBrowser(BuildConfig.GITHUB_RELEASES_PAGE_URL)
                     },
                     onShareDebugLog = { shareLatestDebugLog() },
                     onDownloadDebugLog = { downloadLatestDebugLog() },
@@ -1784,6 +1797,15 @@ class MainActivity : ComponentActivity() {
             }
         }.start()
         return true
+    }
+
+    private fun syncOngoingHermesNotification() {
+        val state = viewModel.uiState.value
+        notificationPresenter.syncOngoingNotification(
+            !isFinishing && state.settings.isConfigured &&
+                state.backgroundReconnectEnabled &&
+                webNotificationPermissionState() == "granted"
+        )
     }
 
     private fun requestNotificationPermissionIfNeeded() {

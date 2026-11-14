@@ -62,7 +62,7 @@ const browserGlobals = [
 // Globals owned by the Hermes WebUI page itself, not by Android. The shims read
 // them defensively (`typeof x !== 'undefined'`) because WebUI may rename or drop
 // them; list them here so no-undef stays meaningful for genuine typos.
-const webUiPageGlobals = ["_clarifyId", "_clarifySignature"];
+const webUiPageGlobals = ["_clarifyId", "_clarifySignature", "S"];
 
 const globals = Object.fromEntries(
   [...browserGlobals, ...webUiPageGlobals].map((name) => [name, "readonly"]),

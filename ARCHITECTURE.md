@@ -54,7 +54,32 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
 - `HermesNotificationBridgeCoordinator`: receives document-start WebUI notification bridge messages, tracks Android notification permission replies, and rejects untrusted origins.
 - `HermesClipboardBridgeCoordinator` + `HermesWebView` (Issue #180): image paste. A document-start shim wraps `navigator.clipboard.read()` and, only after the page's own call rejects with `NotAllowedError`/`SecurityError` and the page has transient user activation, asks the host over a scoped `WebMessageListener` (main frame of the configured Hermes route only, no `addJavascriptInterface`) for the clipboard's bounded raster images and text. `HermesWebView` advertises image MIME types to the IME on the configured route so Gboard can commit images; `MainActivity` reads the content URI (8 MB cap, off the main thread) and re-checks trust before dispatching a synthetic `paste` event carrying a `File` on the focused element. SVG and other types are never accepted.
 - `HermesNotificationPresenter`: renders Android-backed WebUI notifications and parses trusted notification-tap intents back into WebView navigation.
+- The same presenter owns a separate minimum-importance, silent **Hermes is open**
+  notification while a configured activity is open (including stopped/backgrounded)
+  and the existing notification option is enabled. Finishing the activity or
+  disabling the option cancels it. It is not a new foreground service or a promise
+  of background process survival; OS/user dismissal remains possible.
+- `HermesNotificationReplyReceiver` accepts explicit, non-exported Android
+  RemoteInput broadcasts. The notification facade supplies only an idle WebUI
+  session ID/profile, gated positively by WebUI markers and negatively by the
+  official Webapp marker. The presenter matches that ID to a trusted notification
+  route before issuing an opaque single-use action. Bounded in-memory actions
+  expire after 30 minutes and are revoked across server selection changes and
+  activity finish/process death. The receiver rechecks encrypted selected-server
+  settings before sending; requests use URL-scoped WebView cookies, preserve
+  encoded mount prefixes and session IDs, never follow redirects or auto-resend,
+  and have an eight-second transport deadline. Only a matching session/stream
+  admission is reported as accepted (not as a completed agent response).
+  Gateway/server failures and request timeouts leave delivery unconfirmed,
+  because the upstream turn might already have started. Every replacement
+  notification, including one without Reply, revokes its previous action;
+  replacement and result posting share the same lock to fence delayed results. Native
+  SSE/approval behavior and the official Webapp gateway protocol are unchanged;
+  direct reply depends on the WebUI browser alert, not a new gateway adapter.
 - `HermesAppUpdateCoordinator`: owns automatic/manual app-update checks, channel-specific update notifications, Play update launch, and GitHub APK download intents.
+- About and Updates are adjacent at the bottom of native Settings. A current
+  GitHub result carries release metadata without offering an APK; the public
+  latest-GitHub-notes link is separate from the Play update action.
 - `HermesServerProfileCoordinator`: owns startup preflight plus add/edit/delete/switch validation and confirmation flows for Hermes server profiles.
 - `HermesForegroundServiceCoordinator`: owns reconnect/debug foreground-service lifecycle sync so `onResume`, `onStop`, and settings toggles do not each duplicate service promotion/teardown rules.
 - `HermesWebViewConfigurator`: centralizes shared main/popup WebView hardening and settings setup.
@@ -185,7 +210,7 @@ pending; loopback WebView fixtures cover the Android boundary only.
 19. Native app update alerts share the existing `Hermes updates` notification channel. The feature has separate settings for update alerts and automatic checks: automatic checks run on each app open while enabled and can be disabled without removing the manual Settings check. Build-time fields select the provider: Google Play release builds query Play Core in-app update availability and notification taps launch the Play immediate update flow, GitHub APK builds query the latest GitHub Release, parse the `*-github.apk` asset plus release notes, and trigger direct APK download through Android `DownloadManager`. The F-Droid `release` build exposes no in-app update provider because F-Droid's client handles updates. On GitHub update downloads, Hermes preflights unknown-sources install permission at download start so users can grant it while the APK downloads. Settings now exposes a stateful primary action (`Check` -> `Download` -> `Install`) and keeps install-ready state after download completion instead of auto-launching the installer while foregrounded; background completion still posts an install-ready notification that returns to Hermes for install handoff (with unknown-sources permission handoff when required). After installer handoff, Android removes the staged GitHub APK on the next app launch to keep app-private downloads clean. Debug builds expose no update provider.
 20. Enabling background foreground-service features from native settings (background activity notifications or debug logging) requests Android `POST_NOTIFICATIONS` on Android 13+ when needed so users can see the required persistent status notifications.
 21. `hermes://session/{id}` deep links are handled in `MainActivity.onNewIntent`, navigating the WebView to `{serverUrl}/session/{id}` — the Hermes WebUI session route (built by `DeepLinkRoutes.sessionUrl`).
-22. An "Application Settings" entry point is injected into the Hermes WebUI sidebar immediately after the WebUI Settings item via a document-start WebView shim, with Help used only as a fallback anchor if Settings cannot be found. This shim clones the target menu item structure, strips routing attributes, injects a custom phone-outline SVG icon, and binds the click handler to the `hermes://app/settings` deep link, which triggers `MainViewModel.openSettings()` to display the native full-page settings screen overlay (`SettingsScreen`). Android exports the same `hermes://app/settings` deep link as a recovery route so native settings can be opened from ADB or an external link if WebUI is stuck on a bad route. The same route backs the dynamic launcher **Settings** shortcut (`launcher/AppShortcuts.kt`, republished against the enabled launcher alias after icon switches) and the **Settings** action on the reconnect foreground notification (present only while the app is backgrounded with Background activity notification enabled). Android Back does not open Settings (Issue #194): it walks WebView history (same-document entries only for the official Webapp), then requires a second press within two seconds to exit.
+22. An "Application Settings" entry point is injected into the Hermes WebUI sidebar immediately after the WebUI Settings item via a document-start WebView shim, with Help used only as a fallback anchor if Settings cannot be found. This shim clones the target menu item structure, strips routing attributes, injects a custom phone-outline SVG icon, and binds the click handler to the `hermes://app/settings` deep link, which triggers `MainViewModel.openSettings()` to display the native full-page settings screen overlay (`SettingsScreen`). Android exports the same `hermes://app/settings` deep link as a recovery route so native settings can be opened from ADB or an external link if WebUI is stuck on a bad route. The same route backs the dynamic launcher **Settings** shortcut (`launcher/AppShortcuts.kt`, republished against the enabled launcher alias after icon switches), the quiet ongoing notification (with Ongoing Hermes notification enabled), browser alerts, and the reconnect foreground notification's **Settings** action. Android Back does not open Settings (Issue #194): it walks WebView history (same-document entries only for the official Webapp), then requires a second press within two seconds to exit.
 
 ## Reverse-proxy authentication
 

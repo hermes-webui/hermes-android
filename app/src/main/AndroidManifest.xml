@@ -105,6 +105,10 @@
             </intent-filter>
         </activity-alias>
 
+        <receiver
+            android:name=".notification.HermesNotificationReplyReceiver"
+            android:exported="false" />
+
         <service
             android:name=".background.HermesReconnectService"
             android:exported="false"

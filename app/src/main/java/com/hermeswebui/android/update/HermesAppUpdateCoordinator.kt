@@ -276,9 +276,9 @@ class HermesAppUpdateCoordinator(
                     maybeShowGitHubAppUpdateNotification(result, force)
                 }
 
-                AppUpdateCheckResult.Current -> {
+                is AppUpdateCheckResult.Current -> {
+                    viewModel.setCurrentAppRelease(result)
                     if (force) {
-                        viewModel.clearAvailableAppUpdate("You're on the latest GitHub build.")
                         Toast.makeText(context, "No GitHub update found", Toast.LENGTH_SHORT).show()
                     }
                 }

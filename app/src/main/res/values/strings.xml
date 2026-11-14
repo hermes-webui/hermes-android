@@ -23,6 +23,16 @@
     <string name="shortcut_settings_long">Application Settings</string>
     <string name="back_press_again_to_exit">Press back again to exit</string>
     <string name="reconnect_notification_action_settings">Settings</string>
+    <string name="ongoing_notification_channel">Hermes is open</string>
+    <string name="ongoing_notification_channel_description">Quiet access to Hermes and Application Settings while the app is open</string>
+    <string name="ongoing_notification_title">Hermes is open</string>
+    <string name="ongoing_notification_body">Expand for Settings, or tap to return to Hermes.</string>
+    <string name="notification_reply_action">Reply</string>
+    <string name="notification_reply_hint">Message Hermes</string>
+    <string name="notification_reply_expired">Reply expired or unavailable. Open the conversation to reply.</string>
+    <string name="notification_reply_sent">Reply accepted by Hermes. Open the conversation to follow its response.</string>
+    <string name="notification_reply_failed">Hermes rejected the reply. Open the conversation to check sign-in and session state.</string>
+    <string name="notification_reply_unconfirmed">Could not confirm the reply. Check the conversation before retrying to avoid sending twice.</string>
     <string name="server_switch_do_not_ask_again">Don\'t ask again for this server</string>
     <string name="reconnect_notification_title">Hermes activity is running in the background</string>
     <string name="reconnect_notification_body_activity">Watching the current Hermes session for safe activity updates.</string>

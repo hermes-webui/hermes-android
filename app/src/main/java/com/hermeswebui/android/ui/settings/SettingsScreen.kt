@@ -159,7 +159,8 @@ fun SettingsScreen(
     onClearServerValidation: () -> Unit,
     modifier: Modifier = Modifier,
     launcherIcon: LauncherIcon = LauncherIcon.WEBUI,
-    onSetLauncherIcon: (LauncherIcon) -> Unit = {}
+    onSetLauncherIcon: (LauncherIcon) -> Unit = {},
+    onOpenLatestReleaseNotes: () -> Unit = onOpenAppUpdateRelease
 ) {
     BackHandler(onBack = onDismiss)
 
@@ -529,14 +530,14 @@ fun SettingsScreen(
                         ListItem(
                             headlineContent = {
                                 Text(
-                                    "Background activity notification",
+                                    "Ongoing Hermes notification",
                                     color = onSurface,
                                     fontWeight = FontWeight.Medium
                                 )
                             },
                             supportingContent = {
                                 Text(
-                                    "Show the latest safe Hermes session activity while the app is backgrounded",
+                                    "Keep a quiet Settings shortcut while Hermes is open, including in the background. WebUI session monitoring still runs when available.",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall
                                 )
@@ -599,24 +600,6 @@ fun SettingsScreen(
 
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                UpdatesSettingsSection(
-                    appUpdateAlertsEnabled = appUpdateAlertsEnabled,
-                    automaticAppUpdateChecksEnabled = automaticAppUpdateChecksEnabled,
-                    appUpdateChannelLabel = appUpdateChannelLabel,
-                    appUpdateStatus = appUpdateStatus,
-                    appUpdateReleaseUrl = appUpdateReleaseUrl,
-                    appUpdateDownloadUrl = appUpdateDownloadUrl,
-                    appUpdateInstallReady = appUpdateInstallReady,
-                    appUpdateReleaseNotes = appUpdateReleaseNotes,
-                    onSetAppUpdateAlertsEnabled = onSetAppUpdateAlertsEnabled,
-                    onSetAutomaticAppUpdateChecksEnabled = onSetAutomaticAppUpdateChecksEnabled,
-                    onCheckAppUpdates = onCheckAppUpdates,
-                    onDownloadAppUpdate = onDownloadAppUpdate,
-                    onOpenAppUpdateRelease = onOpenAppUpdateRelease
-                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -1112,6 +1095,25 @@ fun SettingsScreen(
                 AboutSettingsSection(
                     appVersionLabel = appVersionLabel,
                     appUpdateChannelLabel = appUpdateChannelLabel
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                UpdatesSettingsSection(
+                    appUpdateAlertsEnabled = appUpdateAlertsEnabled,
+                    automaticAppUpdateChecksEnabled = automaticAppUpdateChecksEnabled,
+                    appUpdateChannelLabel = appUpdateChannelLabel,
+                    appUpdateStatus = appUpdateStatus,
+                    appUpdateReleaseUrl = appUpdateReleaseUrl,
+                    appUpdateDownloadUrl = appUpdateDownloadUrl,
+                    appUpdateInstallReady = appUpdateInstallReady,
+                    appUpdateReleaseNotes = appUpdateReleaseNotes,
+                    onSetAppUpdateAlertsEnabled = onSetAppUpdateAlertsEnabled,
+                    onSetAutomaticAppUpdateChecksEnabled = onSetAutomaticAppUpdateChecksEnabled,
+                    onCheckAppUpdates = onCheckAppUpdates,
+                    onDownloadAppUpdate = onDownloadAppUpdate,
+                    onOpenAppUpdateRelease = onOpenAppUpdateRelease,
+                    onOpenLatestReleaseNotes = onOpenLatestReleaseNotes
                 )
 
                 Spacer(modifier = Modifier.height(32.dp))

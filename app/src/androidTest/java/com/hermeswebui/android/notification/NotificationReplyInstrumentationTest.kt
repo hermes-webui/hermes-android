@@ -17,6 +17,7 @@ import com.hermeswebui.android.data.SettingsRepository
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.SocketTimeoutException
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -40,7 +41,8 @@ class NotificationReplyInstrumentationTest {
     private lateinit var serverUrl: String
     private lateinit var targetUrl: String
     private lateinit var presenter: HermesNotificationPresenter
-    private val requests = CountDownLatch(1)
+    private val notificationTags = mutableSetOf<String>()
+    private lateinit var currentTag: String
     private var receivedPath: String? = null
     private var receivedCookie: String? = null
     private var receivedBody: String? = null
@@ -64,13 +66,16 @@ class NotificationReplyInstrumentationTest {
             }
         }
         check(cookieSet.await(5, TimeUnit.SECONDS))
+        // Keep separate fixtures out of Android's per-package notification update rate window.
+        SystemClock.sleep(1_100)
     }
 
     @After
     fun tearDown() {
+        awaitBroadcastIdle()
         NotificationReplyActions.clear()
         server.close()
-        manager.activeNotifications.filter { it.tag == TAG || it.id == 20_004 }
+        manager.activeNotifications.filter { it.tag in notificationTags || it.id == 20_004 }
             .forEach { manager.cancel(it.tag, it.id) }
         instrumentation.runOnMainSync {
             CookieManager.getInstance().setCookie(serverUrl, "reply_fixture=; Max-Age=0; Path=/mount%20name/")
@@ -92,7 +97,7 @@ class NotificationReplyInstrumentationTest {
 
     @Test
     fun remoteInputSendsOneAuthenticatedReplyToTheMountedSessionWithoutOpeningTheApp() {
-        serve("""{"stream_id":"stream-1","session_id":"team/notes"}""")
+        val requests = serve("""{"stream_id":"stream-1","session_id":"team/notes"}""")
         val action = replyAction()
         assertThat(action.remoteInputs.map { it.resultKey }).containsExactly(NotificationReplyActions.INPUT_KEY)
         send(action, "A follow-up\nwith two lines")
@@ -105,7 +110,7 @@ class NotificationReplyInstrumentationTest {
         assertThat(payload.getString("message")).isEqualTo("A follow-up\nwith two lines")
         awaitResult("Reply accepted by Hermes.")
         send(action, "Duplicate")
-        awaitResult("Reply expired or unavailable.")
+        awaitResult("Reply expired or unavailable.", fallback = true)
     }
 
     @Test
@@ -123,14 +128,15 @@ class NotificationReplyInstrumentationTest {
         NotificationReplyActions.onSelectedServerChanged("http://127.0.0.1:9/")
         NotificationReplyActions.onSelectedServerChanged(serverUrl)
         send(action, "Must not be sent")
-        awaitResult("Reply expired or unavailable.")
+        awaitResult("Reply expired or unavailable.", fallback = true)
         assertNoConnection()
     }
 
     @Test
     fun expiredActionsCannotSend() {
+        currentTag = newTag()
         val action = NotificationReplyActions.action(context, NotificationReplyTarget(
-            serverUrl, targetUrl, "work", TAG, 90_001, expiresAt = SystemClock.elapsedRealtime() - 1
+            serverUrl, targetUrl, "work", currentTag, 90_001, expiresAt = SystemClock.elapsedRealtime() - 1
         ))
         val intent = Intent()
         RemoteInput.addResultsToIntent(
@@ -138,7 +144,7 @@ class NotificationReplyInstrumentationTest {
             android.os.Bundle().apply { putCharSequence(NotificationReplyActions.INPUT_KEY, "Must not be sent") }
         )
         requireNotNull(action.actionIntent).send(context, 0, intent)
-        awaitResult("Reply expired or unavailable.")
+        awaitResult("Reply expired or unavailable.", fallback = true)
         assertNoConnection()
     }
 
@@ -153,7 +159,7 @@ class NotificationReplyInstrumentationTest {
 
     @Test
     fun redirectsNeverClaimTheReplyWasAccepted() {
-        serve("<html>sign in</html>", status = "302 Found")
+        val requests = serve("<html>sign in</html>", status = "302 Found")
         send(replyAction(), "Hello")
         check(requests.await(5, TimeUnit.SECONDS))
         awaitResult("Hermes rejected the reply.")
@@ -161,7 +167,7 @@ class NotificationReplyInstrumentationTest {
 
     @Test
     fun aSuccessWithoutASessionAdmissionIsUnconfirmed() {
-        serve("""{"ok":true}""")
+        val requests = serve("""{"ok":true}""")
         send(replyAction(), "Hello")
         check(requests.await(5, TimeUnit.SECONDS))
         awaitResult("Could not confirm the reply.")
@@ -170,8 +176,10 @@ class NotificationReplyInstrumentationTest {
     @Test
     fun gatewayFailuresAndTimeoutsDoNotClaimTheReplyWasRejected() {
         for (status in listOf("502 Bad Gateway", "504 Gateway Timeout", "408 Request Timeout")) {
-            serve("""{"error":"gateway could not confirm upstream response"}""", status)
+            SystemClock.sleep(1_100)
+            val requests = serve("""{"error":"gateway could not confirm upstream response"}""", status)
             send(replyAction(), "Hello")
+            check(requests.await(5, TimeUnit.SECONDS))
             awaitResult("Could not confirm the reply.")
         }
     }
@@ -179,7 +187,7 @@ class NotificationReplyInstrumentationTest {
     @Test
     fun aDelayedReplyResultCannotReplaceANewerNonReplyNotification() {
         val releaseResponse = CountDownLatch(1)
-        serve("""{"stream_id":"stream-1","session_id":"team/notes"}""") {
+        val requests = serve("""{"stream_id":"stream-1","session_id":"team/notes"}""") {
             check(releaseResponse.await(5, TimeUnit.SECONDS))
         }
         send(replyAction(), "Hello")
@@ -187,32 +195,31 @@ class NotificationReplyInstrumentationTest {
         try {
             presenter.showNotification(
                 JSONObject().put("title", "Approval required")
-                    .put("options", JSONObject().put("tag", TAG).put("body", "Choose an approval action")),
+                    .put("options", JSONObject().put("tag", currentTag).put("body", "Choose an approval action")),
                 targetUrl, serverUrl
             )
             awaitResult("Choose an approval action")
         } finally {
             releaseResponse.countDown()
         }
-        val descriptor = instrumentation.uiAutomation.executeShellCommand("am wait-for-broadcast-idle")
-        val output = ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
-        assertThat(output).contains("idle")
-        val notification = manager.activeNotifications.single { it.tag == TAG }.notification
+        awaitBroadcastIdle()
+        val notification = manager.activeNotifications.single { it.tag == currentTag }.notification
         assertThat(notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
             .isEqualTo("Approval required")
         assertThat(notification.actions.none { it.title.toString() == "Reply" }).isTrue()
     }
 
     private fun replyAction(): Notification.Action {
+        currentTag = newTag()
         presenter.showNotification(
             JSONObject().put("title", "Response complete").put("replyProfile", "work")
                 .put("replySessionId", "team/notes")
-                .put("options", JSONObject().put("tag", TAG).put("data", JSONObject().put("url", targetUrl))),
+                .put("options", JSONObject().put("tag", currentTag).put("data", JSONObject().put("url", targetUrl))),
             targetUrl, serverUrl
         )
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
-            manager.activeNotifications.firstOrNull { it.tag == TAG }?.notification?.actions
+            manager.activeNotifications.firstOrNull { it.tag == currentTag }?.notification?.actions
                 ?.firstOrNull { it.title.toString() == "Reply" }?.let { return it }
             SystemClock.sleep(25)
         }
@@ -228,18 +235,23 @@ class NotificationReplyInstrumentationTest {
         action.actionIntent.send(context, 0, intent)
     }
 
-    private fun awaitResult(prefix: String) {
+    private fun awaitResult(prefix: String, fallback: Boolean = false) {
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
             if (manager.activeNotifications.any {
-                it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.startsWith(prefix) == true
+                (if (fallback) it.tag == null && it.id == 20_004 else it.tag == currentTag) &&
+                    it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.startsWith(prefix) == true
             }) return
             SystemClock.sleep(25)
         }
-        error("Reply result did not start with $prefix")
+        val observed = manager.activeNotifications.filter {
+            it.tag == currentTag || (it.tag == null && it.id == 20_004)
+        }.map { "${it.id}: ${it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)}" }
+        error("Reply result did not start with $prefix; fixture notifications: $observed")
     }
 
-    private fun serve(body: String, status: String = "200 OK", beforeResponse: () -> Unit = {}) {
+    private fun serve(body: String, status: String = "200 OK", beforeResponse: () -> Unit = {}): CountDownLatch {
+        val requests = CountDownLatch(1)
         thread(isDaemon = true, name = "reply-fixture") {
             server.accept().use { socket ->
                 socket.soTimeout = 5_000
@@ -265,10 +277,18 @@ class NotificationReplyInstrumentationTest {
                 )
             }
         }
+        return requests
+    }
+
+    private fun newTag(): String = "reply-fixture-${UUID.randomUUID()}".also(notificationTags::add)
+
+    private fun awaitBroadcastIdle() {
+        val descriptor = instrumentation.uiAutomation.executeShellCommand("am wait-for-broadcast-idle")
+        val output = ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
+        assertThat(output).contains("idle")
     }
 
     companion object {
         private const val CHANNEL = "hermes_webui_notifications"
-        private const val TAG = "reply-fixture"
     }
 }

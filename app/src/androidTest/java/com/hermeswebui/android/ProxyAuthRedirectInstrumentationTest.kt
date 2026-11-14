@@ -89,7 +89,7 @@ class ProxyAuthRedirectInstrumentationTest {
     private val context get() = instrumentation.targetContext
 
     @Test
-    fun officialWebapp_signInReturnPersistsAndBackOpensSettingsWithoutNavigating() {
+    fun officialWebapp_backStaysInWorkspaceAndNeverReturnsToSignIn() {
         withConfiguredServer(officialWebapp = true) { server, repository ->
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 awaitText("Continue to server sign-in?")
@@ -100,7 +100,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 eventually("Official workspace proves sign-in return and persists") {
                     repository.getLastLoadedUrl() == "${server.baseUrl}/"
                 }
-                assertOfficialBackPreservesWorkspace(scenario)
+                assertOfficialBackStaysInWorkspaceThenExits(scenario)
             }
         }
     }
@@ -1688,7 +1688,7 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
-    fun officialWebapp_backOpensSettingsEvenWithWorkspaceHistory() {
+    fun officialWebapp_backNavigatesWorkspaceHashHistoryThenExits() {
         withConfiguredServer(officialWebapp = true) { server, _ ->
             instrumentation.runOnMainSync {
                 CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
@@ -1697,7 +1697,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 eventually("Official workspace ready") {
                     evaluateWebView(scenario, "window.__HERMES_UI_SURFACE__ === 'webapp'") == "true"
                 }
-                assertOfficialBackPreservesWorkspace(scenario)
+                assertOfficialBackStaysInWorkspaceThenExits(scenario)
             }
         }
     }
@@ -1713,7 +1713,7 @@ class ProxyAuthRedirectInstrumentationTest {
                     evaluateWebView(scenario, "window.__HERMES_UI_SURFACE__ === 'webapp'") == "true"
                 }
                 evaluateWebView(scenario, "window.__workspaceDraft = 'unsent';")
-                scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                sendDeepLink(scenario, "hermes://app/settings")
                 compose.onNodeWithText("Current server").performTouchInput { longClick() }
                 compose.onNode(hasText("Hermes Agent") and hasAnyAncestor(isDialog()))
                     .performScrollTo().performClick()
@@ -1729,7 +1729,7 @@ class ProxyAuthRedirectInstrumentationTest {
     }
 
     @Test
-    fun webUi_backStillNavigatesHistoryBeforeOpeningSettings() {
+    fun webUi_backNavigatesHistoryThenExitsWithoutOpeningSettings() {
         withConfiguredServer { server, repository ->
             repository.saveLastLoadedUrl("${server.baseUrl}/session/issue132")
             instrumentation.runOnMainSync {
@@ -1745,23 +1745,37 @@ class ProxyAuthRedirectInstrumentationTest {
                     evaluateWebView(scenario, "location.hash") == "\"\""
                 }
                 compose.onNodeWithText("Settings").assertDoesNotExist()
+                awaitWebView(scenario) { !it.canGoBack() }
+                assertBackConfirmsThenExits(scenario)
             }
         }
     }
 
-    private fun assertOfficialBackPreservesWorkspace(scenario: ActivityScenario<MainActivity>) {
+    private fun assertOfficialBackStaysInWorkspaceThenExits(scenario: ActivityScenario<MainActivity>) {
         evaluateWebView(scenario, "window.__workspaceDraft = 'unsent';")
+        val workspaceUrl = evaluateWebView(scenario, "location.href")
         pushHistoryFromTouch(scenario, "#/settings")
-        val url = evaluateWebView(scenario, "location.href")
         scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.waitUntil(10_000) {
-            compose.onAllNodes(androidx.compose.ui.test.hasText("Settings"))
-                .fetchSemanticsNodes().isNotEmpty()
+        eventually("Back returned to the previous workspace tab") {
+            evaluateWebView(scenario, "location.href") == workspaceUrl
         }
-        compose.onNodeWithText("Settings").assertIsDisplayed()
-        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        assertThat(evaluateWebView(scenario, "location.href")).isEqualTo(url)
         assertThat(evaluateWebView(scenario, "window.__workspaceDraft")).isEqualTo("\"unsent\"")
+        compose.onNodeWithText("Settings").assertDoesNotExist()
+        // Any earlier entry (sign-in page or nothing) is outside the workspace document.
+        assertBackConfirmsThenExits(scenario)
+    }
+
+    private fun assertBackConfirmsThenExits(scenario: ActivityScenario<MainActivity>) {
+        val urlBefore = evaluateWebView(scenario, "location.href")
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        SystemClock.sleep(600)
+        assertThat(evaluateWebView(scenario, "location.href")).isEqualTo(urlBefore)
+        compose.onNodeWithText("Settings").assertDoesNotExist()
+        scenario.onActivity { assertThat(it.isFinishing).isFalse() }
+        scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        eventually("Second Back exits the app") {
+            scenario.state == androidx.lifecycle.Lifecycle.State.DESTROYED
+        }
     }
 
     private fun pushHistoryFromTouch(scenario: ActivityScenario<MainActivity>, hash: String) {
@@ -1877,7 +1891,7 @@ class ProxyAuthRedirectInstrumentationTest {
                     awaitWebView(scenario) {
                         it.url == "${original.baseUrl}/" && it.title == "Hermes signed in"
                     }
-                    scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                    sendDeepLink(scenario, "hermes://app/settings")
                     compose.onNodeWithText("Primary").performTouchInput { longClick() }
                     compose.onNodeWithText("Server URL").performTextReplacement(target.baseUrl)
                     compose.onNodeWithText("Save").performClick()

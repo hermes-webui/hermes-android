@@ -15,7 +15,7 @@ on Android.
 
 **Now supporting the official Hermes Agent WebApp:** bring the browser-hosted
 Desktop workspace to Android with native sharing, file pickers, notifications,
-and Back-to-Settings navigation. No separate Hermes WebUI installation required.
+and normal Android Back navigation. No separate Hermes WebUI installation required.
 See [Official Hermes Webapp](#official-hermes-webapp) for setup and current limits.
 
 - Your Hermes workspace, on Android
@@ -70,10 +70,16 @@ secure-context features are unavailable on ordinary LAN HTTP. Do not copy
 one-use sign-in links or tokens into saved server profiles.
 
 Android recognizes the official workspace's `__HERMES_UI_SURFACE__` marker.
-**Android Back opens Application Settings** from that workspace, even when
-its tab/hash navigation has populated browser history; Back from Settings
-returns to the same mounted workspace without reloading it. WebUI retains its
-existing history-first Back behavior and sidebar Application Settings entry.
+**Android Back** steps through the workspace's in-page (hash) navigation
+without reloading it or returning to the sign-in page, then asks you to press
+Back again to exit. WebUI uses its browser history first, then the same
+press-again-to-exit confirmation. Back never opens Application Settings.
+
+Open **Application Settings** even when the page fails to load from the
+launcher icon's long-press **Settings** shortcut or the **Edit server URL**
+button on the connection error screen. While Hermes is in the background with
+**Background activity notification** enabled, its ongoing notification also has
+a **Settings** action. In WebUI, the sidebar entry still works too.
 
 Both frontends use the native upload picker, trusted HTTP(S) downloads,
 microphone permission handling, system-bar insets, pinch zoom, and Android

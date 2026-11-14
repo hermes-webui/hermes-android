@@ -96,6 +96,21 @@ object SelectedServerNavigation {
         return null
     }
 
+    /**
+     * Official Webapp Back (Issue #194): step back only through the workspace's own hash/tab
+     * routes. An entry outside the current document (sign-in, proxy login, another path) would
+     * reload or leave the mounted workspace, so it ends in-app navigation instead. Only a
+     * fragment navigation keeps the document, and that always leaves a `#` in the current URL.
+     */
+    fun sameDocumentBackOffset(history: List<String?>, currentIndex: Int, selectedServerUrl: String): Int? {
+        val offset = previousHistoryOffset(history, currentIndex, selectedServerUrl) ?: return null
+        val current = history.getOrNull(currentIndex)?.takeIf { '#' in it } ?: return null
+        val target = history.getOrNull(currentIndex + offset) ?: return null
+        return offset.takeIf { withoutFragment(current) == withoutFragment(target) }
+    }
+
+    private fun withoutFragment(url: String): String = url.substringBefore('#')
+
     fun hasOutdatedServerCredentials(url: String?, previousServerUrl: String, selectedServerUrl: String): Boolean {
         if (url.isNullOrBlank()) return false
         val previousHost = UrlOrigins.hostFrom(previousServerUrl) ?: return false

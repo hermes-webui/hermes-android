@@ -99,11 +99,12 @@ object SelectedServerNavigation {
     /**
      * Official Webapp Back (Issue #194): step back only through the workspace's own hash/tab
      * routes. An entry outside the current document (sign-in, proxy login, another path) would
-     * reload or leave the mounted workspace, so it ends in-app navigation instead.
+     * reload or leave the mounted workspace, so it ends in-app navigation instead. Only a
+     * fragment navigation keeps the document, and that always leaves a `#` in the current URL.
      */
     fun sameDocumentBackOffset(history: List<String?>, currentIndex: Int, selectedServerUrl: String): Int? {
         val offset = previousHistoryOffset(history, currentIndex, selectedServerUrl) ?: return null
-        val current = history.getOrNull(currentIndex) ?: return null
+        val current = history.getOrNull(currentIndex)?.takeIf { '#' in it } ?: return null
         val target = history.getOrNull(currentIndex + offset) ?: return null
         return offset.takeIf { withoutFragment(current) == withoutFragment(target) }
     }

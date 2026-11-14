@@ -75,10 +75,11 @@ without reloading it or returning to the sign-in page, then asks you to press
 Back again to exit. WebUI uses its browser history first, then the same
 press-again-to-exit confirmation. Back never opens Application Settings.
 
-Open **Application Settings** at any time, even when the page fails to load,
-from the launcher icon's long-press **Settings** shortcut, the **Settings**
-action on the ongoing Hermes connection notification, the **Edit server URL**
-button on the connection error screen, or (in WebUI) the sidebar entry.
+Open **Application Settings** even when the page fails to load from the
+launcher icon's long-press **Settings** shortcut or the **Edit server URL**
+button on the connection error screen. While Hermes is in the background with
+**Background activity notification** enabled, its ongoing notification also has
+a **Settings** action. In WebUI, the sidebar entry still works too.
 
 Both frontends use the native upload picker, trusted HTTP(S) downloads,
 microphone permission handling, system-bar insets, pinch zoom, and Android

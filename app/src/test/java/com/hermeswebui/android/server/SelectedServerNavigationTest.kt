@@ -323,8 +323,12 @@ class SelectedServerNavigationTest {
         val tab = "$production/#/settings"
         assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf(root, tab), 1, production))
             .isEqualTo(-1)
-        assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf(tab, root), 1, production))
+        assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf("$production/#/chat", tab), 1, production))
             .isEqualTo(-1)
+        // A current entry without a fragment was reached by a full load, so its predecessor is
+        // another document even though the URLs differ only by fragment.
+        assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf(tab, root), 1, production))
+            .isNull()
         assertThat(SelectedServerNavigation.sameDocumentBackOffset(listOf("$production/login", root), 1, production))
             .isNull()
         assertThat(

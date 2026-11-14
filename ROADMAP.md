@@ -3,11 +3,22 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-11-12
+> Last updated: 2026-11-13
 
 ---
 
 ## Status snapshot
+
+- [~] Notification and Settings polish: a silent minimized Settings notification
+  remains available while Hermes is open or backgrounded, without an idle
+  foreground service. WebUI's idle-session browser notifications offer inline
+  Reply through the existing authenticated chat endpoint, with single-use,
+  expiring actions and explicit rejected/unconfirmed outcomes. Official Webapp
+  direct reply is excluded: its ticketed gateway and profile/session contract
+  needs separate integration. About and Updates now sit together at the bottom;
+  latest GitHub notes remain available even without a newer APK. Android API 36
+  fixtures cover RemoteInput delivery, cookie/mount/session routing, lifecycle
+  and layout; live authenticated WebUI/OEM acceptance remains pending.
 
 - [~] Issue #184 passkey investigation: AndroidX Credential Manager is
   included with the same dependency path in every WebView build, without the

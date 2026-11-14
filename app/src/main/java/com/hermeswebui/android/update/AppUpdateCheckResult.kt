@@ -1,7 +1,11 @@
 package com.hermeswebui.android.update
 
 sealed interface AppUpdateCheckResult {
-    data object Current : AppUpdateCheckResult
+    data class Current(
+        val version: String,
+        val releaseUrl: String,
+        val releaseNotes: String? = null
+    ) : AppUpdateCheckResult
     data object Unsupported : AppUpdateCheckResult
     data class Available(
         val version: String,

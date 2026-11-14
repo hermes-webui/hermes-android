@@ -10,7 +10,20 @@ class GitHubReleaseUpdateCheckerTest {
     fun currentReleaseReturnsCurrent() {
         val result = parseRelease("""{"tag_name":"v1.1.0"}""")
 
-        assertThat(result).isEqualTo(AppUpdateCheckResult.Current)
+        assertThat(result).isEqualTo(AppUpdateCheckResult.Current("1.1.0", FALLBACK_URL))
+    }
+
+    @Test
+    fun currentAndOlderReleasesKeepNotesWithoutOfferingAnApk() {
+        for (version in listOf("1.1.0", "1.0.9")) {
+            val result = parseRelease(
+                """{"tag_name":"v$version","body":"## Changes\n- Fixed settings","assets":[
+                {"name":"hermes-github.apk","browser_download_url":"https://github.com/example.apk"}]}"""
+            )
+            assertThat(result).isEqualTo(
+                AppUpdateCheckResult.Current(version, FALLBACK_URL, "- Fixed settings")
+            )
+        }
     }
 
     @Test

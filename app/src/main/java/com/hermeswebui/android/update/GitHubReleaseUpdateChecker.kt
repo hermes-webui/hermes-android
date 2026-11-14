@@ -61,10 +61,6 @@ class GitHubReleaseUpdateChecker(
                     return AppUpdateCheckResult.Failed("GitHub release response did not include a tag.")
                 }
 
-                if (!AppVersionComparator.isNewer(tagName, currentVersion)) {
-                    return AppUpdateCheckResult.Current
-                }
-
                 val version = AppVersionComparator.normalize(tagName)
                 val releaseUrl = release.optString("html_url")
                     .takeIf { url -> url.isNotBlank() }
@@ -76,6 +72,10 @@ class GitHubReleaseUpdateChecker(
                 val notes = release.optString("body")
                     .takeIf { value -> value.isNotBlank() }
                     ?.summarizeReleaseNotes()
+
+                if (!AppVersionComparator.isNewer(tagName, currentVersion)) {
+                    return AppUpdateCheckResult.Current(version, releaseUrl, notes)
+                }
 
                 AppUpdateCheckResult.Available(
                     version = version,

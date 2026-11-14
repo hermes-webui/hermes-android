@@ -9,7 +9,7 @@
 
 ## Status snapshot
 
-- [~] Notification and Settings polish: a silent minimized Settings notification
+- [x] Notification and Settings polish shipped in v1.3.3: a silent minimized Settings notification
   remains available while Hermes is open or backgrounded, without an idle
   foreground service. WebUI's idle-session browser notifications offer inline
   Reply through the existing authenticated chat endpoint, with single-use,
@@ -25,8 +25,11 @@
   and the bottom-of-Settings version/check controls were exercised live.
   Live QA caught a blank release-notes target outside the GitHub build; the
   public page URL is now shared without enabling other update providers,
-  with a real MainActivity outbound-intent regression. OEM acceptance and
-  release approval remain pending in
+  with a real MainActivity outbound-intent regression. The approved release
+  published the GitHub APK and verified Play production version 10303,
+  completed status, English release notes and descriptions through a fresh
+  Publisher API edit. Public Play visibility/review is separate and unconfirmed.
+  OEM acceptance and the remaining live-QA follow-ups stay tracked in
   [#202](https://github.com/hermes-webui/hermes-android/issues/202).
   The live harness now opens the activity even when a service keeps its process
   alive and waits for an actual DevTools page; manual sign-in remains required.
@@ -297,7 +300,7 @@ sketches are captured inline below.
 | REL-039 | 2026-11-12 | Release preparation | Prepared Android and README metadata for v1.3.0 (version code 10300): sign-in improvements, removed app-saved Basic sign-ins, and Dashboard shell repair. A minor bump because it adds a user-facing feature with no breaking change. GitHub and Play production publication are pending the approved orchestration run; F-Droid picks up the tag after fdroiddata review (Issue #141). |
 | REL-040 | 2026-11-13 | Release preparation | Prepared Android and README metadata for v1.3.1 (version code 10301): zero-height WebView viewport units fix (Issue #184, PR #195). A patch bump because it fixes broken behavior with no new setting. GitHub and Play production publication are pending the approved orchestration run; F-Droid picks up the tag after fdroiddata review (Issue #141). |
 | REL-041 | 2026-11-13 | Release preparation | Prepared Android and README metadata for v1.3.2 (version code 10302): normal Back, Settings shortcut and notification action (Issue #194); route recovery after credential edits (Issue #198). A patch bump because it fixes broken behavior with no new setting. GitHub and Play production publication are pending the approved orchestration run; F-Droid picks up the tag after fdroiddata review (Issue #141). |
-| REL-042 | 2026-11-14 | Release preparation | Prepared Android and README metadata for v1.3.3 (version code 10303): Settings notifications, verified WebUI replies, and About/Updates controls (PR #201). A patch bump because it fixes broken behavior with no new setting. GitHub and Play production publication are pending the approved orchestration run; F-Droid picks up the tag after fdroiddata review (Issue #141). |
+| REL-042 | 2026-11-14 | Release preparation | Prepared Android and README metadata for v1.3.3 (version code 10303): Settings notifications, verified WebUI replies, and About/Updates controls (PR #201). A patch bump because it fixes broken behavior with no new setting. Published by [orchestration run 43641941066](https://github.com/hermes-webui/hermes-android/actions/runs/43641941066) from the reviewed release merge `9716aac`: the [GitHub release](https://github.com/hermes-webui/hermes-android/releases/tag/v1.3.3) has exactly `hermes-webui-v1.3.3-github.apk`, and a fresh Publisher API edit verified Play production version 10303, completed status, English release notes and descriptions. Play review/public visibility remain unconfirmed; QA follow-ups remain in Issue #202. F-Droid picks up the tag after fdroiddata review (Issue #141). |
 | REL-035 | 2026-10-30 | Release / Distribution | Prepared F-Droid distribution for Issue #141. Added an MIT license. Moved Google Play Core into a new `play` build type, so the `github` APK and the new F-Droid `release` build (`com.hermeswebui.android.fdroid`) contain no Google Play code. `verifyFossDependencies` gates CI and the orchestrator. F-Droid's scanner went from 3 source problems on `main` to 0, and from 6 binary problems in the published v1.1.7 GitHub APK to 0 in the new `release` APK. The orchestrator still publishes GitHub and Play only; F-Droid picks up later tags after the one-time fdroiddata submission. |
 | BUG-056 | 2026-10-29 | Security / Authentication | Fixed Issue #134: in-WebView proxy sign-in consent is offered only when the hop that redirected is exactly the configured server origin. Redirects from another port, a subdomain, or the dashboard host on the allowlist are externalized instead of being attributed to the server. Reproduced RED on base (consent dialog shown for an allowlisted other-port redirector) and GREEN with unit and API 36 loopback tests. Form POST navigations remain attributed to the last recorded hop. |
 | BUG-055 | 2026-10-29 | Authentication / Setup | Fixed Issue #135: server checks now classify status redirects by origin. Same-origin sign-in redirects report "authentication required" without proxy consent, a same-host HTTP-to-HTTPS upgrade offers a re-validated **Use HTTPS** server URL, and only cross-origin redirects request proxy sign-in consent. Reproduced RED on base (consent requested for both cases) and GREEN with unit and API 36 loopback tests. |

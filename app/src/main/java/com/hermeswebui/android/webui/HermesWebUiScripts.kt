@@ -1290,11 +1290,14 @@ object HermesWebUiScripts {
         return """
             (function() {
               try {
+                // Document-start scripts run in insertion order, and some WebView builds still
+                // inject a just-removed copy into the next navigation. Every copy records its
+                // URL so the newest install wins; only the first copy installs the listeners.
+                window.__hermesAndroidRouteRecoveryUrl = $quotedLastUrl;
                 if (window.__hermesAndroidRouteRecoveryInstalled) return;
                 window.__hermesAndroidRouteRecoveryInstalled = true;
-                var recoveryUrl = $quotedLastUrl;
                 window.addEventListener('hermes-android-reset-route-recovery', function() {
-                  recoveryUrl = '';
+                  window.__hermesAndroidRouteRecoveryUrl = '';
                 });
                 // Workspace-panel recovery targets Hermes WebUI markup only (#190).
                 var isHermesWebUiPage = function() {
@@ -1371,10 +1374,12 @@ object HermesWebUiScripts {
                         forcePanelOpen();
                         window.setTimeout(function() {
                           if (!panelIsHidden()) return;
+                          var recoveryUrl = window.__hermesAndroidRouteRecoveryUrl;
                           if (recoveryUrl && window.location && window.location.href !== recoveryUrl) {
                             window.location.href = recoveryUrl;
                           }
                         }, 90);
+                        var recoveryUrl = window.__hermesAndroidRouteRecoveryUrl;
                         if (panelIsHidden() && recoveryUrl && window.location && window.location.href !== recoveryUrl) {
                           window.location.href = recoveryUrl;
                         }

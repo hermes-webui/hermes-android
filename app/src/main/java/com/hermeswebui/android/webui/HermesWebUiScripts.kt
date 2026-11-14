@@ -1501,9 +1501,20 @@ object HermesWebUiScripts {
                 if (permission !== 'granted') {
                   return Promise.reject(makeDomException('Notification permission denied', 'NotAllowedError'));
                 }
+                var replyProfile = '';
+                var replySessionId = '';
+                if (window.__HERMES_UI_SURFACE__ !== 'webapp' &&
+                    (window.__HERMES_WEBUI_BUNDLE_VERSION__ ||
+                     (document.querySelector('.layout') && document.querySelector('main.main'))) &&
+                    typeof S !== 'undefined' && S.session && !S.busy) {
+                  replyProfile = String(S.activeProfile || S.session.profile || '');
+                  replySessionId = String(S.session.session_id || '');
+                }
                 return postNative('show', {
                   title: String(title || ''),
-                  options: cloneOptions(options)
+                  options: cloneOptions(options),
+                  replyProfile: replyProfile,
+                  replySessionId: replySessionId
                 }).then(function(response) {
                   if (response && response.permission) permission = normalizePermission(response.permission);
                   if (response && response.ok) return undefined;

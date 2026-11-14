@@ -1,8 +1,26 @@
 // Minimal Chrome DevTools Protocol client over Node's built-in WebSocket (Node 22+).
 export async function connect(port) {
-  const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-  const page = list.find((p) => p.type === 'page');
-  if (!page) throw new Error('No WebView page target found');
+  const deadline = Date.now() + 10_000;
+  let page;
+  while (Date.now() < deadline) {
+    let list;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json`, {
+        signal: AbortSignal.timeout(Math.min(1000, Math.max(1, deadline - Date.now()))),
+      });
+      if (!response.ok) throw new Error(`WebView DevTools returned HTTP ${response.status}`);
+      list = await response.json();
+    } catch (error) {
+      if (!(error instanceof TypeError && error.message === 'fetch failed') &&
+          error.name !== 'TimeoutError') throw error;
+    }
+    page = list?.find((p) => p.type === 'page' && p.webSocketDebuggerUrl);
+    if (page) break;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  if (!page) {
+    throw new Error('WebView DevTools did not expose a page within 10 seconds. Open the debug app and check ADB forwarding.');
+  }
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => {
     ws.onopen = res;

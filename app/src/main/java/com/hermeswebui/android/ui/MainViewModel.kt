@@ -534,6 +534,20 @@ class MainViewModel(
         }
     }
 
+    fun setCurrentAppRelease(release: AppUpdateCheckResult.Current) {
+        _uiState.update {
+            it.copy(
+                appUpdateStatus = "No newer GitHub build. Latest release: ${release.version}.",
+                appUpdateVersion = release.version,
+                appUpdateReleaseUrl = release.releaseUrl,
+                appUpdateDownloadUrl = null,
+                appUpdateInstallReady = false,
+                appUpdateFileName = null,
+                appUpdateReleaseNotes = release.releaseNotes
+            )
+        }
+    }
+
     fun setPlayUpdateAvailable(versionCode: String) {
         _uiState.update {
             it.copy(

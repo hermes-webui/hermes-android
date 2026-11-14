@@ -85,6 +85,94 @@ class QaHarnessTests(unittest.TestCase):
         self.assertNotIn("qa-host", redacted)
         self.assertIn("<server>", redacted)
 
+    def test_devtools_waits_for_transport_and_page_readiness(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        module = (QA / "lib" / "cdp.mjs").as_uri()
+        code = f"""
+import assert from 'node:assert/strict';
+import {{ createServer }} from 'node:http';
+import {{ connect }} from {json.dumps(module)};
+globalThis.WebSocket = class {{
+  constructor() {{ queueMicrotask(() => this.onopen()); }}
+  close() {{}}
+}};
+let requests = 0;
+let malformed = false;
+const server = createServer((req, res) => {{
+  requests++;
+  if (malformed) return res.end('not JSON');
+  if (requests === 1) return req.socket.destroy();
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(requests === 2 ? [] : [{{
+    type: 'page', url: 'about:blank', webSocketDebuggerUrl: 'ws://fixture.invalid'
+  }}]));
+}});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+try {{
+  const cdp = await connect(server.address().port);
+  assert.equal(cdp.pageUrl, 'about:blank');
+  assert.ok(requests >= 3);
+  cdp.close();
+  malformed = true;
+  const before = requests;
+  await assert.rejects(connect(server.address().port), SyntaxError);
+  assert.equal(requests, before + 1, 'protocol errors must not be retried');
+}} finally {{
+  server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
+}}
+"""
+        result = subprocess.run(
+            [node, "--input-type=module", "-e", code], capture_output=True, text=True, timeout=20
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_default_run_launches_the_activity_even_when_its_process_exists(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        adb_module = (QA / "lib" / "adb.mjs").as_uri()
+        harness = (QA / "run-live-qa.mjs").as_uri()
+        code = f"""
+import assert from 'node:assert/strict';
+import {{ Adb }} from {json.dumps(adb_module)};
+process.env.HERMES_QA_SERVER_URL = 'https://fixture.example.invalid';
+Adb.prototype.devices = () => ['fixture'];
+Adb.prototype.isInstalled = () => true;
+let launched = false;
+Adb.prototype.launch = () => {{ launched = true; }};
+Adb.prototype.pidof = () => {{
+  assert.ok(launched, 'a running process does not prove its Activity is open');
+  throw new Error('launch verified');
+}};
+await assert.rejects(import({json.dumps(harness)}), {{ message: 'launch verified' }});
+"""
+        result = subprocess.run(
+            [node, "--input-type=module", "-e", code], capture_output=True, text=True, timeout=20
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_devtools_startup_has_a_ten_second_deadline(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        module = (QA / "lib" / "cdp.mjs").as_uri()
+        code = f"""
+import assert from 'node:assert/strict';
+import {{ connect }} from {json.dumps(module)};
+globalThis.fetch = async () => {{ throw new TypeError('fetch failed'); }};
+const start = performance.now();
+await assert.rejects(connect(1), /within 10 seconds/);
+const elapsed = performance.now() - start;
+assert.ok(elapsed >= 9900 && elapsed < 11000, 'startup must be bounded to about 10 seconds');
+"""
+        result = subprocess.run(
+            [node, "--input-type=module", "-e", code], capture_output=True, text=True, timeout=15
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

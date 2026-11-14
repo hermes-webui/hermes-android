@@ -78,14 +78,13 @@ if (!serial) die(2, 'No adb device or emulator is connected.');
 const adb = new Adb(serial);
 if (!adb.isInstalled(pkg)) die(2, `${pkg} is not installed. Run: gradlew installDebug`);
 
+if (args.launch) adb.launch(pkg);
 let pid = adb.pidof(pkg);
 if (!pid && args.launch) {
-  adb.launch(pkg);
   for (let i = 0; i < 20 && !pid; i++) {
     await sleep(1000);
     pid = adb.pidof(pkg);
   }
-  await sleep(4000); // let the first page load
 }
 if (!pid) die(2, `${pkg} is not running.`);
 
@@ -103,13 +102,12 @@ let exitError = null;
 const outDir = join(here, 'out', meta.date.replace(/[:.]/g, '-'));
 try {
   adb.forward(port, pid);
+  cdp = await connect(port);
   try {
     meta.webview = (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()).Browser;
   } catch {
     meta.webview = 'unknown';
   }
-  cdp = await connect(port);
-
   // Preflight: right server, signed in.
   const pageOrigin = (() => {
     try {

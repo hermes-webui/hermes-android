@@ -57,7 +57,7 @@ export class Adb {
   }
 
   launch(pkg) {
-    this.run(['shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1'], { allowFail: true });
+    this.run(['shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1']);
   }
 
   forward(port, pid) {

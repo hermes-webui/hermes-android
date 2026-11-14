@@ -43,7 +43,8 @@ internal fun UpdatesSettingsSection(
     onSetAutomaticAppUpdateChecksEnabled: (Boolean) -> Unit,
     onCheckAppUpdates: () -> Unit,
     onDownloadAppUpdate: () -> Unit,
-    onOpenAppUpdateRelease: () -> Unit
+    onOpenAppUpdateRelease: () -> Unit,
+    onOpenLatestReleaseNotes: () -> Unit
 ) {
     val surfaceColor = MaterialTheme.colorScheme.surface
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
@@ -177,10 +178,8 @@ internal fun UpdatesSettingsSection(
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
-                if (!appUpdateReleaseUrl.isNullOrBlank() && !appUpdateReleaseUrl.startsWith("play://")) {
-                    OutlinedButton(onClick = onOpenAppUpdateRelease, modifier = Modifier.fillMaxWidth()) {
-                        Text("Release notes")
-                    }
+                OutlinedButton(onClick = onOpenLatestReleaseNotes, modifier = Modifier.fillMaxWidth()) {
+                    Text("Latest GitHub release notes")
                 }
             }
         }

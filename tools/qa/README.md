@@ -36,6 +36,14 @@ Exit code `0` means every check passed, `1` means a check failed, and `2` means 
 wrong (no device, wrong server, signed out). Reports are written to `tools/qa/out/<timestamp>/`
 (`report.md`, `report.json`, and `failure.png` on failure). That folder is gitignored.
 
+The default run opens the app even if its process is already running: a background
+service alone does not prove the activity or WebView is ready. It then waits up to
+10 seconds for the actual DevTools page instead of relying on a fixed startup delay.
+Use `--no-launch` only when the debug activity is already open. If attachment still
+fails, check that the app's current process owns a `webview_devtools_remote` socket
+and that ADB forwarding points to that process; do not treat this as a server outage
+or bypass the manual sign-in preflight.
+
 ## Scenarios
 
 | ID | What it checks | Issues |

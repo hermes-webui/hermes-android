@@ -398,7 +398,12 @@ class SettingsScreenTest {
         clientCertificateUri: String? = null,
         clientCertificatePassword: String? = null,
         onSetClientCertificateConfig: (String?, String?) -> Unit = { _, _ -> },
-        onShowWelcome: () -> Unit = {}
+        onShowWelcome: () -> Unit = {},
+        appUpdateReleaseNotes: String? = null,
+        appUpdateDownloadUrl: String? = null,
+        onCheckAppUpdates: () -> Unit = {},
+        onDownloadAppUpdate: () -> Unit = {},
+        onOpenAppUpdateRelease: () -> Unit = {}
     ) {
         composeTestRule.setContent {
             SettingsScreen(
@@ -419,9 +424,9 @@ class SettingsScreenTest {
                 appUpdateChannelLabel = "GitHub Releases",
                 appUpdateStatus = null,
                 appUpdateReleaseUrl = null,
-                appUpdateDownloadUrl = null,
+                appUpdateDownloadUrl = appUpdateDownloadUrl,
                 appUpdateInstallReady = false,
-                appUpdateReleaseNotes = null,
+                appUpdateReleaseNotes = appUpdateReleaseNotes,
                 clientCertificateUri = clientCertificateUri,
                 clientCertificatePassword = clientCertificatePassword,
                 serverValidation = ServerValidationUiState(),
@@ -444,9 +449,9 @@ class SettingsScreenTest {
                 onSetAutomaticAppUpdateChecksEnabled = {},
                 onSetClientCertificateConfig = onSetClientCertificateConfig,
                 onClearClientCertificateConfig = {},
-                onCheckAppUpdates = {},
-                onDownloadAppUpdate = {},
-                onOpenAppUpdateRelease = {},
+                onCheckAppUpdates = onCheckAppUpdates,
+                onDownloadAppUpdate = onDownloadAppUpdate,
+                onOpenAppUpdateRelease = onOpenAppUpdateRelease,
                 onShareDebugLog = {},
                 onDownloadDebugLog = {},
                 onViewGithubIssues = {},
@@ -460,5 +465,37 @@ class SettingsScreenTest {
                 onClearServerValidation = {}
             )
         }
+    }
+
+    @Test
+    fun updatesAreBelowAboutAndKeepCheckAndReleaseNotesActions() {
+        var checks = 0
+        var notesOpened = 0
+        renderConfiguredSettings(
+            seconds = 1,
+            appUpdateReleaseNotes = "Fixed notification access.",
+            onCheckAppUpdates = { checks++ },
+            onOpenAppUpdateRelease = { notesOpened++ }
+        )
+        val about = composeTestRule.onNodeWithText("ABOUT").fetchSemanticsNode().positionInRoot.y
+        val updates = composeTestRule.onNodeWithText("UPDATES").fetchSemanticsNode().positionInRoot.y
+        assertThat(updates).isGreaterThan(about)
+        composeTestRule.onNodeWithText("Check for updates").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("Fixed notification access.").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Latest GitHub release notes").performScrollTo().performClick()
+        assertThat(checks).isEqualTo(1)
+        assertThat(notesOpened).isEqualTo(1)
+    }
+
+    @Test
+    fun updatesNearAboutStillOfferTheAvailableDownload() {
+        var downloads = 0
+        renderConfiguredSettings(
+            seconds = 1,
+            appUpdateDownloadUrl = "https://github.com/example/hermes-github.apk",
+            onDownloadAppUpdate = { downloads++ }
+        )
+        composeTestRule.onNodeWithText("Download APK").performScrollTo().performClick()
+        assertThat(downloads).isEqualTo(1)
     }
 }

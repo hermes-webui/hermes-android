@@ -922,6 +922,28 @@ class HermesWebUiCompatibilityTest {
     }
 
     @Test
+    fun notificationFacadeOffersReplyOnlyForAnIdleWebUiSessionNotTheOfficialWebapp() {
+        loadFixture("<div>Hermes</div>", documentStartScripts = notificationFacadeScripts("granted"))
+        evaluate("""
+            window.__HERMES_WEBUI_BUNDLE_VERSION__ = 'fixture';
+            window.S = { session: { session_id: 'current', profile: 'work' }, activeProfile: 'work', busy: false };
+            new Notification('Response complete', { data: { url: '/session/current' } });
+            window.S.busy = true;
+            new Notification('Approval required', { data: { url: '/session/current' } });
+            window.S.busy = false;
+            window.__HERMES_UI_SURFACE__ = 'webapp';
+            new Notification('Response complete', { data: { url: '/session/current' } });
+            0
+        """.trimIndent())
+        val shown = org.json.JSONArray(shownMessages())
+        assertThat(shown.length()).isEqualTo(3)
+        assertThat(shown.getJSONObject(0).getJSONObject("payload").getString("replyProfile")).isEqualTo("work")
+        assertThat(shown.getJSONObject(0).getJSONObject("payload").getString("replySessionId")).isEqualTo("current")
+        assertThat(shown.getJSONObject(1).getJSONObject("payload").getString("replyProfile")).isEmpty()
+        assertThat(shown.getJSONObject(2).getJSONObject("payload").getString("replyProfile")).isEmpty()
+    }
+
+    @Test
     fun notificationFacade_deniedPermissionThrowsAndNeverReachesAndroid() {
         loadFixture("<div>Hermes</div>", documentStartScripts = notificationFacadeScripts("denied"))
         assertThat(evaluate("Notification.permission")).isEqualTo("\"denied\"")

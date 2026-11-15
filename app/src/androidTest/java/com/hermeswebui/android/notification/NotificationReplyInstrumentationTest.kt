@@ -58,7 +58,8 @@ class NotificationReplyInstrumentationTest {
         SettingsRepository(context).saveAppUrls(serverUrl, "")
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Reply test", NotificationManager.IMPORTANCE_LOW))
         NotificationReplyActions.clear()
-        presenter = HermesNotificationPresenter(context, CHANNEL, 90_000) { it == targetUrl }
+        HermesNotificationSlot.dismiss(context, HermesNotificationSlot.currentMessageToken())
+        presenter = HermesNotificationPresenter(context, CHANNEL) { it == targetUrl }
         val cookieSet = CountDownLatch(1)
         instrumentation.runOnMainSync {
             CookieManager.getInstance().setCookie(serverUrl, "reply_fixture=synthetic; Path=/mount%20name/") {
@@ -74,8 +75,9 @@ class NotificationReplyInstrumentationTest {
     fun tearDown() {
         awaitBroadcastIdle()
         NotificationReplyActions.clear()
+        HermesNotificationSlot.dismiss(context, HermesNotificationSlot.currentMessageToken())
         server.close()
-        manager.activeNotifications.filter { it.tag in notificationTags || it.id == 20_004 }
+        manager.activeNotifications.filter { it.id == HermesNotificationSlot.ID }
             .forEach { manager.cancel(it.tag, it.id) }
         instrumentation.runOnMainSync {
             CookieManager.getInstance().setCookie(serverUrl, "reply_fixture=; Max-Age=0; Path=/mount%20name/")
@@ -110,7 +112,8 @@ class NotificationReplyInstrumentationTest {
         assertThat(payload.getString("message")).isEqualTo("A follow-up\nwith two lines")
         awaitResult("Reply accepted by Hermes.")
         send(action, "Duplicate")
-        awaitResult("Reply expired or unavailable.", fallback = true)
+        awaitBroadcastIdle()
+        awaitResult("Reply accepted by Hermes.")
     }
 
     @Test
@@ -128,7 +131,8 @@ class NotificationReplyInstrumentationTest {
         NotificationReplyActions.onSelectedServerChanged("http://127.0.0.1:9/")
         NotificationReplyActions.onSelectedServerChanged(serverUrl)
         send(action, "Must not be sent")
-        awaitResult("Reply expired or unavailable.", fallback = true)
+        awaitBroadcastIdle()
+        assertThat(manager.activeNotifications.count { it.id == HermesNotificationSlot.ID }).isEqualTo(1)
         assertNoConnection()
     }
 
@@ -144,7 +148,8 @@ class NotificationReplyInstrumentationTest {
             android.os.Bundle().apply { putCharSequence(NotificationReplyActions.INPUT_KEY, "Must not be sent") }
         )
         requireNotNull(action.actionIntent).send(context, 0, intent)
-        awaitResult("Reply expired or unavailable.", fallback = true)
+        awaitBroadcastIdle()
+        assertThat(manager.activeNotifications.none { it.id == 20_004 }).isTrue()
         assertNoConnection()
     }
 
@@ -203,7 +208,7 @@ class NotificationReplyInstrumentationTest {
             releaseResponse.countDown()
         }
         awaitBroadcastIdle()
-        val notification = manager.activeNotifications.single { it.tag == currentTag }.notification
+        val notification = manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }.notification
         assertThat(notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
             .isEqualTo("Approval required")
         assertThat(notification.actions.none { it.title.toString() == "Reply" }).isTrue()
@@ -219,7 +224,7 @@ class NotificationReplyInstrumentationTest {
         )
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
-            manager.activeNotifications.firstOrNull { it.tag == currentTag }?.notification?.actions
+            manager.activeNotifications.firstOrNull { it.id == HermesNotificationSlot.ID }?.notification?.actions
                 ?.firstOrNull { it.title.toString() == "Reply" }?.let { return it }
             SystemClock.sleep(25)
         }
@@ -235,17 +240,17 @@ class NotificationReplyInstrumentationTest {
         action.actionIntent.send(context, 0, intent)
     }
 
-    private fun awaitResult(prefix: String, fallback: Boolean = false) {
+    private fun awaitResult(prefix: String) {
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
             if (manager.activeNotifications.any {
-                (if (fallback) it.tag == null && it.id == 20_004 else it.tag == currentTag) &&
+                it.id == HermesNotificationSlot.ID &&
                     it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.startsWith(prefix) == true
             }) return
             SystemClock.sleep(25)
         }
         val observed = manager.activeNotifications.filter {
-            it.tag == currentTag || (it.tag == null && it.id == 20_004)
+            it.id == HermesNotificationSlot.ID
         }.map { "${it.id}: ${it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)}" }
         error("Reply result did not start with $prefix; fixture notifications: $observed")
     }

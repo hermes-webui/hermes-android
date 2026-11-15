@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.SystemClock
 import android.webkit.CookieManager
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import com.hermeswebui.android.MainActivity
 import com.hermeswebui.android.R
@@ -102,6 +101,10 @@ internal object NotificationReplyActions {
 
 class HermesNotificationReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == HermesNotificationSlot.ACTION_DISMISS) {
+            HermesNotificationSlot.dismiss(context, intent.getStringExtra(HermesNotificationSlot.EXTRA_TOKEN))
+            return
+        }
         val target = NotificationReplyActions.consume(intent)
         val message = RemoteInput.getResultsFromIntent(intent)
             ?.getCharSequence(NotificationReplyActions.INPUT_KEY)?.toString()?.trim()
@@ -147,26 +150,42 @@ class HermesNotificationReplyReceiver : BroadcastReceiver() {
         target: NotificationReplyTarget?,
         body: String
     ) = synchronized(NotificationReplyActions) {
-        if (target != null && !NotificationReplyActions.isCurrent(target)) return@synchronized
+        if (target == null || !NotificationReplyActions.isCurrent(target)) {
+            android.util.Log.w("HermesNotificationReply", "Ignored expired or replaced reply action")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context, R.string.notification_reply_expired, android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            return@synchronized
+        }
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            if (target != null) {
-                action = HermesNotificationPresenter.ACTION_OPEN_NOTIFICATION_URL
-                putExtra(HermesNotificationPresenter.EXTRA_NOTIFICATION_URL, target.targetUrl)
-            }
+            action = HermesNotificationPresenter.ACTION_OPEN_NOTIFICATION_URL
+            data = Uri.parse("hermes-notification:${HermesNotificationSlot.currentMessageToken()}")
+            putExtra(HermesNotificationPresenter.EXTRA_NOTIFICATION_URL, target.targetUrl)
+            putExtra(HermesNotificationSlot.EXTRA_TOKEN, HermesNotificationSlot.currentMessageToken())
         }
         val open = PendingIntent.getActivity(
-            context, target?.notificationId ?: 20_004, openIntent,
+            context, HermesNotificationPresenter.MESSAGE_REQUEST_CODE, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        NotificationManagerCompat.from(context).notify(
-            target?.notificationTag, target?.notificationId ?: 20_004,
+        HermesNotificationSlot.showReplyResult(
+            context,
             NotificationCompat.Builder(context, "hermes_webui_notifications")
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .addExtras(android.os.Bundle().apply {
+                    putString(HermesNotificationSlot.EXTRA_TOKEN, HermesNotificationSlot.currentMessageToken())
+                    putString(HermesNotificationSlot.EXTRA_SERVER, target.serverUrl)
+                })
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(context.getString(R.string.notification_reply_action))
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setContentIntent(open)
+                .setDeleteIntent(HermesNotificationSlot.currentMessageToken()?.let {
+                    HermesNotificationSlot.deleteIntent(context, it)
+                })
                 .addAction(
                     0, context.getString(R.string.reconnect_notification_action_settings),
                     PendingIntent.getActivity(

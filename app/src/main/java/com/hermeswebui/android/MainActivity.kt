@@ -162,7 +162,6 @@ import java.security.MessageDigest
 private const val HermesNotificationBridgeName = "HermesAndroidNotifications"
 private const val HermesClipboardBridgeName = "HermesAndroidClipboard"
 private const val HermesNotificationChannelId = "hermes_webui_notifications"
-private const val HermesNotificationIdBase = 10_000
 private const val HermesVpnReconnectNotificationId = 9_900
 private const val HermesGithubIssuesListUrl = "https://github.com/hermes-webui/hermes-android/issues"
 private const val HermesGithubNewIssueUrl = "https://github.com/hermes-webui/hermes-android/issues/new/choose"
@@ -398,7 +397,6 @@ class MainActivity : ComponentActivity() {
         notificationPresenter = HermesNotificationPresenter(
             context = this,
             channelId = HermesNotificationChannelId,
-            notificationIdBase = HermesNotificationIdBase,
             isTrustedTarget = ::isTrustedNotificationTarget
         )
         notificationBridgeCoordinator = HermesNotificationBridgeCoordinator(
@@ -511,6 +509,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             viewModel.uiState.collect { state ->
                 NotificationReplyActions.onSelectedServerChanged(state.settings.serverUrl)
+                com.hermeswebui.android.notification.HermesNotificationSlot.selectServer(this@MainActivity, state.settings.serverUrl)
                 syncOngoingHermesNotification()
                 foregroundServiceCoordinator.onUiStateChanged(
                     state = state,
@@ -599,6 +598,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         activityVisible = false
+        syncOngoingHermesNotification()
         voiceCaptureGate.onStop()
         appUpdateCoordinator.cancelAutomaticAppUpdateCheck()
         val state = viewModel.uiState.value
@@ -1815,7 +1815,7 @@ class MainActivity : ComponentActivity() {
     private fun syncOngoingHermesNotification() {
         val state = viewModel.uiState.value
         notificationPresenter.syncOngoingNotification(
-            !isFinishing && state.settings.isConfigured &&
+            activityVisible && !isFinishing && state.settings.isConfigured &&
                 state.backgroundReconnectEnabled &&
                 webNotificationPermissionState() == "granted"
         )

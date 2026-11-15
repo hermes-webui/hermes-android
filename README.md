@@ -77,12 +77,17 @@ press-again-to-exit confirmation. Back never opens Application Settings.
 
 Open **Application Settings** even when the page fails to load from the
 launcher icon's long-press **Settings** shortcut or the **Edit server URL**
-button on the connection error screen. With **Ongoing Hermes notification**
-enabled and Android notifications allowed, a silent, minimized notification
-keeps **Settings** available while Hermes is open, including in the background.
-Expand the notification to see its action; long-pressing a notification opens
-Android's notification controls, not Application Settings. In WebUI, the
-sidebar entry still works too.
+button on the connection error screen. In **Application Settings > Notifications**,
+**While open or working** enables a silent Settings shortcut while Hermes is
+visible and background WebUI session monitoring. The idle shortcut disappears
+when you leave Hermes. Background work and the latest browser message share
+that same notification instead of adding another entry. Expand it to read the
+message and use **Reply** when supported; tapping opens the conversation.
+**Settings** becomes a compact cogwheel beside Reply, with the normal text label
+otherwise. Android controls the final action layout. **Android notification
+settings** opens the system controls for permission, sound and notification
+channels. Long-pressing an alert also opens Android's controls, not Application
+Settings. In WebUI, the sidebar entry still works too.
 
 Both frontends use the native upload picker, trusted HTTP(S) downloads,
 microphone permission handling, system-bar insets, pinch zoom, and Android
@@ -268,20 +273,29 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
 - Downloads save to the shared Download folder on Android 10+, so they appear in Files > Downloads
 - Share-to-app intake for text and files
 - Android-backed browser notifications for Hermes WebUI alerts
-- Optional silent, minimized **Ongoing Hermes notification** with a Settings
-  action, shared by both frontends. It stays when the app is backgrounded and
-  is removed when the activity finishes or the option is disabled. It adds no
-  idle foreground service and does not keep a killed process alive; Android
-  and the user still control notification dismissal.
+- One notification for the optional quiet Settings shortcut (only while
+  Hermes is visible), background WebUI monitoring/reconnect work, and the
+  latest browser message, shared by both frontends. Pending approvals take
+  priority over messages. Leaving the app removes the idle shortcut, not an
+  unread message or Android's required active-work notification. Disabling
+  **While open or working** turns off the shortcut and background monitoring,
+  not browser messages; use **Android notification settings** to mute those.
+  Update/download and opt-in debug-capture notifications remain separate.
+  No idle foreground service or process-survival guarantee is added.
 - WebUI browser alerts for an idle current session offer **Reply** directly
   in the notification. This uses the existing signed-in session cookie and
   WebUI chat endpoint; it does not open the app or replace a composer draft.
   Enable notifications in WebUI as well as Android. Replies expire after
   30 minutes, closing Hermes, a server switch, or process death; an expired
-  action asks you to open the conversation. Rejections and uncertain delivery
+  action cannot send; reopen the conversation instead. Stale actions cannot
+  replace a newer alert. Rejections and uncertain delivery
   are shown explicitly, with no automatic resend. WebView-only HTTP Basic
   credentials and client-certificate challenges cannot be reused by this
   cookie-backed native request. Official Webapp direct reply is not supported.
+  An alert received while approval is pending stays read-only even after the
+  approval clears: open the conversation to reply, rather than assuming it is
+  still idle. Unread text can survive process restart, but Reply actions cannot;
+  obsolete actions report that they are unavailable without replacing newer alerts.
 - Persistent authenticated session-stream monitoring (`/api/session/stream`) for trusted WebUI `/session/{id}` pages (including server mount prefixes), with reconnect polling fallback when live streaming is unavailable
 - Optional debug-log capture with persistent foreground notification and one-tap stop action
 - Channel-aware app updates: Play uses in-app update flow, GitHub APK builds download and hand off to installer in-app

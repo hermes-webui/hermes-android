@@ -11,11 +11,11 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.hermeswebui.android.MainActivity
 import com.hermeswebui.android.R
 import com.hermeswebui.android.launcher.AppShortcuts
+import com.hermeswebui.android.notification.HermesNotificationSlot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -111,14 +111,16 @@ class HermesReconnectService : Service() {
             isReconnecting = isReconnecting,
             approvalRequest = currentApprovalRequest
         )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                RECONNECT_NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(RECONNECT_NOTIFICATION_ID, notification)
+        HermesNotificationSlot.startService(this, notification, currentApprovalRequest != null) { combined ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    RECONNECT_NOTIFICATION_ID,
+                    combined,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(RECONNECT_NOTIFICATION_ID, combined)
+            }
         }
 
         if (intent?.action == ACTION_RESPOND_APPROVAL) {
@@ -147,7 +149,7 @@ class HermesReconnectService : Service() {
     override fun onDestroy() {
         cancelSessionStream()
         serviceScope.cancel()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        HermesNotificationSlot.stopService(this) { stopForeground(STOP_FOREGROUND_DETACH) }
         super.onDestroy()
     }
 
@@ -604,7 +606,8 @@ class HermesReconnectService : Service() {
             isReconnecting = isReconnecting,
             approvalRequest = update.approvalRequest
         )
-        NotificationManagerCompat.from(this).notify(RECONNECT_NOTIFICATION_ID, notification)
+        HermesNotificationSlot.updateService(this, notification, update.approvalRequest != null)
+        if (update.isTerminal) HermesNotificationSlot.showTerminal(this, notification, update.targetUrl, activeServerUrl)
     }
 
     @SuppressLint("MissingPermission")
@@ -624,7 +627,7 @@ class HermesReconnectService : Service() {
             isReconnecting = activeIsReconnecting,
             approvalRequest = approvalRequest
         )
-        NotificationManagerCompat.from(this).notify(RECONNECT_NOTIFICATION_ID, notification)
+        HermesNotificationSlot.updateService(this, notification, approvalRequest != null)
     }
 
     private fun markApprovalInFlight(approvalId: String): Boolean {
@@ -665,7 +668,7 @@ class HermesReconnectService : Service() {
         private const val EXTRA_APPROVAL_ID = "extra.APPROVAL_ID"
         private const val EXTRA_APPROVAL_CHOICE = "extra.APPROVAL_CHOICE"
         private const val HERMES_NOTIFICATION_CHANNEL_ID = "hermes_webui_notifications"
-        private const val RECONNECT_NOTIFICATION_ID = 20_001
+        private const val RECONNECT_NOTIFICATION_ID = HermesNotificationSlot.ID
         private const val SETTINGS_ACTION_REQUEST_CODE = 20_002
         private const val DEFAULT_POLL_INTERVAL_SECONDS = 1
         private const val MAX_RESPONDED_APPROVAL_HISTORY = 64

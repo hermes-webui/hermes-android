@@ -21,6 +21,8 @@ import com.hermeswebui.android.core.security.WebTrustPolicy
 import com.hermeswebui.android.data.AppSettings
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.ui.MainUiState
+import com.hermeswebui.android.notification.HermesNotificationPresenter
+import com.hermeswebui.android.notification.HermesNotificationSlot
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -96,6 +98,8 @@ class HermesSessionMonitorInstrumentationTest {
             CookieManager.getInstance().flush()
         }
         HermesReconnectService.stop(context)
+        HermesNotificationSlot.setOpen(context, null)
+        HermesNotificationSlot.dismiss(context, HermesNotificationSlot.currentMessageToken())
         eventually("Previous monitor removed") { notification() == null }
         // Keep separate fixtures out of Android's per-package notification update rate window.
         SystemClock.sleep(1_100)
@@ -106,6 +110,8 @@ class HermesSessionMonitorInstrumentationTest {
         try {
             if (::coordinator.isInitialized) onMain { coordinator.onActivityResumed() }
             HermesReconnectService.stop(context)
+            HermesNotificationSlot.setOpen(context, null)
+            HermesNotificationSlot.dismiss(context, HermesNotificationSlot.currentMessageToken())
             eventually("Monitor notification removed during cleanup") { notification() == null }
             if (::fixture.isInitialized) {
                 onMain {
@@ -119,6 +125,103 @@ class HermesSessionMonitorInstrumentationTest {
             if (createdChannel) notifications.deleteNotificationChannel(CHANNEL_ID)
         } finally {
             instrumentation.uiAutomation.dropShellPermissionIdentity()
+        }
+    }
+
+    @Test
+    fun terminalFailureReplacesOldMessageAndSurvivesStreamShutdown() {
+        onMain { coordinator.onActivityStopped(state, activityVisible = false) }
+        val stream = fixture.awaitStream(0)
+        awaitNotification()
+        HermesNotificationPresenter(context, CHANNEL_ID) { it == state.currentUrl }.showNotification(
+            JSONObject().put("title", "Older answer").put("options", JSONObject().put("body", "Old message")),
+            state.currentUrl, state.settings.serverUrl
+        )
+        awaitNotification("Old message")
+        SystemClock.sleep(1_100)
+        stream.event("turn_failed", """{"error":"Synthetic terminal failure"}""")
+        awaitNotification("Hermes reported an error: Synthetic terminal failure")
+        eventually("Terminal result remains after foreground teardown") {
+            notification()?.flags?.and(Notification.FLAG_ONGOING_EVENT) == 0
+        }
+        assertThat(notification()?.actions?.map { it.title.toString() }).containsExactly("Settings")
+    }
+
+    @Test
+    fun browserAlertsCannotHidePendingApprovalOrOfferReplyOverIt() {
+        onMain { coordinator.onActivityStopped(state, activityVisible = false) }
+        val stream = fixture.awaitStream(0)
+        awaitNotification()
+        stream.event(
+            "approval_required",
+            """{"approval_id":"approval-priority","description":"Choose before continuing","choices":["once","deny"]}"""
+        )
+        awaitNotification("Choose before continuing")
+        val presenter = HermesNotificationPresenter(context, CHANNEL_ID) { it == state.currentUrl }
+        presenter.showNotification(
+            JSONObject().put("title", "Agent").put("replyProfile", "work")
+                .put("replySessionId", "regression-123")
+                .put("options", JSONObject().put("body", "Browser alert")),
+            state.currentUrl, state.settings.serverUrl
+        )
+        SystemClock.sleep(300)
+        assertThat(notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString())
+            .isEqualTo("Choose before continuing")
+        assertThat(notification()?.actions?.map { it.title.toString() })
+            .containsExactly("Allow once", "Deny", "Settings").inOrder()
+        onMain { coordinator.onActivityResumed() }
+        assertThat(stream.closed.await(8, TimeUnit.SECONDS)).isTrue()
+        val remaining = awaitNotification("Browser alert")
+        assertThat(remaining.actions.map { it.title.toString() }).containsExactly("Settings")
+    }
+
+    @Test
+    fun browserMessageSharesForegroundServiceEntryAndSurvivesItsTeardown() {
+        onMain { coordinator.onActivityStopped(state, activityVisible = false) }
+        val stream = fixture.awaitStream(0)
+        awaitNotification()
+        val messageUrl = "${fixture.baseUrl}/session/other-conversation"
+        val presenter = HermesNotificationPresenter(context, CHANNEL_ID) { it == messageUrl }
+        presenter.showNotification(
+            JSONObject().put("title", "Agent").put("replyProfile", "work")
+                .put("replySessionId", "other-conversation")
+                .put("options", JSONObject().put("body", "Latest answer")),
+            messageUrl, state.settings.serverUrl
+        )
+        val message = awaitNotification("Latest answer")
+        assertThat(message.actions.map { it.title.toString() }).containsExactly("Reply", "⚙").inOrder()
+        assertThat(message.flags and Notification.FLAG_ONGOING_EVENT).isNotEqualTo(0)
+        assertThat(notifications.activeNotifications.count { it.id == NOTIFICATION_ID }).isEqualTo(1)
+        val postedAt = notifications.activeNotifications.single { it.id == NOTIFICATION_ID }.postTime
+        SystemClock.sleep(1_100)
+        stream.event("activity_summary", """{"summary":"Older monitoring status"}""")
+        SystemClock.sleep(300)
+        assertThat(notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()).isEqualTo("Latest answer")
+        assertThat(notifications.activeNotifications.single { it.id == NOTIFICATION_ID }.postTime).isEqualTo(postedAt)
+        onMain { coordinator.onActivityResumed() }
+        assertThat(stream.closed.await(8, TimeUnit.SECONDS)).isTrue()
+        eventually("Reply survives service teardown without ongoing flag") {
+            val current = notification()
+            current?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString() == "Latest answer" &&
+                current.flags and Notification.FLAG_ONGOING_EVENT == 0
+        }
+        assertThat(notification()?.actions?.map { it.title.toString() }).containsExactly("Reply", "⚙").inOrder()
+        assertThat(notification()!!.flags and Notification.FLAG_ONLY_ALERT_ONCE).isNotEqualTo(0)
+        var launched: com.hermeswebui.android.MainActivity? = null
+        try {
+            notification()!!.contentIntent.send()
+            eventually("Actual tap delivered to MainActivity") {
+                onMain {
+                    launched = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                        .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                        .filterIsInstance<com.hermeswebui.android.MainActivity>().firstOrNull()
+                }
+                launched != null
+            }
+            assertThat(launched!!.intent.getStringExtra(HermesNotificationPresenter.EXTRA_NOTIFICATION_URL)).isEqualTo(messageUrl)
+            assertThat(launched!!.intent.getStringExtra(HermesNotificationSlot.EXTRA_TOKEN)).isNotNull()
+        } finally {
+            onMain { launched?.finish() }
         }
     }
 
@@ -247,10 +350,15 @@ class HermesSessionMonitorInstrumentationTest {
             awaitNotification()
             if (index == 0) {
                 stream.event("turn_completed", """{"summary":"Synthetic turn finished"}""")
+                awaitNotification("Synthetic turn finished")
+                eventually("Completion remains without a foreground service") {
+                    notification()?.flags?.and(Notification.FLAG_ONGOING_EVENT) == 0
+                }
+                notification()!!.deleteIntent.send()
             } else {
                 stream.socket.close()
             }
-            eventually("Terminal or EOF removes notification") { notification() == null }
+            eventually("Dismissed terminal or EOF removes notification") { notification() == null }
             assertThat(stream.closed.await(8, TimeUnit.SECONDS)).isTrue()
             onMain { coordinator.onActivityResumed() }
         }

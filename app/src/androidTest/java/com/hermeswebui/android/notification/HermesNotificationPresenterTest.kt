@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.Context
 import android.app.Notification
 import android.app.NotificationManager
+import android.app.NotificationChannel
 import android.Manifest
 import android.os.SystemClock
 import androidx.lifecycle.Lifecycle
@@ -23,6 +24,7 @@ import org.junit.Test
 import org.junit.After
 import org.junit.Before
 import org.junit.runner.RunWith
+import org.json.JSONObject
 
 @RunWith(AndroidJUnit4::class)
 class HermesNotificationPresenterTest {
@@ -33,7 +35,6 @@ class HermesNotificationPresenterTest {
     private val presenter = HermesNotificationPresenter(
         context = InstrumentationRegistry.getInstrumentation().targetContext,
         channelId = "test",
-        notificationIdBase = 1,
         isTrustedTarget = { url -> url == trustedUrl }
     )
 
@@ -43,12 +44,16 @@ class HermesNotificationPresenterTest {
             "pm grant ${context.packageName} ${Manifest.permission.POST_NOTIFICATIONS}"
         ).close()
         presenter.cancelOngoingNotification()
+        HermesNotificationSlot.dismiss(context, HermesNotificationSlot.currentMessageToken())
+        manager.createNotificationChannel(NotificationChannel("test", "Test", NotificationManager.IMPORTANCE_LOW))
         awaitOngoingNotification(false)
+        SystemClock.sleep(1_100)
     }
 
     @After
     fun clearNotifications() {
         presenter.cancelOngoingNotification()
+        HermesNotificationSlot.dismiss(context, HermesNotificationSlot.currentMessageToken())
     }
 
     @Test
@@ -71,6 +76,111 @@ class HermesNotificationPresenterTest {
         awaitOngoingNotification(false)
     }
 
+    @Test
+    fun newestMessageReplacesShortcutAndOtherTagsAndOldDismissCannotEraseIt() {
+        presenter.syncOngoingNotification(true)
+        presenter.showNotification(
+            JSONObject().put("title", "First").put("options", JSONObject().put("tag", "first").put("body", "First message")),
+            trustedUrl
+        )
+        val oldToken = HermesNotificationSlot.currentMessageToken()
+        val oldTap = manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }.notification.contentIntent
+        SystemClock.sleep(1_100)
+        presenter.showNotification(
+            JSONObject().put("title", "Second").put("options", JSONObject().put("tag", "second").put("body", "Latest message")),
+            trustedUrl
+        )
+        HermesNotificationSlot.dismiss(context, oldToken)
+        awaitText("Latest message")
+        val entries = manager.activeNotifications.filter { it.id == HermesNotificationSlot.ID }
+        assertThat(entries).hasSize(1)
+        assertThat(entries.single().tag).isNull()
+        assertThat(entries.single().notification.contentIntent).isNotEqualTo(oldTap)
+        assertThat(entries.single().notification.actions.map { it.title.toString() }).containsExactly("Settings")
+        presenter.syncOngoingNotification(false)
+        awaitText("Latest message")
+        val latest = manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }.notification
+        latest.deleteIntent.send()
+        awaitOngoingNotification(false)
+        presenter.syncOngoingNotification(true)
+        awaitText("Expand for Settings, or tap to return to Hermes.")
+    }
+
+    @Test
+    fun processRestartPreservesUnreadTextButRemovesDeadReplyActions() {
+        val configured = SettingsRepository(context).getSettings("", "").serverUrl
+        val url = "https://hermes.example.com/session/chat"
+        val chat = HermesNotificationPresenter(context, "test") { it == url }
+        chat.showNotification(
+            JSONObject().put("title", "Unread").put("replyProfile", "work").put("replySessionId", "chat")
+                .put("options", JSONObject().put("body", "Retained answer")),
+            url, configured
+        )
+        awaitText("Retained answer")
+        assertThat(manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }
+            .notification.actions.any { !it.remoteInputs.isNullOrEmpty() }).isTrue()
+        listOf("message", "messageToken", "open", "service", "selectedServer", "lastPosted").forEach { name ->
+            HermesNotificationSlot::class.java.getDeclaredField(name).apply { isAccessible = true }
+                .set(HermesNotificationSlot, null)
+        }
+        HermesNotificationSlot::class.java.getDeclaredField("initialized").apply { isAccessible = true }
+            .setBoolean(HermesNotificationSlot, false)
+        NotificationReplyActions.clear()
+        HermesNotificationSlot.selectServer(context, configured)
+        presenter.syncOngoingNotification(false)
+        awaitText("Retained answer", withoutReply = true)
+        assertThat(manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }
+            .notification.actions.all { it.remoteInputs.isNullOrEmpty() }).isTrue()
+    }
+
+    @Test
+    fun replyUsesCompactSettingsAndTapCarriesTheTrustedConversation() {
+        val sessionUrl = "https://hermes.example.com/session/chat"
+        val chatPresenter = HermesNotificationPresenter(context, "test") { it == sessionUrl }
+        chatPresenter.showNotification(
+            JSONObject().put("title", "Agent").put("replyProfile", "work").put("replySessionId", "chat")
+                .put("options", JSONObject().put("body", "Latest answer").put("data", JSONObject().put("url", sessionUrl))),
+            sessionUrl, "https://hermes.example.com/"
+        )
+        awaitText("Latest answer")
+        val notification = manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }.notification
+        assertThat(notification.category).isEqualTo(Notification.CATEGORY_MESSAGE)
+        assertThat(notification.actions.map { it.title.toString() }).containsExactly("Reply", "⚙").inOrder()
+        assertThat(notification.actions.last().getIcon()).isNotNull()
+        assertThat(notification.visibility).isEqualTo(Notification.VISIBILITY_PRIVATE)
+        var launched: MainActivity? = null
+        try {
+            notification.contentIntent.send()
+            val deadline = SystemClock.uptimeMillis() + 5_000
+            while (launched == null && SystemClock.uptimeMillis() < deadline) {
+                instrumentation.runOnMainSync {
+                    launched = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                        .filterIsInstance<MainActivity>().firstOrNull()
+                }
+                SystemClock.sleep(25)
+            }
+            assertThat(launched).isNotNull()
+            assertThat(launched!!.intent.action).isEqualTo(HermesNotificationPresenter.ACTION_OPEN_NOTIFICATION_URL)
+            assertThat(chatPresenter.notificationTargetUrl(launched!!.intent)).isEqualTo(sessionUrl)
+        } finally {
+            instrumentation.runOnMainSync { launched?.finish() }
+        }
+        awaitOngoingNotification(false)
+    }
+
+    private fun awaitText(text: String, withoutReply: Boolean = false) {
+        val deadline = SystemClock.uptimeMillis() + 5_000
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (manager.activeNotifications.any {
+                it.id == HermesNotificationSlot.ID &&
+                    it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() == text &&
+                    (!withoutReply || it.notification.actions.all { action -> action.remoteInputs.isNullOrEmpty() })
+            }) return
+            SystemClock.sleep(25)
+        }
+        error("Notification did not show $text")
+    }
+
     private fun awaitOngoingNotification(expected: Boolean) {
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
@@ -83,7 +193,7 @@ class HermesNotificationPresenterTest {
     }
 
     @Test
-    fun activityKeepsSettingsNotificationInBackgroundAndRemovesItOnClose() {
+    fun activityRemovesIdleSettingsNotificationInBackgroundAndRestoresItOnReturn() {
         val preferences = context.getSharedPreferences("hermes_secure_prefs", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
         val loggingWasEnabled = SettingsRepository(context).isDebugLoggingEnabled()
@@ -106,6 +216,8 @@ class HermesNotificationPresenterTest {
                 }
                 awaitOngoingNotification(true)
                 scenario.moveToState(Lifecycle.State.CREATED)
+                awaitOngoingNotification(false)
+                scenario.moveToState(Lifecycle.State.RESUMED)
                 awaitOngoingNotification(true)
                 val notification = manager.activeNotifications.single {
                     it.id == HermesNotificationPresenter.ONGOING_NOTIFICATION_ID

@@ -1,4 +1,5 @@
 <resources>
+    <string name="notification_settings_compact">⚙</string>
     <string name="app_name">Hermes WebUI</string>
     <string name="setup_help_title">Need help setting up a server?</string>
     <string name="setup_help_hide">Hide server setup help</string>

@@ -1,6 +1,7 @@
 package com.hermeswebui.android.ui.settings
 
 import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -517,7 +518,7 @@ fun SettingsScreen(
                 WelcomeGuideEntry(onShowWelcome)
 
                 // ── Application ───────────────────────────────────────────
-                SectionHeader("Application")
+                SectionHeader("Notifications")
 
                 Box(
                     modifier = Modifier
@@ -528,16 +529,33 @@ fun SettingsScreen(
                 ) {
                     Column {
                         ListItem(
+                            headlineContent = { Text("Android notification settings", color = onSurface) },
+                            supportingContent = {
+                                Text(
+                                    "Allow or mute messages, sounds, badges and lock-screen previews.",
+                                    color = onSurfaceVar
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = surfaceColor),
+                            modifier = Modifier.clickable {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                )
+                            }
+                        )
+                        HorizontalDivider(color = outlineVar.copy(alpha = 0.5f))
+                        ListItem(
                             headlineContent = {
                                 Text(
-                                    "Ongoing Hermes notification",
+                                    "While open or working",
                                     color = onSurface,
                                     fontWeight = FontWeight.Medium
                                 )
                             },
                             supportingContent = {
                                 Text(
-                                    "Keep a quiet Settings shortcut while Hermes is open, including in the background. WebUI session monitoring still runs when available.",
+                                    "Show a quiet Settings shortcut while Hermes is visible and monitor WebUI sessions in the background. Messages replace the shortcut; no idle shortcut stays after leaving the app.",
                                     color = onSurfaceVar,
                                     style = MaterialTheme.typography.bodySmall
                                 )

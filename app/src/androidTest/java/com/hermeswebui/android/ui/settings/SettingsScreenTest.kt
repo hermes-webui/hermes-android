@@ -307,12 +307,36 @@ class SettingsScreenTest {
     }
 
     @Test
+    fun notificationControlsOpenAndroidSettingsForThisApp() {
+        renderConfiguredSettings(1)
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val opened = java.util.concurrent.atomic.AtomicReference<android.content.Intent>()
+        val monitor = object : android.app.Instrumentation.ActivityMonitor() {
+            override fun onStartActivity(intent: android.content.Intent): android.app.Instrumentation.ActivityResult? {
+                if (intent.action != android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS) return null
+                opened.set(android.content.Intent(intent))
+                return android.app.Instrumentation.ActivityResult(android.app.Activity.RESULT_CANCELED, null)
+            }
+        }
+        instrumentation.addMonitor(monitor)
+        try {
+            composeTestRule.onNodeWithText("Android notification settings").performScrollTo().performClick()
+            composeTestRule.waitUntil(5_000) { opened.get() != null }
+            assertThat(opened.get().getStringExtra(android.provider.Settings.EXTRA_APP_PACKAGE))
+                .isEqualTo(instrumentation.targetContext.packageName)
+            composeTestRule.onNodeWithText("While open or working").performScrollTo().assertIsDisplayed()
+        } finally {
+            instrumentation.removeMonitor(monitor)
+        }
+    }
+
+    @Test
     fun configuredSettings_showsTaskBasedSectionsAndOmitsSessionReset() {
         renderConfiguredSettings(1)
 
         listOf(
             "SERVERS",
-            "APPLICATION",
+            "NOTIFICATIONS",
             "UPDATES",
             "CONNECTION",
             "PRIVACY",

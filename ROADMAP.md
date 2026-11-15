@@ -3,11 +3,27 @@
 > Maintenance-focused Android wrapper for Hermes Web UI. The core wrapper is
 > good as-is; product UI and workflow changes belong in Hermes WebUI.
 >
-> Last updated: 2026-11-14
+> Last updated: 2026-11-15
 
 ---
 
 ## Status snapshot
+
+- [~] Notification consolidation ([#208](https://github.com/hermes-webui/hermes-android/issues/208)):
+  one shared entry for the visible-app Settings shortcut, active WebUI
+  monitoring/reconnect work and latest browser message. No idle shortcut
+  remains after the activity stops. Reply-eligible WebUI alerts use a compact
+  Settings cogwheel; other states retain the text label. Pending approvals
+  take precedence, service teardown preserves the latest message, and stale
+  dismissals/reply results cannot erase a newer alert. A dedicated Notifications
+  section links to Android's notification controls. Official Webapp direct
+  reply, persistent native chat history and combining update/debug notifications
+  are not included. Local verification passes 45 API 35 instrumentation cases,
+  JVM tests, lint, debug build, 121 tooling tests and Markdown checks. Deliberate
+  lifecycle, dismissal, approval-priority, teardown, action-label, tap-route,
+  passive-repost and Settings-target mutations failed before source restoration.
+  Independent review and PR CI are pending; release, live authenticated
+  conversation and physical/OEM acceptance are not claimed.
 
 - [x] Notification and Settings polish shipped in v1.3.3: a silent minimized Settings notification
   remains available while Hermes is open or backgrounded, without an idle

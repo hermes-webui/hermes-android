@@ -19,7 +19,6 @@ import org.json.JSONObject
 class HermesNotificationPresenter(
     private val context: Context,
     private val channelId: String,
-    private val notificationIdBase: Int,
     private val isTrustedTarget: (String?) -> Boolean
 ) {
     private var ongoingNotificationShown = false
@@ -52,8 +51,8 @@ class HermesNotificationPresenter(
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        manager.notify(
-            ONGOING_NOTIFICATION_ID,
+        HermesNotificationSlot.setOpen(
+            context,
             NotificationCompat.Builder(context, ONGOING_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(context.getString(R.string.ongoing_notification_title))
@@ -73,7 +72,7 @@ class HermesNotificationPresenter(
     }
 
     fun cancelOngoingNotification() {
-        NotificationManagerCompat.from(context).cancel(ONGOING_NOTIFICATION_ID)
+        HermesNotificationSlot.setOpen(context, null)
         ongoingNotificationShown = false
     }
 
@@ -92,6 +91,7 @@ class HermesNotificationPresenter(
 
     fun notificationTargetUrl(intent: Intent?): String? {
         if (intent?.action != ACTION_OPEN_NOTIFICATION_URL) return null
+        HermesNotificationSlot.dismiss(context, intent.getStringExtra(HermesNotificationSlot.EXTRA_TOKEN))
         return intent.getStringExtra(EXTRA_NOTIFICATION_URL)
             ?.takeIf(isTrustedTarget)
     }
@@ -107,50 +107,66 @@ class HermesNotificationPresenter(
             .takeIf { it.isNotBlank() }
             ?: context.getString(R.string.app_name)
         val body = options.optString("body").takeIf { it.isNotBlank() }
-        val tag = options.optString("tag").takeIf { it.isNotBlank() }
         val data = options.optJSONObject("data")
         val targetUrl = data
             ?.optString("url")
             ?.takeIf(isTrustedTarget)
             ?: fallbackTargetUrl?.takeIf(isTrustedTarget)
 
-        val pendingIntent = targetUrl?.let { buildNotificationPendingIntent(it, tag) }
-        val notificationId = notificationIdBase + ((tag ?: title).hashCode() and 0x0FFFFFFF)
-        NotificationReplyActions.invalidate(tag, notificationId)
+        val token = HermesNotificationSlot.newMessageToken()
+        val pendingIntent = targetUrl?.let { buildNotificationPendingIntent(it, token) }
+        val notificationId = HermesNotificationSlot.ID
+        NotificationReplyActions.invalidate(null, notificationId)
         val replyProfile = payload.optString("replyProfile").takeIf { it.isNotBlank() && it.length <= 128 }
+        val canReply = targetUrl != null && configuredServerUrl != null && replyProfile != null &&
+            !HermesNotificationSlot.hasPendingApproval() &&
+            ReconnectSessionStreamSupport.sessionIdFromUrl(targetUrl) == payload.optString("replySessionId") &&
+            payload.optString("replySessionId").isNotBlank()
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body ?: title)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: title))
             .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setDeleteIntent(HermesNotificationSlot.deleteIntent(context, token))
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setColor(ContextCompat.getColor(context, R.color.brand_sky))
-            .addAction(0, context.getString(R.string.reconnect_notification_action_settings), settingsPendingIntent())
             .apply {
-                if (targetUrl != null && configuredServerUrl != null && replyProfile != null &&
-                    ReconnectSessionStreamSupport.sessionIdFromUrl(targetUrl) == payload.optString("replySessionId") &&
-                    payload.optString("replySessionId").isNotBlank()) {
+                if (canReply) {
                     addAction(NotificationReplyActions.action(context, NotificationReplyTarget(
-                        configuredServerUrl, targetUrl, replyProfile, tag, notificationId
+                        configuredServerUrl, targetUrl, replyProfile, null, notificationId
                     )))
                 }
+                addAction(
+                    R.drawable.ic_settings,
+                    if (canReply) android.text.SpannableString(context.getString(R.string.notification_settings_compact)).apply {
+                        setSpan(
+                            android.text.style.TtsSpan.TextBuilder(
+                                context.getString(R.string.reconnect_notification_action_settings)
+                            ).build(), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                    }
+                    else context.getString(R.string.reconnect_notification_action_settings),
+                    settingsPendingIntent()
+                )
                 if (pendingIntent != null) {
                     setContentIntent(pendingIntent)
                 }
             }
             .build()
 
-        NotificationManagerCompat.from(context).notify(tag, notificationId, notification)
+        HermesNotificationSlot.showMessage(context, notification, token)
         true
     }
 
-    private fun buildNotificationPendingIntent(targetUrl: String, tag: String?): PendingIntent {
-        val requestCode = (tag ?: targetUrl).hashCode()
+    private fun buildNotificationPendingIntent(targetUrl: String, token: String): PendingIntent {
+        val requestCode = MESSAGE_REQUEST_CODE
         val intent = Intent(context, MainActivity::class.java).apply {
             action = ACTION_OPEN_NOTIFICATION_URL
             putExtra(EXTRA_NOTIFICATION_URL, targetUrl)
+            putExtra(HermesNotificationSlot.EXTRA_TOKEN, token)
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         return PendingIntent.getActivity(
@@ -162,8 +178,9 @@ class HermesNotificationPresenter(
     }
 
     companion object {
-        internal const val ONGOING_NOTIFICATION_ID = 20_002
+        internal const val ONGOING_NOTIFICATION_ID = HermesNotificationSlot.ID
         internal const val ONGOING_CHANNEL_ID = "hermes_open"
+        internal const val MESSAGE_REQUEST_CODE = 20_010
         private const val SETTINGS_REQUEST_CODE = 20_003
         const val ACTION_OPEN_NOTIFICATION_URL = "com.hermeswebui.android.OPEN_NOTIFICATION_URL"
         const val EXTRA_NOTIFICATION_URL = "com.hermeswebui.android.extra.NOTIFICATION_URL"

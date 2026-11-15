@@ -2,6 +2,7 @@ package com.hermeswebui.android.notification
 
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -13,6 +14,7 @@ internal object HermesNotificationSlot {
     const val ID = 20_001
     const val ACTION_DISMISS = "com.hermeswebui.android.DISMISS_NOTIFICATION"
     const val EXTRA_TOKEN = "notification_token"
+    const val EXTRA_SERVER = "notification_server"
     private var open: Notification? = null
     private var service: Notification? = null
     private var serviceHasApproval = false
@@ -21,8 +23,28 @@ internal object HermesNotificationSlot {
     private var selectedServer: String? = null
     private var lastPosted: Notification? = null
     private var lastOngoing = false
+    private var initialized = false
+
+    private fun restore(context: Context) {
+        if (initialized) return
+        initialized = true
+        val retained = context.getSystemService(NotificationManager::class.java).activeNotifications
+            .firstOrNull { it.id == ID && it.tag == null }?.notification ?: return
+        if (retained.category != Notification.CATEGORY_MESSAGE) return
+        val configured = com.hermeswebui.android.data.SettingsRepository(context).getSettings("", "").serverUrl
+        if (retained.extras.getString(EXTRA_SERVER) != configured) return
+        // Reply targets are deliberately process-local; preserve the unread text, not dead actions.
+        message = Notification.Builder.recoverBuilder(context, retained)
+            .setActions(*retained.actions.orEmpty().filter {
+                it.remoteInputs.isNullOrEmpty()
+            }.toTypedArray())
+            .setOngoing(false)
+            .build()
+        messageToken = retained.extras.getString(EXTRA_TOKEN)
+    }
 
     fun setOpen(context: Context, notification: Notification?) = synchronized(NotificationReplyActions) {
+        restore(context)
         if (open === notification && notification != null) return@synchronized
         open = notification
         render(context)
@@ -45,6 +67,7 @@ internal object HermesNotificationSlot {
 
     fun showMessage(context: Context, notification: Notification, token: String) =
         synchronized(NotificationReplyActions) {
+            restore(context)
             message = notification
             messageToken = token
             render(context)
@@ -57,6 +80,11 @@ internal object HermesNotificationSlot {
     }
 
     fun selectServer(context: Context, serverUrl: String) = synchronized(NotificationReplyActions) {
+        if (selectedServer == null) {
+            restore(context)
+            selectedServer = serverUrl
+            return@synchronized
+        }
         if (selectedServer == serverUrl) return@synchronized
         selectedServer = serverUrl
         clearMessage()
@@ -71,6 +99,7 @@ internal object HermesNotificationSlot {
         promote: (Notification) -> Unit
     ) =
         synchronized(NotificationReplyActions) {
+            restore(context)
             if (hasApproval) clearMessage()
             service = notification
             serviceHasApproval = hasApproval
@@ -106,6 +135,37 @@ internal object HermesNotificationSlot {
         render(context)
     }
 
+    fun showTerminal(
+        context: Context,
+        notification: Notification,
+        targetUrl: String?,
+        serverUrl: String?
+    ) = synchronized(NotificationReplyActions) {
+        clearMessage()
+        val token = newMessageToken()
+        messageToken = token
+        message = Notification.Builder.recoverBuilder(context, notification)
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .setContentIntent(PendingIntent.getActivity(
+                context, HermesNotificationPresenter.MESSAGE_REQUEST_CODE,
+                Intent(context, com.hermeswebui.android.MainActivity::class.java).apply {
+                    action = HermesNotificationPresenter.ACTION_OPEN_NOTIFICATION_URL
+                    data = android.net.Uri.parse("hermes-notification:$token")
+                    putExtra(HermesNotificationPresenter.EXTRA_NOTIFICATION_URL, targetUrl)
+                    putExtra(EXTRA_TOKEN, token)
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            ))
+            .setDeleteIntent(deleteIntent(context, token))
+            .addExtras(android.os.Bundle().apply {
+                putString(EXTRA_TOKEN, token)
+                putString(EXTRA_SERVER, serverUrl)
+            })
+            .build()
+        render(context)
+    }
+
     private fun clearMessage() {
         message = null
         messageToken = null
@@ -128,6 +188,7 @@ internal object HermesNotificationSlot {
 
     @SuppressLint("MissingPermission")
     private fun render(context: Context) {
+        restore(context)
         val manager = NotificationManagerCompat.from(context)
         val selected = selected()
         val ongoing = service != null || (selected != null && selected === open)

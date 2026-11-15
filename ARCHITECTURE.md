@@ -65,7 +65,13 @@ Recent cleanup keeps `MainActivity` as the Android boundary while moving cluster
   use the reply-action lock. Teardown detaches rather than removing the shared
   notification, then restores the unread message or visible-app fallback.
   Per-message delete/tap tokens fence stale dismissals, and server changes
-  clear unread content. A reply-eligible browser alert uses a compact Settings
+  clear unread content. On process restart the slot reconciles Android's retained
+  message only for the configured server, strips dead inline actions and keeps
+  unread text; expired actions report unavailable without replacing newer alerts.
+  Terminal stream results replace older unread messages and survive teardown.
+  Passive stream status does not repeatedly repost an unread message.
+  Alerts received during approval remain read-only rather than restoring Reply
+  without fresh idle-session evidence. A reply-eligible browser alert uses a compact Settings
   cogwheel with a speech label; other states keep the Settings text.
   Android owns final action rendering. This adds no idle service, persistent
   chat history, process-survival guarantee, or new Webapp reply protocol.

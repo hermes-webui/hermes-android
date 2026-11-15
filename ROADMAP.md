@@ -18,11 +18,15 @@
   dismissals/reply results cannot erase a newer alert. A dedicated Notifications
   section links to Android's notification controls. Official Webapp direct
   reply, persistent native chat history and combining update/debug notifications
-  are not included. Local verification passes 45 API 35 instrumentation cases,
+  are not included. Local verification passes 47 API 35 instrumentation cases,
   JVM tests, lint, debug build, 121 tooling tests and Markdown checks. Deliberate
   lifecycle, dismissal, approval-priority, teardown, action-label, tap-route,
   passive-repost and Settings-target mutations failed before source restoration.
-  Independent review and PR CI are pending; release, live authenticated
+  Independent review identified process-restart retention, unavailable reply
+  feedback, stale tap identity and hidden terminal-result gaps; fixes and
+  regression checks are included. Alerts received during approval intentionally
+  remain read-only until reopened, because idle-session eligibility is no longer
+  proven. Final review and PR CI are pending; release, live authenticated
   conversation and physical/OEM acceptance are not claimed.
 
 - [x] Notification and Settings polish shipped in v1.3.3: a silent minimized Settings notification

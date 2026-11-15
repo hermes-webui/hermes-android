@@ -84,6 +84,7 @@ class HermesNotificationPresenterTest {
             trustedUrl
         )
         val oldToken = HermesNotificationSlot.currentMessageToken()
+        val oldTap = manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }.notification.contentIntent
         SystemClock.sleep(1_100)
         presenter.showNotification(
             JSONObject().put("title", "Second").put("options", JSONObject().put("tag", "second").put("body", "Latest message")),
@@ -94,6 +95,7 @@ class HermesNotificationPresenterTest {
         val entries = manager.activeNotifications.filter { it.id == HermesNotificationSlot.ID }
         assertThat(entries).hasSize(1)
         assertThat(entries.single().tag).isNull()
+        assertThat(entries.single().notification.contentIntent).isNotEqualTo(oldTap)
         assertThat(entries.single().notification.actions.map { it.title.toString() }).containsExactly("Settings")
         presenter.syncOngoingNotification(false)
         awaitText("Latest message")
@@ -102,6 +104,33 @@ class HermesNotificationPresenterTest {
         awaitOngoingNotification(false)
         presenter.syncOngoingNotification(true)
         awaitText("Expand for Settings, or tap to return to Hermes.")
+    }
+
+    @Test
+    fun processRestartPreservesUnreadTextButRemovesDeadReplyActions() {
+        val configured = SettingsRepository(context).getSettings("", "").serverUrl
+        val url = "https://hermes.example.com/session/chat"
+        val chat = HermesNotificationPresenter(context, "test") { it == url }
+        chat.showNotification(
+            JSONObject().put("title", "Unread").put("replyProfile", "work").put("replySessionId", "chat")
+                .put("options", JSONObject().put("body", "Retained answer")),
+            url, configured
+        )
+        awaitText("Retained answer")
+        assertThat(manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }
+            .notification.actions.any { !it.remoteInputs.isNullOrEmpty() }).isTrue()
+        listOf("message", "messageToken", "open", "service", "selectedServer", "lastPosted").forEach { name ->
+            HermesNotificationSlot::class.java.getDeclaredField(name).apply { isAccessible = true }
+                .set(HermesNotificationSlot, null)
+        }
+        HermesNotificationSlot::class.java.getDeclaredField("initialized").apply { isAccessible = true }
+            .setBoolean(HermesNotificationSlot, false)
+        NotificationReplyActions.clear()
+        HermesNotificationSlot.selectServer(context, configured)
+        presenter.syncOngoingNotification(false)
+        awaitText("Retained answer")
+        assertThat(manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }
+            .notification.actions.all { it.remoteInputs.isNullOrEmpty() }).isTrue()
     }
 
     @Test

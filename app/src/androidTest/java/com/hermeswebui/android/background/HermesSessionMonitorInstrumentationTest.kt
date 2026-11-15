@@ -129,6 +129,25 @@ class HermesSessionMonitorInstrumentationTest {
     }
 
     @Test
+    fun terminalFailureReplacesOldMessageAndSurvivesStreamShutdown() {
+        onMain { coordinator.onActivityStopped(state, activityVisible = false) }
+        val stream = fixture.awaitStream(0)
+        awaitNotification()
+        HermesNotificationPresenter(context, CHANNEL_ID) { it == state.currentUrl }.showNotification(
+            JSONObject().put("title", "Older answer").put("options", JSONObject().put("body", "Old message")),
+            state.currentUrl, state.settings.serverUrl
+        )
+        awaitNotification("Old message")
+        SystemClock.sleep(1_100)
+        stream.event("turn_failed", """{"error":"Synthetic terminal failure"}""")
+        awaitNotification("Hermes reported an error: Synthetic terminal failure")
+        eventually("Terminal result remains after foreground teardown") {
+            notification()?.flags?.and(Notification.FLAG_ONGOING_EVENT) == 0
+        }
+        assertThat(notification()?.actions?.map { it.title.toString() }).containsExactly("Settings")
+    }
+
+    @Test
     fun browserAlertsCannotHidePendingApprovalOrOfferReplyOverIt() {
         onMain { coordinator.onActivityStopped(state, activityVisible = false) }
         val stream = fixture.awaitStream(0)
@@ -331,10 +350,15 @@ class HermesSessionMonitorInstrumentationTest {
             awaitNotification()
             if (index == 0) {
                 stream.event("turn_completed", """{"summary":"Synthetic turn finished"}""")
+                awaitNotification("Synthetic turn finished")
+                eventually("Completion remains without a foreground service") {
+                    notification()?.flags?.and(Notification.FLAG_ONGOING_EVENT) == 0
+                }
+                notification()!!.deleteIntent.send()
             } else {
                 stream.socket.close()
             }
-            eventually("Terminal or EOF removes notification") { notification() == null }
+            eventually("Dismissed terminal or EOF removes notification") { notification() == null }
             assertThat(stream.closed.await(8, TimeUnit.SECONDS)).isTrue()
             onMain { coordinator.onActivityResumed() }
         }

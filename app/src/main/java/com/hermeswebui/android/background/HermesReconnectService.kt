@@ -607,6 +607,7 @@ class HermesReconnectService : Service() {
             approvalRequest = update.approvalRequest
         )
         HermesNotificationSlot.updateService(this, notification, update.approvalRequest != null)
+        if (update.isTerminal) HermesNotificationSlot.showTerminal(this, notification, update.targetUrl, activeServerUrl)
     }
 
     @SuppressLint("MissingPermission")

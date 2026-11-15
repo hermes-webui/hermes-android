@@ -292,6 +292,10 @@ If a change belongs to Hermes everywhere, it belongs in WebUI first.
   are shown explicitly, with no automatic resend. WebView-only HTTP Basic
   credentials and client-certificate challenges cannot be reused by this
   cookie-backed native request. Official Webapp direct reply is not supported.
+  An alert received while approval is pending stays read-only even after the
+  approval clears: open the conversation to reply, rather than assuming it is
+  still idle. Unread text can survive process restart, but Reply actions cannot;
+  obsolete actions report that they are unavailable without replacing newer alerts.
 - Persistent authenticated session-stream monitoring (`/api/session/stream`) for trusted WebUI `/session/{id}` pages (including server mount prefixes), with reconnect polling fallback when live streaming is unavailable
 - Optional debug-log capture with persistent foreground notification and one-tap stop action
 - Channel-aware app updates: Play uses in-app update flow, GitHub APK builds download and hand off to installer in-app

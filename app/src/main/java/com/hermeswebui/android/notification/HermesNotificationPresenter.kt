@@ -123,6 +123,10 @@ class HermesNotificationPresenter(
             ReconnectSessionStreamSupport.sessionIdFromUrl(targetUrl) == payload.optString("replySessionId") &&
             payload.optString("replySessionId").isNotBlank()
         val notification = NotificationCompat.Builder(context, channelId)
+            .addExtras(android.os.Bundle().apply {
+                putString(HermesNotificationSlot.EXTRA_TOKEN, token)
+                putString(HermesNotificationSlot.EXTRA_SERVER, configuredServerUrl)
+            })
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body ?: title)
@@ -165,6 +169,7 @@ class HermesNotificationPresenter(
         val requestCode = MESSAGE_REQUEST_CODE
         val intent = Intent(context, MainActivity::class.java).apply {
             action = ACTION_OPEN_NOTIFICATION_URL
+            data = android.net.Uri.parse("hermes-notification:$token")
             putExtra(EXTRA_NOTIFICATION_URL, targetUrl)
             putExtra(HermesNotificationSlot.EXTRA_TOKEN, token)
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP

@@ -152,11 +152,17 @@ class HermesNotificationReplyReceiver : BroadcastReceiver() {
     ) = synchronized(NotificationReplyActions) {
         if (target == null || !NotificationReplyActions.isCurrent(target)) {
             android.util.Log.w("HermesNotificationReply", "Ignored expired or replaced reply action")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    context, R.string.notification_reply_expired, android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
             return@synchronized
         }
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             action = HermesNotificationPresenter.ACTION_OPEN_NOTIFICATION_URL
+            data = Uri.parse("hermes-notification:${HermesNotificationSlot.currentMessageToken()}")
             putExtra(HermesNotificationPresenter.EXTRA_NOTIFICATION_URL, target.targetUrl)
             putExtra(HermesNotificationSlot.EXTRA_TOKEN, HermesNotificationSlot.currentMessageToken())
         }
@@ -167,6 +173,11 @@ class HermesNotificationReplyReceiver : BroadcastReceiver() {
         HermesNotificationSlot.showReplyResult(
             context,
             NotificationCompat.Builder(context, "hermes_webui_notifications")
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .addExtras(android.os.Bundle().apply {
+                    putString(HermesNotificationSlot.EXTRA_TOKEN, HermesNotificationSlot.currentMessageToken())
+                    putString(HermesNotificationSlot.EXTRA_SERVER, target.serverUrl)
+                })
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(context.getString(R.string.notification_reply_action))
                 .setContentText(body)

@@ -20,6 +20,7 @@ import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsClient
 import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.FileProvider
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -51,6 +52,7 @@ import com.hermeswebui.android.data.HermesApiClient
 import com.hermeswebui.android.data.SettingsRepository
 import com.hermeswebui.android.data.ServerType
 import com.hermeswebui.android.data.DiagnosticsLogger
+import com.hermeswebui.android.core.security.ProxyAuthNavigation
 import com.hermeswebui.android.background.HermesDebugLoggingService
 import com.hermeswebui.android.notification.HermesNotificationPresenter
 import com.hermeswebui.android.ui.MainViewModel
@@ -2352,6 +2354,82 @@ class ProxyAuthRedirectInstrumentationTest {
         }
     }
 
+    @Test
+    fun proxyGatewayOidc_sameOriginAuthorizationRedirect_continuesInApp() {
+        withConfiguredServer(gatewayOidc = true, gatewayAuthorizationRedirect = true) { server, repository ->
+            repository.setBrowserSignInEnabled(true)
+            fun trustedStarts() = DiagnosticsLogger.recentText(context).lineSequence()
+                .count { it.contains("browser_sign_in") && it.contains("reason=trusted_start_requires_in_app") }
+            val before = trustedStarts()
+            assertGatewayOidcSignInStaysInApp(server, repository)
+            assertThat(trustedStarts()).isGreaterThan(before)
+        }
+    }
+
+    @Test
+    fun proxyGatewayOidc_sameOriginAuthorization_keepsStartInWebViewWhenBrowserSupportsAuthTab() {
+        withConfiguredServer(gatewayOidc = true) { server, repository ->
+            repository.setBrowserSignInEnabled(true)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                awaitText("Continue to server sign-in?")
+                clickDialogButton("Continue")
+                awaitDomControl(scenario, server.loginOrigin, "provider")
+                scenario.onActivity { activity ->
+                    val browser = CustomTabsClient.getPackageName(activity, null)
+                    assumeTrue(
+                        "A default browser with Auth Tab support is required",
+                        browser != null && CustomTabsClient.isAuthTabSupported(activity, browser)
+                    )
+                    val gateway = "https://gateway.example.test"
+                    val url = "$gateway/authorize?response_type=code&client_id=fixture" +
+                        "&redirect_uri=${Uri.encode("$gateway/callback")}&state=fixture"
+                    val navigation = MainActivity::class.java.getDeclaredField("proxyAuthNavigation").apply {
+                        isAccessible = true
+                    }.get(activity) as ProxyAuthNavigation
+                    navigation.begin(server.baseUrl, gateway)
+                    MainActivity::class.java.getDeclaredField("lastMainFrameHopUrl").apply {
+                        isAccessible = true
+                        set(activity, "$gateway/login")
+                    }
+                    var launched: Intent? = null
+                    val launcher = object : ActivityResultLauncher<Intent>() {
+                        override fun launch(input: Intent, options: ActivityOptionsCompat?) {
+                            launched = input
+                        }
+                        override fun unregister() = Unit
+                        override val contract: ActivityResultContract<Intent, *> =
+                            ActivityResultContracts.StartActivityForResult()
+                    }
+                    MainActivity::class.java.getDeclaredField("authTabLauncher").apply {
+                        isAccessible = true
+                        set(activity, launcher)
+                    }
+                    val flow = checkNotNull(OAuthPopupFlow.parseAuthorizationStart(url))
+                    val launch = MainActivity::class.java.getDeclaredMethod(
+                        "launchBrowserSignIn", OAuthPopupFlow::class.java, String::class.java
+                    ).apply { isAccessible = true }
+                    assertThat(launch.invoke(activity, flow, url)).isEqualTo(false)
+                    assertThat(launched).isNull()
+                    val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
+                    val request = object : WebResourceRequest {
+                        override fun getUrl(): Uri = Uri.parse(url)
+                        override fun isForMainFrame(): Boolean = true
+                        override fun isRedirect(): Boolean = false
+                        override fun hasGesture(): Boolean = true
+                        override fun getMethod(): String = "GET"
+                        override fun getRequestHeaders(): Map<String, String> = emptyMap()
+                    }
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, request)).isFalse()
+                    assertThat(launched).isNull()
+                    val activeFlow = MainActivity::class.java.getDeclaredField("activeMainFrameOAuthFlow").apply {
+                        isAccessible = true
+                    }.get(activity)
+                    assertThat(activeFlow).isNotNull()
+                }
+            }
+        }
+    }
+
     private fun assertGatewayOidcSignInStaysInApp(server: ProxyServer, repository: SettingsRepository) {
         val externalized = CopyOnWriteArrayList<String>()
         val monitor = recordExternalViews(externalized)
@@ -2562,7 +2640,8 @@ class ProxyAuthRedirectInstrumentationTest {
             evaluateWebView(
                 scenario,
                 "document.readyState === 'complete' && location.origin === ${JSONObject.quote(origin)} && " +
-                    "document.getElementById(${JSONObject.quote(id)}) !== null"
+                    "document.getElementById(${JSONObject.quote(id)}) !== null",
+                requireCallback = false
             ) == "true"
         }
     }
@@ -2589,6 +2668,7 @@ class ProxyAuthRedirectInstrumentationTest {
         basicAuth: Boolean = false,
         publicStatus: Boolean = false,
         gatewayOidc: Boolean = false,
+        gatewayAuthorizationRedirect: Boolean = false,
         block: (ProxyServer, SettingsRepository) -> Unit
     ) {
         // Restore the exact encrypted backing preferences, including keysets, after the test.
@@ -2600,7 +2680,8 @@ class ProxyAuthRedirectInstrumentationTest {
             oidc = oidc,
             basicAuth = basicAuth,
             publicStatus = publicStatus,
-            gatewayOidc = gatewayOidc
+            gatewayOidc = gatewayOidc,
+            gatewayAuthorizationRedirect = gatewayAuthorizationRedirect
         ).use { server ->
             try {
                 val repository = SettingsRepository(context)
@@ -2786,6 +2867,7 @@ class ProxyAuthRedirectInstrumentationTest {
         private val basicCredentials: String = "test-user:test-pass",
         private val publicStatus: Boolean = false,
         private val gatewayOidc: Boolean = false,
+        private val gatewayAuthorizationRedirect: Boolean = false,
         port: Int = 0
     ) : AutoCloseable {
         data class Request(val path: String, val host: String, val cookie: String, val authorization: String)
@@ -2890,10 +2972,12 @@ class ProxyAuthRedirectInstrumentationTest {
                         // cookie, sends the user to a provider on another origin, and rejects a callback
                         // that arrives without that cookie.
                         gatewayOidc && path == "/login" -> Triple("200 OK",
-                            "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\n", """
+                            if (gatewayAuthorizationRedirect) "" else "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\n", """
                             <title>Gateway sign-in</title>
-                            <button id="provider" onclick="location.href='$providerOrigin/gw/authorize?response_type=code&client_id=gateway&redirect_uri=${java.net.URLEncoder.encode("$loginOrigin/gw/callback", "UTF-8")}&state=gw1'">Sign in with provider</button>
+                            <button id="provider" onclick="location.href='${if (gatewayAuthorizationRedirect) "$loginOrigin/gw/start" else "$providerOrigin/gw/authorize"}?response_type=code&client_id=gateway&redirect_uri=${java.net.URLEncoder.encode("$loginOrigin/gw/callback", "UTF-8")}&state=gw1'">Sign in with provider</button>
                         """.trimIndent())
+                        gatewayOidc && path == "/gw/start" ->
+                            Triple("302 Found", "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\nLocation: $providerOrigin/gw/authorize\r\n", "")
                         gatewayOidc && path == "/gw/authorize" -> Triple("200 OK", "", """
                             <title>Provider sign-in</title>
                             <button id="approve" onclick="location.href='$loginOrigin/gw/callback?code=abc&state=gw1'">Approve</button>

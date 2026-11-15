@@ -46,14 +46,14 @@
   provider, and Digital Asset Links on the identity-provider sign-in domain
   for the exact app package/signing certificate. The separate blank
   Dashboard-after-Basic-login symptom is linked to Hermes Agent issue
-  [#142352](https://github.com/NousResearch/hermes-agent/issues/142352); a
+  [#124325](https://github.com/NousResearch/hermes-agent/issues/124325); a
   shared root cause is not established. The reporter still cannot complete
   Pocket ID passkey sign-in on v1.2.2; Pocket ID may reject Android-app
   WebAuthn origins even with an association
   ([pocket-id/pocket-id#1845](https://github.com/pocket-id/pocket-id/issues/1845)).
-  No live Pocket ID flow has been verified. Issue #190 addresses an
-  Android-side viewport collapse that can blank a Dashboard used as the
-  server URL; the reporter's setup is still to be confirmed.
+  The reporter verified the cross-device QR flow in v1.3.1, but direct
+  WebView passkeys remain unsupported. The reporter also confirmed Dashboard
+  access using the `/sessions` workaround; the root route remains upstream.
 - [~] Issue #184 follow-up: proxy-gateway OAuth and optional **Sign in with
   Chrome**. A sign-in gateway approved through proxy consent (for example
   TinyAuth) may start OIDC whose callback returns to that exact gateway origin;
@@ -63,8 +63,13 @@
   back in the WebView; it needs Chrome 137+, an https callback, and
   assetlinks.json on the callback host for the installed package/signing key,
   and falls back to in-app sign-in otherwise. API 35 loopback tests cover the
-  in-app gateway flow and the http-callback fallback; a real Auth Tab round trip,
-  live TinyAuth/Pocket ID, and reporter acceptance are not verified.
+  in-app gateway flow and the http-callback fallback. Recognized authorization
+  starts on a consent-allowed origin now establish an in-app flow before a
+  provider redirect, preserving cookies created by the start request. They
+  cannot safely be sent straight to Chrome, which has a separate cookie store.
+  Fixed diagnostic reason codes explain recognized fallback cases without
+  recording URLs or OAuth parameters. A real Auth Tab round trip and reporter
+  acceptance remain unverified; the reported cause has not been established.
 - [~] Issue #184 follow-up: the app no longer remembers credentials entered in
   the HTTP Basic prompt or supplies previously remembered credentials. Legacy
   encrypted data remains unused until explicitly deleted via **Forget saved

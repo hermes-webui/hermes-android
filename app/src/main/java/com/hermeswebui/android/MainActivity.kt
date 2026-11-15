@@ -1087,8 +1087,11 @@ class MainActivity : ComponentActivity() {
                     val handled = if (request.isForMainFrame && proxyAuthNavigation.allows(serverUrl, target)) {
                         // Consent-allowed callbacks bypass handleMainWebViewNavigation, but must still
                         // end the in-app OAuth flow so later external links are externalized.
-                        completeMainFrameOAuthIfCallback(target)
-                        false
+                        when {
+                            completeMainFrameOAuthIfCallback(target) -> false
+                            parseTrustedOAuthStart(target) != null -> handleMainWebViewNavigation(target)
+                            else -> false
+                        }
                     } else {
                         handleMainWebViewNavigation(target)
                     }
@@ -2549,12 +2552,16 @@ class MainActivity : ComponentActivity() {
     /** Opens a trusted OAuth start in a Chrome Auth Tab when the user opted in and Chrome supports it. */
     private fun launchBrowserSignIn(flow: OAuthPopupFlow, authorizeUrl: String): Boolean {
         if (!settingsRepository.isBrowserSignInEnabled()) return false
+        fun fallback(reason: String): Boolean {
+            DiagnosticsLogger.record(this, "browser_sign_in", mapOf("event" to "fallback", "reason" to reason))
+            return false
+        }
         // Nested authorizations inside an in-app flow, including after "Continue in app", stay in the app.
-        if (activeMainFrameOAuthFlow != null) return false
-        val callback = BrowserSignIn.authTabCallback(flow.redirectUri) ?: return false
-        val browserPackage = CustomTabsClient.getPackageName(this, null) ?: return false
+        if (activeMainFrameOAuthFlow != null) return fallback("in_app_flow_active")
+        val callback = BrowserSignIn.authTabCallback(flow.redirectUri) ?: return fallback("unsupported_callback")
+        val browserPackage = CustomTabsClient.getPackageName(this, null) ?: return fallback("browser_unavailable")
         // An unsupported browser would silently open a plain Custom Tab that can never return the callback.
-        if (!CustomTabsClient.isAuthTabSupported(this, browserPackage)) return false
+        if (!CustomTabsClient.isAuthTabSupported(this, browserPackage)) return fallback("auth_tab_unsupported")
         val authTab = AuthTabIntent.Builder().build()
         authTab.intent.setPackage(browserPackage)
         pendingBrowserSignIn = PendingBrowserSignIn(flow, authorizeUrl, viewModel.uiState.value.settings.serverUrl)
@@ -2567,7 +2574,7 @@ class MainActivity : ComponentActivity() {
             true
         } catch (_: ActivityNotFoundException) {
             pendingBrowserSignIn = null
-            false
+            fallback("browser_launch_failed")
         }
     }
 

@@ -324,7 +324,10 @@ stays in the main WebView, so the gateway's state cookie is present at its
 callback; externalizing it broke the gateway sign-in. Consent-allowed navigations
 skip `handleMainWebViewNavigation`, so `shouldOverrideUrlLoading` still runs the
 verified-callback check on them and ends the in-app OAuth flow; otherwise later
-non-allowlisted links would load in-app until the flow timeout.
+non-allowlisted links would load in-app until the flow timeout. A recognized
+authorization start on an approved origin goes through the normal OAuth handler
+before the consent shortcut, so it can launch Auth Tab or establish an in-app
+flow before a redirect to the provider.
 
 ### Sign in with Chrome (Auth Tab)
 
@@ -347,6 +350,9 @@ WebView cookies, so the callback must establish the WebView session itself. The
 Settings action copies an `assetlinks.json` built from the installed package name
 and runtime signing-certificate SHA-256 fingerprints, so each channel (Play
 App Signing, GitHub, F-Droid, debug) gets its own entry.
+When the setting is enabled and a recognized authorization falls back, the
+diagnostic breadcrumb records a fixed reason code without URLs or OAuth parameters.
+An unrecognized authorization request cannot produce this breadcrumb.
 
 ## Build and release flow
 

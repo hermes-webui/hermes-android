@@ -2404,6 +2404,12 @@ class ProxyAuthRedirectInstrumentationTest {
                         isAccessible = true
                         set(activity, launcher)
                     }
+                    val flow = checkNotNull(OAuthPopupFlow.parseAuthorizationStart(url))
+                    val launch = MainActivity::class.java.getDeclaredMethod(
+                        "launchBrowserSignIn", OAuthPopupFlow::class.java, String::class.java
+                    ).apply { isAccessible = true }
+                    assertThat(launch.invoke(activity, flow, url)).isEqualTo(false)
+                    assertThat(launched).isNull()
                     val webView = checkNotNull(findWebView(activity.findViewById(android.R.id.content)))
                     val request = object : WebResourceRequest {
                         override fun getUrl(): Uri = Uri.parse(url)

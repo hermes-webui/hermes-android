@@ -2568,6 +2568,9 @@ class MainActivity : ComponentActivity() {
         }
         // Nested authorizations inside an in-app flow, including after "Continue in app", stay in the app.
         if (activeMainFrameOAuthFlow != null) return fallback("in_app_flow_active")
+        if (proxyAuthNavigation.allows(viewModel.uiState.value.settings.serverUrl, authorizeUrl)) {
+            return fallback("trusted_start_requires_in_app")
+        }
         val callback = BrowserSignIn.authTabCallback(flow.redirectUri) ?: return fallback("unsupported_callback")
         val browserPackage = CustomTabsClient.getPackageName(this, null) ?: return fallback("browser_unavailable")
         // An unsupported browser would silently open a plain Custom Tab that can never return the callback.

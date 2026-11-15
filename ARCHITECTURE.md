@@ -328,6 +328,8 @@ non-allowlisted links would load in-app until the flow timeout. A recognized
 authorization start on an approved origin establishes an in-app flow before
 the consent shortcut. Its response may set the callback's state cookie, so the
 start stays in WebView rather than launching it in Chrome's separate cookie store.
+The same browser-launch guard keeps a popup start on a consent-allowed origin
+in the main WebView, where its response can establish that cookie.
 
 ### Sign in with Chrome (Auth Tab)
 

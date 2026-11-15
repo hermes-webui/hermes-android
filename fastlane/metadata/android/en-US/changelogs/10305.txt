@@ -1,0 +1,2 @@
+Combine Hermes messages and background-work notifications, without an idle background shortcut.
+Add notification controls and compact Settings access beside supported WebUI replies.

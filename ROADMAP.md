@@ -64,11 +64,11 @@
   assetlinks.json on the callback host for the installed package/signing key,
   and falls back to in-app sign-in otherwise. API 35 loopback tests cover the
   in-app gateway flow and the http-callback fallback. Recognized authorization
-  starts on a consent-allowed origin now reach the OAuth handler rather than
-  bypassing Auth Tab, and fixed diagnostic reason codes explain recognized
-  fallback cases without recording URLs or OAuth parameters. An API 36 emulator
-  with Chrome verifies the generated Auth Tab launch intent using a substituted
-  launcher, not a browser round trip. A real Auth Tab round trip and reporter
+  starts on a consent-allowed origin now establish an in-app flow before a
+  provider redirect, preserving cookies created by the start request. They
+  cannot safely be sent straight to Chrome, which has a separate cookie store.
+  Fixed diagnostic reason codes explain recognized fallback cases without
+  recording URLs or OAuth parameters. A real Auth Tab round trip and reporter
   acceptance remain unverified; the reported cause has not been established.
 - [~] Issue #184 follow-up: the app no longer remembers credentials entered in
   the HTTP Basic prompt or supplies previously remembered credentials. Legacy

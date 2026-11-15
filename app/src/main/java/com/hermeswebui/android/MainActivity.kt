@@ -1087,11 +1087,21 @@ class MainActivity : ComponentActivity() {
                     val handled = if (request.isForMainFrame && proxyAuthNavigation.allows(serverUrl, target)) {
                         // Consent-allowed callbacks bypass handleMainWebViewNavigation, but must still
                         // end the in-app OAuth flow so later external links are externalized.
-                        when {
-                            completeMainFrameOAuthIfCallback(target) -> false
-                            parseTrustedOAuthStart(target) != null -> handleMainWebViewNavigation(target)
-                            else -> false
+                        if (!completeMainFrameOAuthIfCallback(target)) {
+                            val flow = parseTrustedOAuthStart(target)
+                            if (flow != null) {
+                                // The start can establish the callback's state cookie; Chrome and
+                                // WebView do not share cookies, so it must run in the WebView.
+                                if (settingsRepository.isBrowserSignInEnabled()) {
+                                    DiagnosticsLogger.record(this@MainActivity, "browser_sign_in", mapOf(
+                                        "event" to "fallback",
+                                        "reason" to "trusted_start_requires_in_app"
+                                    ))
+                                }
+                                rememberActiveMainFrameOAuth(flow)
+                            }
                         }
+                        false
                     } else {
                         handleMainWebViewNavigation(target)
                     }

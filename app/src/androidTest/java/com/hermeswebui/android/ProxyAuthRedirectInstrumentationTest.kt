@@ -2358,16 +2358,16 @@ class ProxyAuthRedirectInstrumentationTest {
     fun proxyGatewayOidc_sameOriginAuthorizationRedirect_continuesInApp() {
         withConfiguredServer(gatewayOidc = true, gatewayAuthorizationRedirect = true) { server, repository ->
             repository.setBrowserSignInEnabled(true)
-            fun unsupportedCallbacks() = DiagnosticsLogger.recentText(context).lineSequence()
-                .count { it.contains("browser_sign_in") && it.contains("reason=unsupported_callback") }
-            val before = unsupportedCallbacks()
+            fun trustedStarts() = DiagnosticsLogger.recentText(context).lineSequence()
+                .count { it.contains("browser_sign_in") && it.contains("reason=trusted_start_requires_in_app") }
+            val before = trustedStarts()
             assertGatewayOidcSignInStaysInApp(server, repository)
-            assertThat(unsupportedCallbacks()).isGreaterThan(before)
+            assertThat(trustedStarts()).isGreaterThan(before)
         }
     }
 
     @Test
-    fun proxyGatewayOidc_sameOriginAuthorization_launchesAuthTabWhenBrowserSupportsIt() {
+    fun proxyGatewayOidc_sameOriginAuthorization_keepsStartInWebViewWhenBrowserSupportsAuthTab() {
         withConfiguredServer(gatewayOidc = true) { server, repository ->
             repository.setBrowserSignInEnabled(true)
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -2413,9 +2413,12 @@ class ProxyAuthRedirectInstrumentationTest {
                         override fun getMethod(): String = "GET"
                         override fun getRequestHeaders(): Map<String, String> = emptyMap()
                     }
-                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, request)).isTrue()
-                    assertThat(launched?.data.toString()).isEqualTo(url)
-                    assertThat(launched?.`package`).isEqualTo(browser)
+                    assertThat(webView.webViewClient.shouldOverrideUrlLoading(webView, request)).isFalse()
+                    assertThat(launched).isNull()
+                    val activeFlow = MainActivity::class.java.getDeclaredField("activeMainFrameOAuthFlow").apply {
+                        isAccessible = true
+                    }.get(activity)
+                    assertThat(activeFlow).isNotNull()
                 }
             }
         }
@@ -2631,7 +2634,8 @@ class ProxyAuthRedirectInstrumentationTest {
             evaluateWebView(
                 scenario,
                 "document.readyState === 'complete' && location.origin === ${JSONObject.quote(origin)} && " +
-                    "document.getElementById(${JSONObject.quote(id)}) !== null"
+                    "document.getElementById(${JSONObject.quote(id)}) !== null",
+                requireCallback = false
             ) == "true"
         }
     }
@@ -2962,12 +2966,12 @@ class ProxyAuthRedirectInstrumentationTest {
                         // cookie, sends the user to a provider on another origin, and rejects a callback
                         // that arrives without that cookie.
                         gatewayOidc && path == "/login" -> Triple("200 OK",
-                            "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\n", """
+                            if (gatewayAuthorizationRedirect) "" else "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\n", """
                             <title>Gateway sign-in</title>
                             <button id="provider" onclick="location.href='${if (gatewayAuthorizationRedirect) "$loginOrigin/gw/start" else "$providerOrigin/gw/authorize"}?response_type=code&client_id=gateway&redirect_uri=${java.net.URLEncoder.encode("$loginOrigin/gw/callback", "UTF-8")}&state=gw1'">Sign in with provider</button>
                         """.trimIndent())
                         gatewayOidc && path == "/gw/start" ->
-                            Triple("302 Found", "Location: $providerOrigin/gw/authorize\r\n", "")
+                            Triple("302 Found", "Set-Cookie: $GATEWAY_COOKIE; Path=/; HttpOnly; SameSite=Lax\r\nLocation: $providerOrigin/gw/authorize\r\n", "")
                         gatewayOidc && path == "/gw/authorize" -> Triple("200 OK", "", """
                             <title>Provider sign-in</title>
                             <button id="approve" onclick="location.href='$loginOrigin/gw/callback?code=abc&state=gw1'">Approve</button>

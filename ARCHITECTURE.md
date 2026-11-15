@@ -325,9 +325,9 @@ callback; externalizing it broke the gateway sign-in. Consent-allowed navigation
 skip `handleMainWebViewNavigation`, so `shouldOverrideUrlLoading` still runs the
 verified-callback check on them and ends the in-app OAuth flow; otherwise later
 non-allowlisted links would load in-app until the flow timeout. A recognized
-authorization start on an approved origin goes through the normal OAuth handler
-before the consent shortcut, so it can launch Auth Tab or establish an in-app
-flow before a redirect to the provider.
+authorization start on an approved origin establishes an in-app flow before
+the consent shortcut. Its response may set the callback's state cookie, so the
+start stays in WebView rather than launching it in Chrome's separate cookie store.
 
 ### Sign in with Chrome (Auth Tab)
 

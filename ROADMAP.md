@@ -34,6 +34,10 @@
   root while polling, without changing its deadline or required content.
   The explicit pre-launch regression fails with the original query and passes
   with the fix; the adjacent warm deep-link fixture uses the same query.
+  The next full CI run passed API 35 but exposed an API 36 notification
+  readback race: unchanged message text was visible before replaced actions.
+  Restart-retention readiness now waits for both text and removal of dead Reply
+  inputs, preserving the assertion rather than adding sleeps or retries.
 
 - [x] Notification and Settings polish shipped in v1.3.3: a silent minimized Settings notification
   remains available while Hermes is open or backgrounded, without an idle

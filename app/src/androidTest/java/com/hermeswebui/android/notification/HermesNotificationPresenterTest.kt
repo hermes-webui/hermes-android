@@ -128,7 +128,7 @@ class HermesNotificationPresenterTest {
         NotificationReplyActions.clear()
         HermesNotificationSlot.selectServer(context, configured)
         presenter.syncOngoingNotification(false)
-        awaitText("Retained answer")
+        awaitText("Retained answer", withoutReply = true)
         assertThat(manager.activeNotifications.single { it.id == HermesNotificationSlot.ID }
             .notification.actions.all { it.remoteInputs.isNullOrEmpty() }).isTrue()
     }
@@ -168,12 +168,13 @@ class HermesNotificationPresenterTest {
         awaitOngoingNotification(false)
     }
 
-    private fun awaitText(text: String) {
+    private fun awaitText(text: String, withoutReply: Boolean = false) {
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
             if (manager.activeNotifications.any {
                 it.id == HermesNotificationSlot.ID &&
-                    it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() == text
+                    it.notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() == text &&
+                    (!withoutReply || it.notification.actions.all { action -> action.remoteInputs.isNullOrEmpty() })
             }) return
             SystemClock.sleep(25)
         }

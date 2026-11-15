@@ -2578,6 +2578,7 @@ class ProxyAuthRedirectInstrumentationTest {
     @Test
     fun settingsDeepLink_onColdStart_opensNativeSettings() {
         withConfiguredServer { server, _ ->
+            assertThat(settingsNodes()).isEmpty()
             instrumentation.runOnMainSync {
                 CookieManager.getInstance().setCookie(server.baseUrl, "proxy_auth=ok; Path=/")
             }
@@ -2585,7 +2586,7 @@ class ProxyAuthRedirectInstrumentationTest {
                 .setClass(context, MainActivity::class.java)
             ActivityScenario.launch<MainActivity>(intent).use {
                 compose.waitUntil(20_000) {
-                    compose.onAllNodesWithText("Advanced connection options").fetchSemanticsNodes().isNotEmpty()
+                    settingsNodes().isNotEmpty()
                 }
             }
         }
@@ -2602,7 +2603,7 @@ class ProxyAuthRedirectInstrumentationTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 sendDeepLink(scenario, "hermes://app/settings")
                 compose.waitUntil(20_000) {
-                    compose.onAllNodesWithText("Advanced connection options").fetchSemanticsNodes().isNotEmpty()
+                    settingsNodes().isNotEmpty()
                 }
                 compose.onNodeWithText("Advanced connection options").performScrollTo().performClick()
                 compose.onNode(hasText("2 seconds between reconnect checks"))
@@ -2611,6 +2612,10 @@ class ProxyAuthRedirectInstrumentationTest {
             }
         }
     }
+
+    private fun settingsNodes() =
+        compose.onAllNodesWithText("Advanced connection options")
+            .fetchSemanticsNodes(atLeastOneRootRequired = false)
 
     private fun webViewSummary(scenario: ActivityScenario<MainActivity>): String {
         var summary = ""

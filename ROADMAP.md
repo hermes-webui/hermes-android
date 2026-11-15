@@ -28,6 +28,12 @@
   remain read-only until reopened, because idle-session eligibility is no longer
   proven. Final review and PR CI are pending; release, live authenticated
   conversation and physical/OEM acceptance are not claimed.
+  PR #209's first full API 35 run exposed a cold-start Settings fixture
+  querying semantics before any Compose root existed (228 total cases, one
+  failure, two skipped). The Settings readiness query now permits an empty
+  root while polling, without changing its deadline or required content.
+  The explicit pre-launch regression fails with the original query and passes
+  with the fix; the adjacent warm deep-link fixture uses the same query.
 
 - [x] Notification and Settings polish shipped in v1.3.3: a silent minimized Settings notification
   remains available while Hermes is open or backgrounded, without an idle

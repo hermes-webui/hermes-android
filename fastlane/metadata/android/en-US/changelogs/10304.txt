@@ -1,0 +1,1 @@
+Improve sign-in handling for approved gateways and add privacy-safe diagnostics for browser sign-in.
